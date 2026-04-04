@@ -53,6 +53,7 @@ class Instrument(Base):
     )
 
     snapshots: Mapped[list[HoldingSnapshot]] = relationship(back_populates="instrument")
+    orders: Mapped[list[Order]] = relationship(back_populates="instrument")
     group_links: Mapped[list[InstrumentGroupMember]] = relationship(
         back_populates="instrument", cascade="all, delete-orphan"
     )
@@ -82,6 +83,46 @@ class HoldingSnapshot(Base):
 
     batch: Mapped[ImportBatch] = relationship(back_populates="snapshots")
     instrument: Mapped[Instrument] = relationship(back_populates="snapshots")
+
+
+class OrderImportBatch(Base):
+    __tablename__ = "order_import_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
+    )
+    file_sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    filename: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    orders: Mapped[list["Order"]] = relationship(
+        back_populates="import_batch", cascade="all, delete-orphan"
+    )
+
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_import_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("order_import_batches.id", ondelete="CASCADE")
+    )
+    instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("instruments.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    security_name: Mapped[str] = mapped_column(String(1024), index=True)
+    order_date: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), index=True)
+    order_status: Mapped[str] = mapped_column(String(64))
+    account_name: Mapped[str] = mapped_column(String(512))
+    side: Mapped[str] = mapped_column(String(16))
+    quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cost_proceeds_gbp: Mapped[float | None] = mapped_column(Float, nullable=True)
+    country: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    is_drip: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    import_batch: Mapped[OrderImportBatch] = relationship(back_populates="orders")
+    instrument: Mapped[Instrument | None] = relationship(back_populates="orders")
 
 
 class InstrumentGroup(Base):

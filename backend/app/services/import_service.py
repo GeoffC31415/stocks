@@ -170,11 +170,15 @@ async def import_barclays_xls(
                 }
             )
 
+    from app.services.instrument_matcher import link_orders_to_instruments
+    orders_linked = await link_orders_to_instruments(session)
+
     summary: dict[str, Any] = {
         "new_instrument_ids": new_ids,
         "closed": closed,
         "changed": changed,
         "row_count": len(parsed_rows),
+        "orders_linked": orders_linked,
     }
     batch.diff_summary = summary
     await session.commit()

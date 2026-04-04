@@ -93,3 +93,80 @@ class InstrumentGroupOut(BaseModel):
 
 class GroupMembersBody(BaseModel):
     instrument_ids: list[int]
+
+
+class OrderImportBatchOut(BaseModel):
+    id: int
+    created_at: dt.datetime
+    filename: str | None
+    row_count: int
+
+
+class OrderOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    security_name: str
+    instrument_id: int | None = None
+    order_date: dt.datetime
+    order_status: str
+    account_name: str
+    side: str
+    quantity: float | None
+    cost_proceeds_gbp: float | None
+    country: str | None
+    is_drip: bool
+
+
+class AnnualDripPoint(BaseModel):
+    year: int
+    total_gbp: float
+
+
+class OrderAnalytics(BaseModel):
+    total_orders: int
+    total_buy_gbp: float
+    total_drip_gbp: float
+    total_sell_gbp: float
+    cash_deployed_gbp: float
+    net_cash_invested_gbp: float
+    drip_count: int
+    buy_count: int
+    sell_count: int
+    drip_threshold_gbp: float
+    annual_drip: list[AnnualDripPoint]
+    first_order_date: str | None = None
+
+
+class CashflowPoint(BaseModel):
+    month: str
+    monthly_discretionary: float
+    monthly_drip: float
+    monthly_sells: float
+    cumulative_net_deployed: float
+    cumulative_drip: float
+    cumulative_sells: float
+
+
+class PositionSummary(BaseModel):
+    security_name: str
+    instrument_id: int | None = None
+    total_buy_gbp: float
+    discretionary_buy_gbp: float
+    total_drip_gbp: float
+    total_sell_gbp: float
+    net_cost_gbp: float
+    order_count: int
+    drip_count: int
+    first_order_date: str
+    last_order_date: str
+    current_value_gbp: float | None
+    estimated_pnl_gbp: float | None
+    annualised_return_pct: float | None
+    realized_pnl_gbp: float | None
+    is_closed: bool
+
+
+class EstimatedTimeseriesPoint(BaseModel):
+    month: str
+    estimated_value_gbp: float

@@ -1,422 +1,278 @@
 import { useMemo, useState } from "react";
-import {
-  CartesianGrid,
-  Legend,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis
-} from "recharts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, formatSnapshotDateIso, snapshotDateIsoFromFile, type Group, type Instrument } from "./lib/api";
+import { useQuery } from "@tanstack/react-query";
+import { BarChart3, Loader2 } from "lucide-react";
+import { api } from "./lib/api";
+import { toGbp, DRIP_DEFAULT } from "./lib/formatters";
+import { Collapsible } from "./components/Collapsible";
+import { PortfolioCards, OrderAnalyticsCards } from "./components/SummaryCards";
+import { ChartPanel } from "./components/ChartPanel";
+import { ImportPanel } from "./components/ImportPanel";
+import { PerformersSection } from "./components/PerformersSection";
+import { HoldingsTable } from "./components/HoldingsTable";
+import { InstrumentDetail, InstrumentDetailEmpty } from "./components/InstrumentDetail";
+import { OrderHistorySection } from "./components/OrderHistorySection";
+import { PositionAnalysis } from "./components/PositionAnalysis";
+import { GroupsSection } from "./components/GroupsSection";
+import { ImportHistory } from "./components/ImportHistory";
 
-const toGbp = (value: number | null | undefined): string =>
-  new Intl.NumberFormat("en-GB", {
-    style: "currency",
-    currency: "GBP",
-    maximumFractionDigits: 2
-  }).format(value ?? 0);
-
-const pct = (value: number | null | undefined): string => `${(value ?? 0).toFixed(2)}%`;
-
-function App() {
-  const queryClient = useQueryClient();
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [asOfDate, setAsOfDate] = useState<string>("");
-  const [forceImport, setForceImport] = useState(false);
-  const [newGroupName, setNewGroupName] = useState("");
+export default function App() {
+  const [dripThreshold, setDripThreshold] = useState(DRIP_DEFAULT);
+  const [dripInput, setDripInput] = useState(String(DRIP_DEFAULT));
   const [selectedInstrument, setSelectedInstrument] = useState<number | null>(null);
 
-  const summaryQuery = useQuery({ queryKey: ["summary"], queryFn: api.getSummary });
-  const timeseriesQuery = useQuery({ queryKey: ["timeseries"], queryFn: api.getTimeseries });
-  const instrumentsQuery = useQuery({ queryKey: ["instruments"], queryFn: api.getInstruments });
-  const importsQuery = useQuery({ queryKey: ["imports"], queryFn: api.getImports });
-  const groupsQuery = useQuery({ queryKey: ["groups"], queryFn: api.getGroups });
+  const applyDrip = () => {
+    const parsed = parseFloat(dripInput);
+    if (!isNaN(parsed) && parsed >= 0) setDripThreshold(parsed);
+  };
 
-  const instrumentHistoryQuery = useQuery({
+  // ── Queries ──
+  const summaryQ = useQuery({ queryKey: ["summary"], queryFn: api.getSummary });
+  const timeseriesQ = useQuery({ queryKey: ["timeseries"], queryFn: api.getTimeseries });
+  const instrumentsQ = useQuery({ queryKey: ["instruments"], queryFn: api.getInstruments });
+  const importsQ = useQuery({ queryKey: ["imports"], queryFn: api.getImports });
+  const groupsQ = useQuery({ queryKey: ["groups"], queryFn: api.getGroups });
+  const analyticsQ = useQuery({
+    queryKey: ["order-analytics", dripThreshold],
+    queryFn: () => api.getOrderAnalytics(dripThreshold),
+  });
+  const ordersQ = useQuery({
+    queryKey: ["orders", dripThreshold],
+    queryFn: () => api.getOrders(dripThreshold),
+  });
+  const historyQ = useQuery({
     queryKey: ["instrument-history", selectedInstrument],
     queryFn: () => api.getInstrumentHistory(selectedInstrument as number),
-    enabled: selectedInstrument !== null
+    enabled: selectedInstrument !== null,
+  });
+  const cashflowQ = useQuery({
+    queryKey: ["cashflow", dripThreshold],
+    queryFn: () => api.getCashflowTimeseries(dripThreshold),
+  });
+  const estimatedQ = useQuery({
+    queryKey: ["estimated-timeseries"],
+    queryFn: api.getEstimatedTimeseries,
+    enabled: (analyticsQ.data?.total_orders ?? 0) > 0,
+  });
+  const positionsQ = useQuery({
+    queryKey: ["positions", dripThreshold],
+    queryFn: () => api.getOrderPositions(dripThreshold),
+  });
+  const instrOrdersQ = useQuery({
+    queryKey: ["instrument-orders", selectedInstrument, dripThreshold],
+    queryFn: () => api.getInstrumentOrders(selectedInstrument as number, dripThreshold),
+    enabled: selectedInstrument !== null,
   });
 
-  const importSnapshotPreview = useMemo(() => {
-    if (!selectedFile) return null;
-    if (asOfDate.trim()) {
-      return {
-        mode: "override" as const,
-        iso: asOfDate.trim(),
-        label: formatSnapshotDateIso(asOfDate.trim())
-      };
-    }
-    const iso = snapshotDateIsoFromFile(selectedFile);
-    return { mode: "file" as const, iso, label: formatSnapshotDateIso(iso) };
-  }, [selectedFile, asOfDate]);
+  // ── Derived data ──
+  const instruments = instrumentsQ.data ?? [];
+  const groups = groupsQ.data ?? [];
+  const analytics = analyticsQ.data;
+  const hasOrders = (analytics?.total_orders ?? 0) > 0;
 
-  const importMutation = useMutation({
-    mutationFn: () => api.importXls(selectedFile as File, asOfDate || null, forceImport),
-    onSuccess: () => {
-      setSelectedFile(null);
-      setAsOfDate("");
-      queryClient.invalidateQueries();
-    }
-  });
-
-  const createGroupMutation = useMutation({
-    mutationFn: () => api.createGroup(newGroupName.trim(), null),
-    onSuccess: () => {
-      setNewGroupName("");
-      queryClient.invalidateQueries({ queryKey: ["groups"] });
-    }
-  });
-
-  const updateGroupMembers = useMutation({
-    mutationFn: ({ group, members }: { group: Group; members: number[] }) =>
-      api.replaceGroupMembers(group.id, members),
-    onSuccess: () => queryClient.invalidateQueries()
-  });
-
-  const loading =
-    summaryQuery.isLoading ||
-    timeseriesQuery.isLoading ||
-    instrumentsQuery.isLoading ||
-    groupsQuery.isLoading ||
-    importsQuery.isLoading;
-
-  const instruments = instrumentsQuery.data ?? [];
-  const groups = groupsQuery.data ?? [];
   const byGroup = useMemo(() => {
-    const grouped: Record<number, Instrument[]> = {};
+    const grouped: Record<number, typeof instruments> = {};
     for (const group of groups) {
-      grouped[group.id] = instruments.filter((instrument) => instrument.group_ids.includes(group.id));
+      grouped[group.id] = instruments.filter((i) => i.group_ids.includes(group.id));
     }
     return grouped;
   }, [groups, instruments]);
 
+  const selectedInstrumentName = useMemo(
+    () => instruments.find((i) => i.id === selectedInstrument)?.security_name ?? null,
+    [instruments, selectedInstrument],
+  );
+
+  const effectiveReturn = useMemo(() => {
+    if (!analytics || !summaryQ.data) return null;
+    return summaryQ.data.total_value_gbp + analytics.total_sell_gbp - analytics.cash_deployed_gbp;
+  }, [analytics, summaryQ.data]);
+
+  const effectiveReturnPct = useMemo(() => {
+    if (!analytics || analytics.cash_deployed_gbp === 0 || effectiveReturn === null) return null;
+    return (effectiveReturn / analytics.cash_deployed_gbp) * 100;
+  }, [analytics, effectiveReturn]);
+
+  const annualisedReturnPct = useMemo(() => {
+    if (!analytics || !summaryQ.data || analytics.cash_deployed_gbp <= 0 || !analytics.first_order_date) return null;
+    const endValue = summaryQ.data.total_value_gbp + analytics.total_sell_gbp;
+    const startValue = analytics.cash_deployed_gbp;
+    if (endValue <= 0) return null;
+    const first = new Date(analytics.first_order_date);
+    const now = new Date();
+    const years = (now.getTime() - first.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+    if (years < 0.25) return null;
+    return ((endValue / startValue) ** (1.0 / years) - 1.0) * 100.0;
+  }, [analytics, summaryQ.data]);
+
+  const loading =
+    summaryQ.isLoading || timeseriesQ.isLoading || instrumentsQ.isLoading ||
+    groupsQ.isLoading || importsQ.isLoading;
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center">
+        <div className="flex items-center gap-3 text-slate-400">
+          <Loader2 size={24} className="animate-spin" />
+          <span className="text-lg">Loading portfolio data…</span>
+        </div>
+      </main>
+    );
+  }
+
   return (
-    <main className="mx-auto max-w-7xl px-6 py-8">
+    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      {/* ── Header ── */}
       <header className="mb-8">
-        <h1 className="text-3xl font-bold text-white">Portfolio tracker</h1>
-        <p className="mt-2 text-slate-300">
-          Barclays XLS snapshots with trend charts, grouped holdings, and performance alerts.
-        </p>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500 to-blue-600 shadow-lg shadow-cyan-500/20">
+            <BarChart3 size={20} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-white">
+              Portfolio tracker
+            </h1>
+            <p className="text-xs text-slate-500">
+              Barclays XLS snapshots · order history · DRIP-adjusted returns
+            </p>
+          </div>
+        </div>
       </header>
 
-      {loading ? (
-        <section className="glass rounded-xl p-6">Loading data...</section>
-      ) : (
-        <>
-          <section className="grid gap-4 md:grid-cols-3">
-            <Card label="Portfolio value" value={toGbp(summaryQuery.data?.total_value_gbp)} />
-            <Card label="Book cost" value={toGbp(summaryQuery.data?.total_book_cost_gbp)} />
-            <Card
-              label="Portfolio P&L"
-              value={toGbp(summaryQuery.data?.total_pnl_gbp)}
-              valueClass={(summaryQuery.data?.total_pnl_gbp ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"}
+      <div className="space-y-5">
+        {/* ── Summary cards (always visible, no collapsible) ── */}
+        {summaryQ.data && <PortfolioCards summary={summaryQ.data} />}
+        {hasOrders && analytics && (
+          <OrderAnalyticsCards
+            analytics={analytics}
+            dripThreshold={dripThreshold}
+            effectiveReturn={effectiveReturn}
+            effectiveReturnPct={effectiveReturnPct}
+            annualisedReturnPct={annualisedReturnPct}
+          />
+        )}
+
+        {/* ── Charts + Import ── */}
+        <section className="grid gap-5 lg:grid-cols-5">
+          <div className="lg:col-span-3">
+            <ChartPanel
+              cashflow={cashflowQ.data ?? []}
+              timeseries={timeseriesQ.data ?? []}
+              estimatedTimeseries={estimatedQ.data ?? []}
+              hasOrders={hasOrders}
             />
-          </section>
+          </div>
+          <div className="lg:col-span-2">
+            <ImportPanel
+              dripThreshold={dripThreshold}
+              dripInput={dripInput}
+              setDripInput={setDripInput}
+              onApplyDrip={applyDrip}
+            />
+          </div>
+        </section>
 
-          <section className="mt-6 grid gap-6 lg:grid-cols-5">
-            <div className="glass rounded-xl p-4 lg:col-span-3">
-              <h2 className="text-lg font-semibold text-white">Portfolio value over time</h2>
-              <p className="mb-3 text-xs text-slate-500">Horizontal axis: snapshot date from each import (see import panel).</p>
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={timeseriesQuery.data ?? []}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="as_of_date" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip />
-                    <Legend />
-                    <Line type="monotone" dataKey="total_value_gbp" stroke="#22d3ee" name="Value (GBP)" />
-                    <Line type="monotone" dataKey="total_book_cost_gbp" stroke="#a78bfa" name="Book Cost (GBP)" />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+        {/* ── Performers ── */}
+        <Collapsible
+          title="Performance leaders"
+          subtitle="Top and bottom movers by percentage change"
+        >
+          <PerformersSection
+            worst={summaryQ.data?.worst_pct ?? []}
+            best={summaryQ.data?.best_pct ?? []}
+            onSelect={setSelectedInstrument}
+          />
+        </Collapsible>
 
-            <div className="glass rounded-xl p-4 lg:col-span-2">
-              <h2 className="mb-2 text-lg font-semibold text-white">Import Barclays file</h2>
-              <p className="mb-3 text-xs leading-relaxed text-slate-400">
-                Each upload is one portfolio snapshot. The snapshot date is where this import appears on the chart
-                and in per-instrument history.
-              </p>
-              <div className="space-y-3">
-                <input
-                  type="file"
-                  accept=".xls"
-                  onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
-                  className="w-full rounded-md border border-slate-600 bg-slate-900 p-2"
-                />
-                <div>
-                  <label htmlFor="snapshot-date-override" className="mb-1 block text-sm font-medium text-slate-200">
-                    Snapshot date override
-                  </label>
-                  <input
-                    id="snapshot-date-override"
-                    type="date"
-                    value={asOfDate}
-                    onChange={(event) => setAsOfDate(event.target.value)}
-                    className="w-full rounded-md border border-slate-600 bg-slate-900 p-2"
-                  />
-                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-                    Leave empty to use the file&apos;s <span className="text-slate-400">last modified</span> date in
-                    your local timezone.
-                  </p>
-                </div>
-                {importSnapshotPreview ? (
-                  <div className="rounded-lg border border-slate-600/80 bg-slate-900/70 px-3 py-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                      This import will be dated
-                    </p>
-                    <p className="mt-1 text-base font-semibold text-cyan-200">{importSnapshotPreview.label}</p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {importSnapshotPreview.mode === "override"
-                        ? "You set this manually; it overrides the file timestamp."
-                        : "Derived from the file’s last-modified metadata on your device."}
-                    </p>
-                  </div>
-                ) : null}
-                <label className="flex items-center gap-2 text-sm text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={forceImport}
-                    onChange={(event) => setForceImport(event.target.checked)}
-                  />
-                  Force import even if file hash already exists
-                </label>
-                <button
-                  type="button"
-                  onClick={() => importMutation.mutate()}
-                  disabled={!selectedFile || importMutation.isPending}
-                  className="w-full rounded-md bg-cyan-500 px-3 py-2 font-medium text-slate-950 disabled:cursor-not-allowed disabled:bg-slate-600"
-                >
-                  {importMutation.isPending ? "Importing..." : "Import snapshot"}
-                </button>
-                {importMutation.isError ? (
-                  <p className="text-sm text-rose-300">{(importMutation.error as Error).message}</p>
-                ) : null}
-                {importMutation.isSuccess ? <p className="text-sm text-emerald-300">Import complete.</p> : null}
-              </div>
+        {/* ── Holdings + Instrument detail ── */}
+        <Collapsible
+          title="Holdings"
+          subtitle="All instruments with current value and P&L"
+          badge={
+            <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-medium text-slate-300">
+              {instruments.length}
+            </span>
+          }
+        >
+          <div className="grid gap-5 lg:grid-cols-5">
+            <div className="lg:col-span-3">
+              <HoldingsTable
+                instruments={instruments}
+                selectedId={selectedInstrument}
+                onSelect={setSelectedInstrument}
+              />
             </div>
-          </section>
-
-          <section className="mt-6 grid gap-6 lg:grid-cols-2">
-            <div className="glass rounded-xl p-4">
-              <h2 className="mb-3 text-lg font-semibold text-white">Poor performers</h2>
-              <ul className="space-y-2">
-                {(summaryQuery.data?.worst_pct ?? []).map((row) => (
-                  <li key={row.id} className="flex items-center justify-between rounded-md bg-slate-900/60 px-3 py-2">
-                    <span className="mr-3 truncate text-sm">{row.security_name}</span>
-                    <span className="text-rose-300">{pct(row.latest_pct_change)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="glass rounded-xl p-4">
-              <h2 className="mb-3 text-lg font-semibold text-white">Strong performers</h2>
-              <ul className="space-y-2">
-                {(summaryQuery.data?.best_pct ?? []).map((row) => (
-                  <li key={row.id} className="flex items-center justify-between rounded-md bg-slate-900/60 px-3 py-2">
-                    <span className="mr-3 truncate text-sm">{row.security_name}</span>
-                    <span className="text-emerald-300">{pct(row.latest_pct_change)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
-
-          <section className="mt-6 grid gap-6 lg:grid-cols-5">
-            <div className="glass overflow-hidden rounded-xl lg:col-span-3">
-              <div className="border-b border-slate-700 px-4 py-3">
-                <h2 className="text-lg font-semibold text-white">Holdings</h2>
-              </div>
-              <div className="max-h-[420px] overflow-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-slate-900">
-                    <tr className="text-left text-slate-300">
-                      <th className="px-4 py-3">Instrument</th>
-                      <th className="px-4 py-3">Value</th>
-                      <th className="px-4 py-3">P&L</th>
-                      <th className="px-4 py-3">% Chg</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {instruments.map((instrument) => (
-                      <tr
-                        key={instrument.id}
-                        className="cursor-pointer border-t border-slate-800 hover:bg-slate-800/40"
-                        onClick={() => setSelectedInstrument(instrument.id)}
-                      >
-                        <td className="px-4 py-2">
-                          <div className="font-medium text-white">{instrument.identifier}</div>
-                          <div className="text-xs text-slate-400">{instrument.security_name}</div>
-                        </td>
-                        <td className="px-4 py-2">{toGbp(instrument.latest_value_gbp)}</td>
-                        <td
-                          className={`px-4 py-2 ${
-                            (instrument.pnl_gbp ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"
-                          }`}
-                        >
-                          {toGbp(instrument.pnl_gbp)}
-                        </td>
-                        <td
-                          className={`px-4 py-2 ${
-                            (instrument.latest_pct_change ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300"
-                          }`}
-                        >
-                          {pct(instrument.latest_pct_change)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="glass rounded-xl p-4 lg:col-span-2">
-              <h2 className="mb-3 text-lg font-semibold text-white">Instrument history</h2>
+            <div className="lg:col-span-2">
               {selectedInstrument === null ? (
-                <p className="text-slate-300">Select an instrument in the table to show history.</p>
+                <InstrumentDetailEmpty />
               ) : (
-                <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={instrumentHistoryQuery.data ?? []}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                      <XAxis dataKey="as_of_date" stroke="#94a3b8" />
-                      <YAxis stroke="#94a3b8" />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="value_gbp" stroke="#22d3ee" name="Value (GBP)" />
-                      <Line type="monotone" dataKey="book_cost_gbp" stroke="#a78bfa" name="Book (GBP)" />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
+                <InstrumentDetail
+                  name={selectedInstrumentName}
+                  history={historyQ.data ?? []}
+                  historyLoading={historyQ.isLoading}
+                  orders={instrOrdersQ.data ?? []}
+                  ordersLoading={instrOrdersQ.isLoading}
+                  hasOrders={hasOrders}
+                />
               )}
             </div>
-          </section>
+          </div>
+        </Collapsible>
 
-          <section className="mt-6 grid gap-6 lg:grid-cols-3">
-            <div className="glass rounded-xl p-4 lg:col-span-2">
-              <h2 className="mb-3 text-lg font-semibold text-white">Groups</h2>
-              <div className="mb-4 flex gap-2">
-                <input
-                  value={newGroupName}
-                  onChange={(event) => setNewGroupName(event.target.value)}
-                  placeholder="New group name"
-                  className="flex-1 rounded-md border border-slate-600 bg-slate-900 p-2"
-                />
-                <button
-                  type="button"
-                  className="rounded-md bg-violet-500 px-3 py-2 font-medium text-white disabled:cursor-not-allowed disabled:bg-slate-600"
-                  onClick={() => createGroupMutation.mutate()}
-                  disabled={!newGroupName.trim() || createGroupMutation.isPending}
-                >
-                  Add group
-                </button>
-              </div>
-              <div className="space-y-3">
-                {groups.map((group) => (
-                  <GroupEditor
-                    key={group.id}
-                    group={group}
-                    instruments={instruments}
-                    current={byGroup[group.id] ?? []}
-                    onSave={(members) => updateGroupMembers.mutate({ group, members })}
-                  />
-                ))}
-              </div>
-            </div>
+        {/* ── Order history (only when orders exist) ── */}
+        {hasOrders && analytics && (
+          <Collapsible
+            title="Order history & DRIP"
+            subtitle="Complete order log with DRIP income analysis"
+            badge={
+              <span className="rounded-full bg-amber-900/50 px-2.5 py-0.5 text-xs font-medium text-amber-300">
+                {analytics.total_orders} orders
+              </span>
+            }
+          >
+            <OrderHistorySection
+              orders={ordersQ.data ?? []}
+              analytics={analytics}
+              dripThreshold={dripThreshold}
+            />
+          </Collapsible>
+        )}
 
-            <div className="glass rounded-xl p-4">
-              <h2 className="mb-3 text-lg font-semibold text-white">Import history</h2>
-              <ul className="space-y-2">
-                {(importsQuery.data ?? []).slice(0, 12).map((entry) => (
-                  <li key={entry.id} className="rounded-md bg-slate-900/60 p-3">
-                    <div className="text-xs text-slate-400">
-                      Batch #{entry.id} · {entry.as_of_date}
-                    </div>
-                    <div className="truncate text-sm">{entry.filename ?? "unknown.xls"}</div>
-                    <div className="text-xs text-slate-300">
-                      Rows: {entry.diff_summary?.row_count ?? 0}, New:{" "}
-                      {entry.diff_summary?.new_instrument_ids?.length ?? 0}, Closed:{" "}
-                      {entry.diff_summary?.closed?.length ?? 0}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
-        </>
-      )}
+        {/* ── Position analysis ── */}
+        {hasOrders && (
+          <Collapsible
+            title="Position analysis"
+            subtitle="Cost basis & returns derived from order history"
+          >
+            <PositionAnalysis positions={positionsQ.data ?? []} />
+          </Collapsible>
+        )}
+
+        {/* ── Groups + Import history ── */}
+        <section className="grid gap-5 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            <Collapsible
+              title="Groups"
+              subtitle="Organise instruments into custom groups"
+              defaultOpen={false}
+            >
+              <GroupsSection
+                groups={groups}
+                instruments={instruments}
+                byGroup={byGroup}
+              />
+            </Collapsible>
+          </div>
+          <div>
+            <Collapsible
+              title="Import history"
+              subtitle="Recent portfolio snapshot imports"
+              defaultOpen={false}
+            >
+              <ImportHistory imports={importsQ.data ?? []} />
+            </Collapsible>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
-
-function Card({
-  label,
-  value,
-  valueClass
-}: {
-  label: string;
-  value: string;
-  valueClass?: string;
-}) {
-  return (
-    <article className="glass rounded-xl p-4">
-      <p className="text-sm text-slate-300">{label}</p>
-      <p className={`mt-2 text-2xl font-semibold text-white ${valueClass ?? ""}`}>{value}</p>
-    </article>
-  );
-}
-
-function GroupEditor({
-  group,
-  instruments,
-  current,
-  onSave
-}: {
-  group: Group;
-  instruments: Instrument[];
-  current: Instrument[];
-  onSave: (members: number[]) => void;
-}) {
-  const [selected, setSelected] = useState<number[]>(current.map((instrument) => instrument.id));
-
-  return (
-    <div className="rounded-md border border-slate-700 p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="font-medium text-white">
-          {group.name} · {toGbp(group.total_value_gbp)}
-        </h3>
-        <button
-          type="button"
-          className="rounded bg-cyan-600 px-2 py-1 text-xs font-medium"
-          onClick={() => onSave(selected)}
-        >
-          Save members
-        </button>
-      </div>
-      <div className="max-h-40 overflow-auto rounded bg-slate-900/60 p-2">
-        {instruments.filter((instrument) => !instrument.is_cash).map((instrument) => (
-          <label key={instrument.id} className="flex items-center gap-2 py-1 text-sm">
-            <input
-              type="checkbox"
-              checked={selected.includes(instrument.id)}
-              onChange={(event) =>
-                setSelected((previous) =>
-                  event.target.checked
-                    ? [...previous, instrument.id]
-                    : previous.filter((id) => id !== instrument.id)
-                )
-              }
-            />
-            <span className="truncate">{instrument.identifier}</span>
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-export default App;

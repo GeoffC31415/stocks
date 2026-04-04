@@ -54,6 +54,74 @@ export type InstrumentHistoryPoint = {
   pct_change: number | null;
 };
 
+export type Order = {
+  id: number;
+  security_name: string;
+  order_date: string;
+  order_status: string;
+  account_name: string;
+  side: string;
+  quantity: number | null;
+  cost_proceeds_gbp: number | null;
+  country: string | null;
+  is_drip: boolean;
+};
+
+export type OrderAnalytics = {
+  total_orders: number;
+  total_buy_gbp: number;
+  total_drip_gbp: number;
+  total_sell_gbp: number;
+  cash_deployed_gbp: number;
+  net_cash_invested_gbp: number;
+  drip_count: number;
+  buy_count: number;
+  sell_count: number;
+  drip_threshold_gbp: number;
+  annual_drip: Array<{ year: number; total_gbp: number }>;
+  first_order_date: string | null;
+};
+
+export type OrderImportBatchOut = {
+  id: number;
+  created_at: string;
+  filename: string | null;
+  row_count: number;
+};
+
+export type EstimatedTimeseriesPoint = {
+  month: string;
+  estimated_value_gbp: number;
+};
+
+export type CashflowPoint = {
+  month: string;
+  monthly_discretionary: number;
+  monthly_drip: number;
+  monthly_sells: number;
+  cumulative_net_deployed: number;
+  cumulative_drip: number;
+  cumulative_sells: number;
+};
+
+export type PositionSummary = {
+  security_name: string;
+  total_buy_gbp: number;
+  discretionary_buy_gbp: number;
+  total_drip_gbp: number;
+  total_sell_gbp: number;
+  net_cost_gbp: number;
+  order_count: number;
+  drip_count: number;
+  first_order_date: string;
+  last_order_date: string;
+  current_value_gbp: number | null;
+  estimated_pnl_gbp: number | null;
+  annualised_return_pct: number | null;
+  realized_pnl_gbp: number | null;
+  is_closed: boolean;
+};
+
 /**
  * Local calendar date derived from the file's last-modified instant (same value sent to the API as
  * file_metadata_date). Browsers do not expose true file creation time.
@@ -125,5 +193,27 @@ export const api = {
       method: "POST",
       body: formData
     });
-  }
+  },
+  importOrderXls: async (file: File, dripThreshold: number, force: boolean) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("drip_threshold", String(dripThreshold));
+    formData.append("force", String(force));
+    return requestJson<OrderImportBatchOut>("/api/orders/import", {
+      method: "POST",
+      body: formData
+    });
+  },
+  getOrderAnalytics: (dripThreshold: number) =>
+    requestJson<OrderAnalytics>(`/api/orders/analytics?drip_threshold=${dripThreshold}`),
+  getOrders: (dripThreshold: number) =>
+    requestJson<Order[]>(`/api/orders?drip_threshold=${dripThreshold}&limit=500`),
+  getInstrumentOrders: (instrumentId: number, dripThreshold: number) =>
+    requestJson<Order[]>(`/api/instruments/${instrumentId}/orders?drip_threshold=${dripThreshold}`),
+  getCashflowTimeseries: (dripThreshold: number) =>
+    requestJson<CashflowPoint[]>(`/api/orders/cashflow-timeseries?drip_threshold=${dripThreshold}`),
+  getOrderPositions: (dripThreshold: number) =>
+    requestJson<PositionSummary[]>(`/api/orders/positions?drip_threshold=${dripThreshold}`),
+  getEstimatedTimeseries: () =>
+    requestJson<EstimatedTimeseriesPoint[]>("/api/orders/estimated-timeseries")
 };
