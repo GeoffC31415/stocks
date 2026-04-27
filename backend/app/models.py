@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -103,6 +104,7 @@ class OrderImportBatch(Base):
 
 class Order(Base):
     __tablename__ = "orders"
+    __table_args__ = (Index("ux_orders_order_fingerprint", "order_fingerprint", unique=True),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     order_import_batch_id: Mapped[int] = mapped_column(
@@ -120,6 +122,7 @@ class Order(Base):
     cost_proceeds_gbp: Mapped[float | None] = mapped_column(Float, nullable=True)
     country: Mapped[str | None] = mapped_column(String(8), nullable=True)
     is_drip: Mapped[bool] = mapped_column(Boolean, default=False)
+    order_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
 
     import_batch: Mapped[OrderImportBatch] = relationship(back_populates="orders")
     instrument: Mapped[Instrument | None] = relationship(back_populates="orders")

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import HoldingSnapshot, Instrument, Order, OrderImportBatch
 from app.services.barclays_order_parser import ParsedOrderRow, parse_barclays_order_xls_bytes
 from app.services.instrument_matcher import link_orders_to_instruments
+from app.services.order_fingerprint import order_fingerprint
 
 
 class DuplicateOrderImportError(Exception):
@@ -51,16 +52,33 @@ async def import_order_history(
         file_bytes, drip_threshold_gbp=drip_threshold_gbp
     )
 
+    existing = await session.execute(select(Order.order_fingerprint))
+    seen_fingerprints = {fingerprint for fingerprint in existing.scalars().all() if fingerprint}
+
     batch = OrderImportBatch(
         file_sha256=sha,
         filename=filename,
-        row_count=len(parsed),
+        row_count=0,
     )
     session.add(batch)
     await session.flush()
 
     new_orders: list[Order] = []
     for row in parsed:
+        fingerprint = order_fingerprint(
+            security_name=row.security_name,
+            order_date=row.order_date,
+            order_status=row.order_status,
+            account_name=row.account_name,
+            side=row.side,
+            quantity=row.quantity,
+            cost_proceeds_gbp=row.cost_proceeds_gbp,
+            country=row.country,
+        )
+        if fingerprint in seen_fingerprints:
+            continue
+
+        seen_fingerprints.add(fingerprint)
         order = Order(
             order_import_batch_id=batch.id,
             security_name=row.security_name,
@@ -72,16 +90,18 @@ async def import_order_history(
             cost_proceeds_gbp=row.cost_proceeds_gbp,
             country=row.country,
             is_drip=row.is_drip,
+            order_fingerprint=fingerprint,
         )
         session.add(order)
         new_orders.append(order)
 
+    batch.row_count = len(new_orders)
     await session.flush()
     await link_orders_to_instruments(session, new_orders)
 
     await session.commit()
     await session.refresh(batch)
-    return batch, len(parsed)
+    return batch, len(new_orders)
 
 
 async def get_order_analytics(
