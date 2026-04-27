@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
   Legend,
   Line,
-  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -28,6 +30,42 @@ const TABS: { key: ChartTab; label: string }[] = [
 
 const kFormatter = (v: number) => `£${(v / 1000).toFixed(0)}k`;
 
+function DarkTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    name?: string;
+    value?: number;
+    color?: string;
+    dataKey?: string;
+  }>;
+  label?: string | number;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-white/[0.08] bg-aurora-base/95 px-3 py-2 text-xs shadow-glass backdrop-blur-md">
+      <p className="font-semibold text-slate-300">{label}</p>
+      <div className="mt-1.5 space-y-1">
+        {payload.map((p) => (
+          <div key={p.dataKey} className="flex items-center gap-2">
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ background: p.color }}
+            />
+            <span className="text-slate-400">{p.name}</span>
+            <span className="tabular ml-auto font-semibold text-white">
+              {p.value != null ? toGbp(p.value as number) : "—"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function ChartPanel({
   cashflow,
   timeseries,
@@ -51,103 +89,245 @@ export function ChartPanel({
     }));
   }, [cashflow, estimatedTimeseries]);
 
-  const activeTab = hasOrders ? tab : "value";
+  const activeTab: ChartTab = hasOrders ? tab : "value";
+
+  const axisStyle = { fontSize: 10, fill: "#64748b" };
 
   return (
-    <div className="glass rounded-2xl p-5">
-      {hasOrders && (
-        <div className="mb-4 flex gap-1 rounded-lg border border-slate-700 bg-slate-900/60 p-1 w-fit">
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => setTab(t.key)}
-              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                activeTab === t.key
-                  ? "bg-cyan-600 text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+    <div className="glass relative overflow-hidden rounded-2xl p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          {activeTab === "estimated" && (
+            <>
+              <h2 className="text-base font-semibold text-white">
+                Portfolio value · historical estimate
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Order-derived quantities × current prices. Gap above the
+                deployed line is unrealised gain.
+              </p>
+            </>
+          )}
+          {activeTab === "deployment" && (
+            <>
+              <h2 className="text-base font-semibold text-white">
+                Capital deployment
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Cumulative net cash invested, DRIP reinvested, sells over time.
+              </p>
+            </>
+          )}
+          {activeTab === "value" && (
+            <>
+              <h2 className="text-base font-semibold text-white">
+                Snapshot history
+              </h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Actual values from each imported portfolio snapshot.
+              </p>
+            </>
+          )}
         </div>
-      )}
 
-      {activeTab === "estimated" && (
-        <>
-          <h2 className="text-base font-semibold text-white">
-            Portfolio value — historical estimate
-          </h2>
-          <p className="mb-3 mt-1 text-xs text-slate-500">
-            Order-derived quantities × current prices. The gap above the
-            deployed line is unrealised gain.
-          </p>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={mergedEstimated}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="month" stroke="#94a3b8" tick={{ fontSize: 10 }} interval={11} />
-                <YAxis stroke="#94a3b8" tick={{ fontSize: 11 }} tickFormatter={kFormatter} />
-                <Tooltip formatter={(v) => toGbp(v as number)} labelFormatter={(l) => `Month: ${l}`} />
-                <Legend />
-                <Line type="monotone" dataKey="estimated_value_gbp" stroke="#22d3ee" name="Est. value (current prices)" dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="cumulative_net_deployed" stroke="#a78bfa" name="Net cash deployed" dot={false} strokeDasharray="4 2" />
-              </LineChart>
-            </ResponsiveContainer>
+        {hasOrders && (
+          <div className="relative flex shrink-0 gap-1 rounded-full border border-white/[0.06] bg-aurora-base/60 p-1">
+            {TABS.map((t) => {
+              const isActive = activeTab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setTab(t.key)}
+                  className={`relative rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                    isActive ? "text-white" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  {isActive && (
+                    <motion.span
+                      layoutId="chart-tab-pill"
+                      className="absolute inset-0 -z-10 rounded-full bg-aurora-accent shadow-glow-accent"
+                      transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                    />
+                  )}
+                  <span className="relative">{t.label}</span>
+                </button>
+              );
+            })}
           </div>
-        </>
-      )}
+        )}
+      </div>
 
-      {activeTab === "deployment" && (
-        <>
-          <h2 className="text-base font-semibold text-white">
-            Capital deployment history
-          </h2>
-          <p className="mb-3 mt-1 text-xs text-slate-500">
-            Cumulative net cash invested (discretionary buys − sell proceeds) and
-            DRIP reinvested over time.
-          </p>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={cashflow}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="month" stroke="#94a3b8" tick={{ fontSize: 10 }} interval={11} />
-                <YAxis stroke="#94a3b8" tick={{ fontSize: 11 }} tickFormatter={kFormatter} />
-                <Tooltip formatter={(v, name) => [toGbp(v as number), name]} labelFormatter={(l) => `Month: ${l}`} />
-                <Legend />
-                <Line type="monotone" dataKey="cumulative_net_deployed" stroke="#22d3ee" name="Net deployed" dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="cumulative_drip" stroke="#f59e0b" name="DRIP cumulative" dot={false} strokeDasharray="4 2" />
-                <Line type="monotone" dataKey="cumulative_sells" stroke="#f43f5e" name="Cumulative sells" dot={false} strokeDasharray="4 2" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </>
-      )}
-
-      {activeTab === "value" && (
-        <>
-          <h2 className="text-base font-semibold text-white">
-            Portfolio value — snapshot history
-          </h2>
-          <p className="mb-3 mt-1 text-xs text-slate-500">
-            Actual values from each imported portfolio snapshot.
-          </p>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={timeseries}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="as_of_date" stroke="#94a3b8" tick={{ fontSize: 11 }} />
-                <YAxis stroke="#94a3b8" tick={{ fontSize: 11 }} tickFormatter={kFormatter} />
-                <Tooltip formatter={(v) => toGbp(v as number)} />
-                <Legend />
-                <Line type="monotone" dataKey="total_value_gbp" stroke="#22d3ee" name="Value" dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="total_book_cost_gbp" stroke="#a78bfa" name="Book cost" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </>
-      )}
+      <div className="mt-4 h-72">
+        <ResponsiveContainer width="100%" height="100%">
+          {activeTab === "estimated" ? (
+            <AreaChart data={mergedEstimated}>
+              <defs>
+                <linearGradient id="estVal" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.5} />
+                  <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="estDep" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#a78bfa" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+              <XAxis
+                dataKey="month"
+                stroke="#64748b"
+                tick={axisStyle}
+                interval={11}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                stroke="#64748b"
+                tick={{ ...axisStyle, fontSize: 11 }}
+                tickFormatter={kFormatter}
+                tickLine={false}
+                axisLine={false}
+              />
+              <Tooltip
+                content={<DarkTooltip />}
+                cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: 11, color: "#94a3b8" }}
+                iconType="circle"
+              />
+              <Area
+                type="monotone"
+                dataKey="estimated_value_gbp"
+                stroke="#22d3ee"
+                strokeWidth={2}
+                fill="url(#estVal)"
+                name="Est. value (current prices)"
+              />
+              <Area
+                type="monotone"
+                dataKey="cumulative_net_deployed"
+                stroke="#a78bfa"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                fill="url(#estDep)"
+                name="Net cash deployed"
+              />
+            </AreaChart>
+          ) : activeTab === "deployment" ? (
+            <AreaChart data={cashflow}>
+              <defs>
+                <linearGradient id="depNet" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.45} />
+                  <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+              <XAxis
+                dataKey="month"
+                stroke="#64748b"
+                tick={axisStyle}
+                interval={11}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                stroke="#64748b"
+                tick={{ ...axisStyle, fontSize: 11 }}
+                tickFormatter={kFormatter}
+                tickLine={false}
+                axisLine={false}
+              />
+              <Tooltip
+                content={<DarkTooltip />}
+                cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: 11, color: "#94a3b8" }}
+                iconType="circle"
+              />
+              <Area
+                type="monotone"
+                dataKey="cumulative_net_deployed"
+                stroke="#22d3ee"
+                strokeWidth={2}
+                fill="url(#depNet)"
+                name="Net deployed"
+              />
+              <Line
+                type="monotone"
+                dataKey="cumulative_drip"
+                stroke="#fbbf24"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                dot={false}
+                name="DRIP cumulative"
+              />
+              <Line
+                type="monotone"
+                dataKey="cumulative_sells"
+                stroke="#f87171"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                dot={false}
+                name="Cumulative sells"
+              />
+            </AreaChart>
+          ) : (
+            <AreaChart data={timeseries}>
+              <defs>
+                <linearGradient id="snapVal" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.5} />
+                  <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="snapBook" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.3} />
+                  <stop offset="100%" stopColor="#a78bfa" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+              <XAxis
+                dataKey="as_of_date"
+                stroke="#64748b"
+                tick={{ ...axisStyle, fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                stroke="#64748b"
+                tick={{ ...axisStyle, fontSize: 11 }}
+                tickFormatter={kFormatter}
+                tickLine={false}
+                axisLine={false}
+              />
+              <Tooltip
+                content={<DarkTooltip />}
+                cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: 11, color: "#94a3b8" }}
+                iconType="circle"
+              />
+              <Area
+                type="monotone"
+                dataKey="total_value_gbp"
+                stroke="#22d3ee"
+                strokeWidth={2}
+                fill="url(#snapVal)"
+                name="Value"
+              />
+              <Area
+                type="monotone"
+                dataKey="total_book_cost_gbp"
+                stroke="#a78bfa"
+                strokeWidth={1.5}
+                fill="url(#snapBook)"
+                name="Book cost"
+              />
+            </AreaChart>
+          )}
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }

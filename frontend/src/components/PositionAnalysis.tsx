@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { PositionSummary } from "../lib/api";
 import { toGbp } from "../lib/formatters";
+import { SegmentedControl, type Segment } from "./SegmentedControl";
 
 type PositionTab = "open" | "closed";
 type PositionSort = "net_cost" | "pnl" | "return_pct";
@@ -45,52 +46,39 @@ export function PositionAnalysis({
     [positions],
   );
 
+  const tabSegments: Segment<PositionTab>[] = [
+    { key: "open", label: "Open", count: openCount },
+    { key: "closed", label: "Closed", count: closedCount },
+  ];
+
   return (
-    <div>
-      {/* Controls */}
-      <div className="mb-4 flex flex-wrap items-center gap-3">
+    <div className="glass rounded-2xl p-5">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <SegmentedControl
+          layoutId="position-tab"
+          value={tab}
+          onChange={setTab}
+          tone={tab === "open" ? "accent" : "violet"}
+          segments={tabSegments}
+        />
+
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as PositionSort)}
-          className="rounded-lg border border-slate-600 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:border-cyan-500 focus:outline-none"
+          className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
         >
           <option value="net_cost">Sort: net cost</option>
           <option value="pnl">Sort: P&amp;L £</option>
           <option value="return_pct">Sort: CAGR</option>
         </select>
-
-        <div className="flex rounded-lg border border-slate-700 bg-slate-900/60 p-0.5">
-          <button
-            type="button"
-            onClick={() => setTab("open")}
-            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-              tab === "open"
-                ? "bg-cyan-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            Open ({openCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("closed")}
-            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-              tab === "closed"
-                ? "bg-violet-600 text-white shadow-sm"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            Closed ({closedCount})
-          </button>
-        </div>
       </div>
 
       {tab === "closed" && (
-        <div className="mb-3 flex items-center gap-4 rounded-lg bg-slate-900/40 px-4 py-2 text-sm">
+        <div className="mb-3 flex items-center gap-3 rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-2.5 text-sm">
           <span className="text-slate-400">Total realized P&amp;L</span>
           <span
-            className={`font-bold ${
-              closedPnlTotal >= 0 ? "text-emerald-400" : "text-rose-400"
+            className={`tabular ml-auto font-bold ${
+              closedPnlTotal >= 0 ? "text-pos" : "text-neg"
             }`}
           >
             {closedPnlTotal >= 0 ? "+" : ""}
@@ -99,49 +87,44 @@ export function PositionAnalysis({
         </div>
       )}
 
-      <div className="overflow-auto rounded-xl border border-slate-700/40 bg-slate-900/20">
-        <div className="max-h-[480px] overflow-auto">
+      <div className="overflow-hidden rounded-xl border border-white/[0.04]">
+        <div className="max-h-[560px] overflow-auto">
           <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-slate-900/95 backdrop-blur text-left text-xs font-medium uppercase tracking-wider text-slate-400">
+            <thead className="sticky top-0 z-10 bg-aurora-base/85 backdrop-blur-md text-left text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
               <tr>
-                <th className="px-4 py-2.5">Security</th>
-                <th className="px-4 py-2.5 text-right">Discretionary</th>
-                {tab === "open" && (
-                  <th className="px-4 py-2.5 text-right">DRIP</th>
-                )}
-                <th className="px-4 py-2.5 text-right">Sells</th>
-                <th className="px-4 py-2.5 text-right">Net cost</th>
+                <th className="px-4 py-3">Security</th>
+                <th className="px-4 py-3 text-right">Discretionary</th>
+                {tab === "open" && <th className="px-4 py-3 text-right">DRIP</th>}
+                <th className="px-4 py-3 text-right">Sells</th>
+                <th className="px-4 py-3 text-right">Net cost</th>
                 {tab === "open" ? (
                   <>
-                    <th className="px-4 py-2.5 text-right">Current value</th>
-                    <th className="px-4 py-2.5 text-right">P&amp;L</th>
-                    <th className="px-4 py-2.5 text-right">CAGR</th>
+                    <th className="px-4 py-3 text-right">Current value</th>
+                    <th className="px-4 py-3 text-right">P&amp;L</th>
+                    <th className="px-4 py-3 text-right">CAGR</th>
                   </>
                 ) : (
-                  <th className="px-4 py-2.5 text-right">Realized P&amp;L</th>
+                  <th className="px-4 py-3 text-right">Realized P&amp;L</th>
                 )}
-                <th className="px-4 py-2.5 text-right text-slate-600">Since</th>
+                <th className="px-4 py-3 text-right text-slate-700">Since</th>
               </tr>
             </thead>
             <tbody>
-              {sorted.map((p) => {
+              {sorted.map((p, idx) => {
                 const pnl =
-                  tab === "open"
-                    ? p.estimated_pnl_gbp
-                    : p.realized_pnl_gbp;
-                const pnlClass =
-                  (pnl ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400";
-                const dash = (
-                  <span className="text-slate-700">—</span>
-                );
+                  tab === "open" ? p.estimated_pnl_gbp : p.realized_pnl_gbp;
+                const pnlClass = (pnl ?? 0) >= 0 ? "text-pos" : "text-neg";
+                const dash = <span className="text-slate-700">—</span>;
                 return (
                   <tr
                     key={p.security_name}
-                    className="border-t border-slate-800/50 transition-colors hover:bg-slate-800/20"
+                    className={`border-t border-white/[0.04] transition-colors hover:bg-white/[0.04] ${
+                      idx % 2 === 0 ? "bg-white/[0.012]" : ""
+                    }`}
                   >
                     <td className="px-4 py-2.5">
                       <div
-                        className="max-w-[220px] truncate font-medium text-white"
+                        className="max-w-[240px] truncate font-medium text-white"
                         title={p.security_name}
                       >
                         {p.security_name}
@@ -150,77 +133,68 @@ export function PositionAnalysis({
                         {p.order_count} orders · {p.drip_count} DRIP
                       </div>
                     </td>
-                    <td className="px-4 py-2.5 text-right text-slate-300">
+                    <td className="tabular px-4 py-2.5 text-right text-slate-300">
                       {toGbp(p.discretionary_buy_gbp)}
                     </td>
                     {tab === "open" && (
-                      <td className="px-4 py-2.5 text-right text-amber-400">
-                        {p.total_drip_gbp > 0
-                          ? toGbp(p.total_drip_gbp)
-                          : dash}
+                      <td className="tabular px-4 py-2.5 text-right text-amber-300">
+                        {p.total_drip_gbp > 0 ? toGbp(p.total_drip_gbp) : dash}
                       </td>
                     )}
-                    <td className="px-4 py-2.5 text-right text-slate-300">
-                      {p.total_sell_gbp > 0
-                        ? toGbp(p.total_sell_gbp)
-                        : dash}
+                    <td className="tabular px-4 py-2.5 text-right text-slate-300">
+                      {p.total_sell_gbp > 0 ? toGbp(p.total_sell_gbp) : dash}
                     </td>
-                    <td className="px-4 py-2.5 text-right font-medium text-white">
+                    <td className="tabular px-4 py-2.5 text-right font-medium text-white">
                       {toGbp(p.net_cost_gbp)}
                     </td>
                     {tab === "open" ? (
                       <>
-                        <td className="px-4 py-2.5 text-right text-slate-300">
+                        <td className="tabular px-4 py-2.5 text-right text-slate-300">
                           {p.current_value_gbp != null ? (
                             toGbp(p.current_value_gbp)
                           ) : (
-                            <span className="text-xs text-slate-600">
-                              no snapshot
-                            </span>
+                            <span className="text-xs text-slate-700">no snapshot</span>
                           )}
                         </td>
-                        <td
-                          className={`px-4 py-2.5 text-right font-semibold ${pnlClass}`}
-                        >
+                        <td className={`tabular px-4 py-2.5 text-right font-semibold ${pnlClass}`}>
                           {pnl != null ? (
                             (pnl >= 0 ? "+" : "") + toGbp(pnl)
                           ) : (
-                            <span className="text-xs text-slate-600">—</span>
+                            dash
                           )}
                         </td>
                         <td
-                          className={`px-4 py-2.5 text-right font-semibold ${
+                          className={`tabular px-4 py-2.5 text-right font-semibold ${
                             p.annualised_return_pct != null
                               ? (p.annualised_return_pct ?? 0) >= 0
-                                ? "text-emerald-400"
-                                : "text-rose-400"
+                                ? "text-pos"
+                                : "text-neg"
                               : ""
                           }`}
                         >
-                          {p.annualised_return_pct != null ? (
-                            `${p.annualised_return_pct >= 0 ? "+" : ""}${p.annualised_return_pct.toFixed(1)}%/yr`
-                          ) : (
-                            <span className="text-xs text-slate-600">—</span>
-                          )}
+                          {p.annualised_return_pct != null
+                            ? `${p.annualised_return_pct >= 0 ? "+" : ""}${p.annualised_return_pct.toFixed(1)}%/yr`
+                            : dash}
                         </td>
                       </>
                     ) : (
-                      <td
-                        className={`px-4 py-2.5 text-right font-semibold ${pnlClass}`}
-                      >
-                        {pnl != null ? (
-                          (pnl >= 0 ? "+" : "") + toGbp(pnl)
-                        ) : (
-                          <span className="text-xs text-slate-600">—</span>
-                        )}
+                      <td className={`tabular px-4 py-2.5 text-right font-semibold ${pnlClass}`}>
+                        {pnl != null ? (pnl >= 0 ? "+" : "") + toGbp(pnl) : dash}
                       </td>
                     )}
-                    <td className="px-4 py-2.5 text-right text-xs text-slate-600">
+                    <td className="px-4 py-2.5 text-right text-xs text-slate-700">
                       {p.first_order_date.slice(0, 7)}
                     </td>
                   </tr>
                 );
               })}
+              {sorted.length === 0 && (
+                <tr>
+                  <td colSpan={tab === "open" ? 8 : 7} className="px-4 py-8 text-center text-xs text-slate-500">
+                    No {tab} positions.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
