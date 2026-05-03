@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Layers, Plus, Save } from "lucide-react";
+import { Check, Layers, Pencil, Plus, Save, X } from "lucide-react";
 import { api, type Group, type Instrument } from "../lib/api";
 import { toGbp } from "../lib/formatters";
 
@@ -28,6 +28,12 @@ export function GroupsSection({
     mutationFn: ({ group, members }: { group: Group; members: number[] }) =>
       api.replaceGroupMembers(group.id, members),
     onSuccess: () => queryClient.invalidateQueries(),
+  });
+
+  const renameGroupMutation = useMutation({
+    mutationFn: ({ group, name }: { group: Group; name: string }) =>
+      api.updateGroup(group.id, { name }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["groups"] }),
   });
 
   return (
@@ -79,6 +85,9 @@ export function GroupsSection({
               onSave={(members) =>
                 updateGroupMembers.mutate({ group, members })
               }
+              onRename={(name) =>
+                renameGroupMutation.mutateAsync({ group, name })
+              }
             />
           ))}
         </div>
@@ -92,19 +101,69 @@ function GroupEditor({
   instruments,
   current,
   onSave,
+  onRename,
 }: {
   group: Group;
   instruments: Instrument[];
   current: Instrument[];
   onSave: (members: number[]) => void;
+  onRename: (name: string) => Promise<unknown>;
 }) {
   const [selected, setSelected] = useState<number[]>(
     current.map((i) => i.id),
   );
 
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(group.name);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isEditingName) setNameDraft(group.name);
+  }, [group.name, isEditingName]);
+
+  useEffect(() => {
+    if (isEditingName) inputRef.current?.select();
+  }, [isEditingName]);
+
   const dirty =
     selected.length !== current.length ||
     selected.some((id) => !current.find((i) => i.id === id));
+
+  const startEdit = () => {
+    setNameDraft(group.name);
+    setRenameError(null);
+    setIsEditingName(true);
+  };
+
+  const cancelEdit = () => {
+    setIsEditingName(false);
+    setRenameError(null);
+    setNameDraft(group.name);
+  };
+
+  const submitRename = async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed) {
+      setRenameError("Name cannot be empty.");
+      return;
+    }
+    if (trimmed === group.name) {
+      cancelEdit();
+      return;
+    }
+    setIsRenaming(true);
+    setRenameError(null);
+    try {
+      await onRename(trimmed);
+      setIsEditingName(false);
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : "Rename failed.");
+    } finally {
+      setIsRenaming(false);
+    }
+  };
 
   return (
     <div className="glass rounded-2xl p-5">
@@ -113,15 +172,62 @@ function GroupEditor({
           <Layers size={14} className="text-aurora-cyan" />
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-semibold text-white">
-            {group.name}
-          </h3>
+          {isEditingName ? (
+            <div className="flex items-center gap-1.5">
+              <input
+                ref={inputRef}
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") submitRename();
+                  if (e.key === "Escape") cancelEdit();
+                }}
+                disabled={isRenaming}
+                className="min-w-0 flex-1 rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-sm font-semibold text-white focus:border-aurora-cyan/60 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={submitRename}
+                disabled={isRenaming || !nameDraft.trim()}
+                aria-label="Save name"
+                className="flex h-7 w-7 items-center justify-center rounded-md bg-aurora-accent text-white shadow-glow-accent transition-opacity disabled:opacity-50"
+              >
+                <Check size={12} />
+              </button>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                disabled={isRenaming}
+                aria-label="Cancel rename"
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-white/[0.06] bg-white/[0.02] text-slate-400 transition-colors hover:text-slate-200"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ) : (
+            <div className="group flex items-center gap-1.5">
+              <h3 className="truncate text-sm font-semibold text-white">
+                {group.name}
+              </h3>
+              <button
+                type="button"
+                onClick={startEdit}
+                aria-label={`Rename ${group.name}`}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-500 opacity-0 transition-all hover:bg-white/[0.04] hover:text-slate-200 focus:opacity-100 group-hover:opacity-100"
+              >
+                <Pencil size={11} />
+              </button>
+            </div>
+          )}
           <p className="tabular text-[11px] text-slate-500">
             {selected.length} members ·{" "}
             {group.total_value_gbp != null
               ? toGbp(group.total_value_gbp)
               : "—"}
           </p>
+          {renameError ? (
+            <p className="mt-1 text-[11px] text-rose-400">{renameError}</p>
+          ) : null}
         </div>
         <button
           type="button"

@@ -177,6 +177,12 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name, color })
     }),
+  updateGroup: (groupId: number, patch: { name?: string; color?: string | null }) =>
+    requestJson<Group>(`/api/groups/${groupId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch)
+    }),
   replaceGroupMembers: (groupId: number, instrument_ids: number[]) =>
     requestJson<Group>(`/api/groups/${groupId}/members`, {
       method: "PUT",
