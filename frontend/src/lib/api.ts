@@ -218,6 +218,10 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch)
     }),
+  deleteGroup: async (groupId: number): Promise<void> => {
+    const response = await fetch(`/api/groups/${groupId}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await toError(response));
+  },
   replaceGroupMembers: (groupId: number, instrument_ids: number[]) =>
     requestJson<Group>(`/api/groups/${groupId}/members`, {
       method: "PUT",

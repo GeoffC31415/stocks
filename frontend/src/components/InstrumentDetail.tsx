@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   Area,
   AreaChart,
@@ -9,6 +10,7 @@ import {
 } from "recharts";
 import { Info, Loader2 } from "lucide-react";
 import type { InstrumentHistoryPoint, Order } from "../lib/api";
+import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/chartDates";
 import { toGbp } from "../lib/formatters";
 import { OrderRow } from "./OrderRow";
 
@@ -22,9 +24,11 @@ function MiniTooltip({
   label?: string | number;
 }) {
   if (!active || !payload || payload.length === 0) return null;
+  const headline =
+    typeof label === "number" ? formatChartTooltipDay(label) : String(label ?? "");
   return (
     <div className="rounded-lg border border-white/[0.08] bg-aurora-base/95 px-2.5 py-1.5 text-[11px] backdrop-blur-md">
-      <p className="text-slate-400">{label}</p>
+      <p className="text-slate-400">{headline}</p>
       {payload.map((p) => (
         <div key={p.name} className="flex items-center gap-2">
           <span
@@ -56,6 +60,15 @@ export function InstrumentDetail({
   ordersLoading: boolean;
   hasOrders: boolean;
 }) {
+  const historyWithTime = useMemo(
+    () =>
+      history.map((h) => ({
+        ...h,
+        chartTime: chartUtcMs(h.as_of_date),
+      })),
+    [history],
+  );
+
   if (historyLoading) {
     return (
       <div className="glass flex h-full min-h-[300px] flex-col items-center justify-center rounded-2xl text-sm text-slate-500">
@@ -80,7 +93,7 @@ export function InstrumentDetail({
 
       <div className="h-44 rounded-xl bg-white/[0.02] p-2">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={history}>
+          <AreaChart data={historyWithTime}>
             <defs>
               <linearGradient id="instVal" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.5} />
@@ -89,9 +102,14 @@ export function InstrumentDetail({
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
             <XAxis
-              dataKey="as_of_date"
+              dataKey="chartTime"
+              type="number"
+              scale="time"
+              domain={["dataMin", "dataMax"]}
               stroke="#64748b"
               tick={{ fontSize: 10, fill: "#64748b" }}
+              tickFormatter={formatChartDayTick}
+              minTickGap={24}
               tickLine={false}
               axisLine={false}
             />

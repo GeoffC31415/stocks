@@ -9,6 +9,7 @@ import {
   YAxis,
 } from "recharts";
 import type { Order, OrderAnalytics } from "../lib/api";
+import { chartYearStartUtcMs, formatChartYearTick } from "../lib/chartDates";
 import { toGbp } from "../lib/formatters";
 import { OrderRow } from "./OrderRow";
 import { SegmentedControl, type Segment } from "./SegmentedControl";
@@ -31,9 +32,11 @@ function DripTooltip({
   label?: string | number;
 }) {
   if (!active || !payload?.length) return null;
+  const headline =
+    typeof label === "number" ? formatChartYearTick(label) : String(label ?? "");
   return (
     <div className="rounded-lg border border-white/[0.08] bg-aurora-base/95 px-2.5 py-1.5 text-[11px] backdrop-blur-md">
-      <p className="text-slate-400">{label}</p>
+      <p className="text-slate-400">{headline}</p>
       <p className="tabular font-semibold text-amber-300">
         {toGbp(payload[0].value as number)}
       </p>
@@ -82,6 +85,15 @@ export function OrderHistorySection({
     { key: "sell", label: "Sell", count: counts.sell },
   ];
 
+  const dripByYearChart = useMemo(
+    () =>
+      analytics.annual_drip.map((row) => ({
+        ...row,
+        chartTime: chartYearStartUtcMs(row.year),
+      })),
+    [analytics.annual_drip],
+  );
+
   return (
     <div className="grid gap-4 lg:grid-cols-5">
       <div className="glass rounded-2xl p-5 lg:col-span-3">
@@ -120,7 +132,7 @@ export function OrderHistorySection({
         </p>
         <div className="mt-3 h-52">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={analytics.annual_drip}>
+            <BarChart data={dripByYearChart}>
               <defs>
                 <linearGradient id="dripBar" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#fbbf24" stopOpacity={0.95} />
@@ -129,9 +141,13 @@ export function OrderHistorySection({
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
               <XAxis
-                dataKey="year"
+                dataKey="chartTime"
+                type="number"
+                scale="time"
+                domain={["dataMin", "dataMax"]}
                 stroke="#64748b"
                 tick={{ fontSize: 11, fill: "#64748b" }}
+                tickFormatter={formatChartYearTick}
                 tickLine={false}
                 axisLine={false}
               />

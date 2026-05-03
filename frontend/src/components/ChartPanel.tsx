@@ -12,6 +12,13 @@ import {
   YAxis,
 } from "recharts";
 import type { CashflowPoint, EstimatedTimeseriesPoint } from "../lib/api";
+import {
+  chartUtcMs,
+  formatChartMonthTick,
+  formatChartTooltipDay,
+  formatChartTooltipMonth,
+  formatChartDayTick,
+} from "../lib/chartDates";
 import { toGbp } from "../lib/formatters";
 
 type TimeseriesPoint = {
@@ -34,6 +41,7 @@ function DarkTooltip({
   active,
   payload,
   label,
+  formatLabel,
 }: {
   active?: boolean;
   payload?: Array<{
@@ -43,11 +51,14 @@ function DarkTooltip({
     dataKey?: string;
   }>;
   label?: string | number;
+  formatLabel?: (label: string | number | undefined) => string;
 }) {
   if (!active || !payload || payload.length === 0) return null;
+  const headline =
+    formatLabel != null ? formatLabel(label) : label != null ? String(label) : "";
   return (
     <div className="rounded-xl border border-white/[0.08] bg-aurora-base/95 px-3 py-2 text-xs shadow-glass backdrop-blur-md">
-      <p className="font-semibold text-slate-300">{label}</p>
+      <p className="font-semibold text-slate-300">{headline}</p>
       <div className="mt-1.5 space-y-1">
         {payload.map((p) => (
           <div key={p.dataKey} className="flex items-center gap-2">
@@ -86,12 +97,46 @@ export function ChartPanel({
       estimated_value_gbp: e.estimated_value_gbp,
       cumulative_net_deployed:
         byMonth.get(e.month)?.cumulative_net_deployed ?? null,
+      chartTime: chartUtcMs(e.month),
     }));
   }, [cashflow, estimatedTimeseries]);
+
+  const cashflowWithTime = useMemo(
+    () =>
+      cashflow.map((c) => ({
+        ...c,
+        chartTime: chartUtcMs(c.month),
+      })),
+    [cashflow],
+  );
+
+  const timeseriesWithTime = useMemo(
+    () =>
+      timeseries.map((p) => ({
+        ...p,
+        chartTime: chartUtcMs(p.as_of_date),
+      })),
+    [timeseries],
+  );
 
   const activeTab: ChartTab = hasOrders ? tab : "value";
 
   const axisStyle = { fontSize: 10, fill: "#64748b" };
+
+  const xAxisMonthTime = (
+    <XAxis
+      dataKey="chartTime"
+      type="number"
+      scale="time"
+      domain={["dataMin", "dataMax"]}
+      stroke="#64748b"
+      tick={{ ...axisStyle, fontSize: 11 }}
+      tickFormatter={formatChartMonthTick}
+      minTickGap={28}
+      tickLine={false}
+      axisLine={false}
+    />
+  );
 
   return (
     <div className="glass relative overflow-hidden rounded-2xl p-5">
@@ -173,14 +218,7 @@ export function ChartPanel({
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-              <XAxis
-                dataKey="month"
-                stroke="#64748b"
-                tick={axisStyle}
-                interval={11}
-                tickLine={false}
-                axisLine={false}
-              />
+              {xAxisMonthTime}
               <YAxis
                 stroke="#64748b"
                 tick={{ ...axisStyle, fontSize: 11 }}
@@ -189,7 +227,13 @@ export function ChartPanel({
                 axisLine={false}
               />
               <Tooltip
-                content={<DarkTooltip />}
+                content={
+                  <DarkTooltip
+                    formatLabel={(t) =>
+                      typeof t === "number" ? formatChartTooltipMonth(t) : String(t ?? "")
+                    }
+                  />
+                }
                 cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
               />
               <Legend
@@ -215,7 +259,7 @@ export function ChartPanel({
               />
             </AreaChart>
           ) : activeTab === "deployment" ? (
-            <AreaChart data={cashflow}>
+            <AreaChart data={cashflowWithTime}>
               <defs>
                 <linearGradient id="depNet" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.45} />
@@ -223,14 +267,7 @@ export function ChartPanel({
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-              <XAxis
-                dataKey="month"
-                stroke="#64748b"
-                tick={axisStyle}
-                interval={11}
-                tickLine={false}
-                axisLine={false}
-              />
+              {xAxisMonthTime}
               <YAxis
                 stroke="#64748b"
                 tick={{ ...axisStyle, fontSize: 11 }}
@@ -239,7 +276,13 @@ export function ChartPanel({
                 axisLine={false}
               />
               <Tooltip
-                content={<DarkTooltip />}
+                content={
+                  <DarkTooltip
+                    formatLabel={(t) =>
+                      typeof t === "number" ? formatChartTooltipMonth(t) : String(t ?? "")
+                    }
+                  />
+                }
                 cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
               />
               <Legend
@@ -274,7 +317,7 @@ export function ChartPanel({
               />
             </AreaChart>
           ) : (
-            <AreaChart data={timeseries}>
+            <AreaChart data={timeseriesWithTime}>
               <defs>
                 <linearGradient id="snapVal" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.5} />
@@ -287,9 +330,14 @@ export function ChartPanel({
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
               <XAxis
-                dataKey="as_of_date"
+                dataKey="chartTime"
+                type="number"
+                scale="time"
+                domain={["dataMin", "dataMax"]}
                 stroke="#64748b"
                 tick={{ ...axisStyle, fontSize: 11 }}
+                tickFormatter={formatChartDayTick}
+                minTickGap={32}
                 tickLine={false}
                 axisLine={false}
               />
@@ -301,7 +349,13 @@ export function ChartPanel({
                 axisLine={false}
               />
               <Tooltip
-                content={<DarkTooltip />}
+                content={
+                  <DarkTooltip
+                    formatLabel={(t) =>
+                      typeof t === "number" ? formatChartTooltipDay(t) : String(t ?? "")
+                    }
+                  />
+                }
                 cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
               />
               <Legend

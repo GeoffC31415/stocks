@@ -122,6 +122,18 @@ async def patch_group(
     )
 
 
+@router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_group(
+    group_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    group = await session.get(InstrumentGroup, group_id)
+    if group is None:
+        raise HTTPException(status_code=404, detail="Group not found.")
+    await session.delete(group)
+    await session.commit()
+
+
 @router.put("/{group_id}/members", response_model=InstrumentGroupOut)
 async def replace_group_members(
     group_id: int,

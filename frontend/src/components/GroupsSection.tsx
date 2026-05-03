@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Layers, Pencil, Plus, Save, X } from "lucide-react";
+import { Check, Layers, Pencil, Plus, Save, Trash2, X } from "lucide-react";
 import { api, type Group, type Instrument } from "../lib/api";
 import { toGbp } from "../lib/formatters";
 
@@ -34,6 +34,11 @@ export function GroupsSection({
     mutationFn: ({ group, name }: { group: Group; name: string }) =>
       api.updateGroup(group.id, { name }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["groups"] }),
+  });
+
+  const deleteGroupMutation = useMutation({
+    mutationFn: ({ group }: { group: Group }) => api.deleteGroup(group.id),
+    onSuccess: () => queryClient.invalidateQueries(),
   });
 
   return (
@@ -88,6 +93,7 @@ export function GroupsSection({
               onRename={(name) =>
                 renameGroupMutation.mutateAsync({ group, name })
               }
+              onDelete={() => deleteGroupMutation.mutateAsync({ group })}
             />
           ))}
         </div>
@@ -102,12 +108,14 @@ function GroupEditor({
   current,
   onSave,
   onRename,
+  onDelete,
 }: {
   group: Group;
   instruments: Instrument[];
   current: Instrument[];
   onSave: (members: number[]) => void;
   onRename: (name: string) => Promise<unknown>;
+  onDelete: () => Promise<unknown>;
 }) {
   const [selected, setSelected] = useState<number[]>(
     current.map((i) => i.id),
@@ -117,6 +125,9 @@ function GroupEditor({
   const [nameDraft, setNameDraft] = useState(group.name);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -143,6 +154,27 @@ function GroupEditor({
     setNameDraft(group.name);
   };
 
+  const startDeleteConfirm = () => {
+    setDeleteError(null);
+    setIsConfirmingDelete(true);
+  };
+
+  const cancelDeleteConfirm = () => {
+    setIsConfirmingDelete(false);
+    setDeleteError(null);
+  };
+
+  const confirmDelete = async () => {
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await onDelete();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : "Delete failed.");
+      setIsDeleting(false);
+    }
+  };
+
   const submitRename = async () => {
     const trimmed = nameDraft.trim();
     if (!trimmed) {
@@ -167,6 +199,39 @@ function GroupEditor({
 
   return (
     <div className="glass rounded-2xl p-5">
+      {isConfirmingDelete ? (
+        <div className="mb-3 rounded-xl border border-rose-500/30 bg-rose-500/[0.08] p-3">
+          <p className="text-sm font-semibold text-rose-200">
+            Delete &ldquo;{group.name}&rdquo;?
+          </p>
+          <p className="mt-0.5 text-[11px] text-rose-300/80">
+            This removes the group and its {current.length} membership
+            {current.length === 1 ? "" : "s"}. Instruments themselves are kept.
+          </p>
+          {deleteError ? (
+            <p className="mt-1 text-[11px] text-rose-400">{deleteError}</p>
+          ) : null}
+          <div className="mt-2 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={cancelDeleteConfirm}
+              disabled={isDeleting}
+              className="rounded-md border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-xs text-slate-300 transition-colors hover:text-white disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmDelete}
+              disabled={isDeleting}
+              className="flex items-center gap-1 rounded-md bg-rose-500/90 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-rose-500 disabled:opacity-50"
+            >
+              <Trash2 size={12} />
+              {isDeleting ? "Deleting…" : "Delete group"}
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="mb-3 flex items-center gap-3">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-aurora-accent-soft">
           <Layers size={14} className="text-aurora-cyan" />
@@ -216,6 +281,14 @@ function GroupEditor({
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-500 opacity-0 transition-all hover:bg-white/[0.04] hover:text-slate-200 focus:opacity-100 group-hover:opacity-100"
               >
                 <Pencil size={11} />
+              </button>
+              <button
+                type="button"
+                onClick={startDeleteConfirm}
+                aria-label={`Delete ${group.name}`}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-500 opacity-0 transition-all hover:bg-rose-500/[0.12] hover:text-rose-300 focus:opacity-100 group-hover:opacity-100"
+              >
+                <Trash2 size={11} />
               </button>
             </div>
           )}
