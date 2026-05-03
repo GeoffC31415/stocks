@@ -115,6 +115,10 @@ class InstrumentOut(BaseModel):
     trailing_drip_yield_pct: float | None = None
     delta_value_gbp_since_prev_snapshot: float | None = None
     delta_quantity_since_prev_snapshot: float | None = None
+    peak_value_gbp: float | None = None
+    peak_last_price: float | None = None
+    drawdown_from_peak_pct: float | None = None
+    quantity_unchanged_snapshot_count: int | None = None
     group_ids: list[int] = Field(default_factory=list)
 
 

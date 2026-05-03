@@ -46,8 +46,10 @@ export function Holdings() {
     queryFn: () => api.getOrderPositions(dripThreshold),
     enabled: (analyticsQ.data?.total_orders ?? 0) > 0,
   });
+  const groupsQ = useQuery({ queryKey: ["groups"], queryFn: api.getGroups });
 
   const instruments = instrumentsQ.data ?? [];
+  const groups = groupsQ.data ?? [];
   const hasOrders = (analyticsQ.data?.total_orders ?? 0) > 0;
 
   const selectedName = useMemo(
@@ -87,6 +89,7 @@ export function Holdings() {
         <div className="lg:col-span-3">
           <HoldingsTable
             instruments={instruments}
+            groups={groups}
             selectedId={selectedInstrument}
             onSelect={setSelected}
           />

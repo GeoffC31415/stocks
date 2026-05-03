@@ -60,6 +60,55 @@ def _delta(after: float | None, before: float | None) -> float | None:
     return after - before
 
 
+def _drawdown_from_peak(current: float | None, peak: float | None) -> float | None:
+    if current is None or peak is None or peak <= 0:
+        return None
+    return ((current - peak) / peak) * 100.0
+
+
+def _quantity_unchanged_snapshot_count(snapshots: Sequence[HoldingSnapshot]) -> int | None:
+    latest = snapshots[-1] if snapshots else None
+    if latest is None or latest.quantity is None:
+        return None
+
+    count = 0
+    for snapshot in reversed(snapshots):
+        if snapshot.quantity != latest.quantity:
+            break
+        count += 1
+    return count
+
+
+def snapshot_metrics(
+    snapshots_by_instrument: dict[int, Sequence[HoldingSnapshot]],
+) -> dict[int, dict[str, float | int | None]]:
+    """Peak and quantity-stability metrics derived from an instrument's snapshot history."""
+    metrics: dict[int, dict[str, float | int | None]] = {}
+    for instrument_id, snapshots in snapshots_by_instrument.items():
+        peak_value = max(
+            (snapshot.value_gbp for snapshot in snapshots if snapshot.value_gbp is not None),
+            default=None,
+        )
+        peak_price = max(
+            (snapshot.last_price for snapshot in snapshots if snapshot.last_price is not None),
+            default=None,
+        )
+        latest = snapshots[-1] if snapshots else None
+        current_price = latest.last_price if latest is not None else None
+        current_value = latest.value_gbp if latest is not None else None
+        drawdown = _drawdown_from_peak(current_price, peak_price)
+        if drawdown is None:
+            drawdown = _drawdown_from_peak(current_value, peak_value)
+
+        metrics[instrument_id] = {
+            "peak_value_gbp": peak_value,
+            "peak_last_price": peak_price,
+            "drawdown_from_peak_pct": drawdown,
+            "quantity_unchanged_snapshot_count": _quantity_unchanged_snapshot_count(snapshots),
+        }
+    return metrics
+
+
 def build_instrument_out(
     instrument: Instrument,
     snapshot: HoldingSnapshot | None,
@@ -68,6 +117,7 @@ def build_instrument_out(
     group_ids: Sequence[int] | None = None,
     trailing_drip_yield_pct: float | None = None,
     previous_snapshot: HoldingSnapshot | None = None,
+    metrics: dict[str, float | int | None] | None = None,
 ) -> InstrumentOut:
     """Build a single InstrumentOut from its model parts.
 
@@ -102,6 +152,14 @@ def build_instrument_out(
         trailing_drip_yield_pct=trailing_drip_yield_pct,
         delta_value_gbp_since_prev_snapshot=_delta(value_gbp, prev_value),
         delta_quantity_since_prev_snapshot=_delta(quantity, prev_quantity),
+        peak_value_gbp=metrics.get("peak_value_gbp") if metrics else None,
+        peak_last_price=metrics.get("peak_last_price") if metrics else None,
+        drawdown_from_peak_pct=metrics.get("drawdown_from_peak_pct") if metrics else None,
+        quantity_unchanged_snapshot_count=(
+            int(metrics["quantity_unchanged_snapshot_count"])
+            if metrics and metrics.get("quantity_unchanged_snapshot_count") is not None
+            else None
+        ),
         group_ids=sorted(group_ids) if group_ids else [],
     )
 

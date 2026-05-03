@@ -43,6 +43,10 @@ export type Instrument = {
   trailing_drip_yield_pct: number | null;
   delta_value_gbp_since_prev_snapshot: number | null;
   delta_quantity_since_prev_snapshot: number | null;
+  peak_value_gbp: number | null;
+  peak_last_price: number | null;
+  drawdown_from_peak_pct: number | null;
+  quantity_unchanged_snapshot_count: number | null;
   group_ids: number[];
 };
 

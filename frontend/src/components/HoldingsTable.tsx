@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import type { Instrument } from "../lib/api";
+import type { Group, Instrument } from "../lib/api";
 import { toGbp, pct } from "../lib/formatters";
 
 type SortKey = "value" | "pnl" | "pct" | "delta";
@@ -22,12 +22,25 @@ const formatSignedQty = (value: number | null): string => {
 const hasMeaningfulDelta = (value: number | null): boolean =>
   value != null && Math.abs(value) >= 0.005;
 
+type HoldingBadge = {
+  label: string;
+  tone: "amber" | "cyan" | "rose";
+};
+
+const TOP_UP_LOSS_THRESHOLD_PCT = -10;
+const TOP_UP_FLAT_SNAPSHOT_COUNT = 3;
+const TRIM_GAIN_THRESHOLD_PCT = 20;
+const TRIM_NEAR_PEAK_DRAWDOWN_PCT = -5;
+const MIN_UNDERWEIGHT_GAP_GBP = 250;
+
 export function HoldingsTable({
   instruments,
+  groups,
   selectedId,
   onSelect,
 }: {
   instruments: Instrument[];
+  groups: Group[];
   selectedId: number | null;
   onSelect: (id: number | null) => void;
 }) {
@@ -55,6 +68,67 @@ export function HoldingsTable({
       return (b.latest_value_gbp ?? 0) - (a.latest_value_gbp ?? 0);
     });
   }, [instruments, query, sort]);
+
+  const underweightGroupBadges = useMemo(() => {
+    const totalValue = instruments.reduce(
+      (total, instrument) => total + (instrument.latest_value_gbp ?? 0),
+      0,
+    );
+    if (totalValue <= 0) return new Map<number, HoldingBadge>();
+
+    const badges = new Map<number, HoldingBadge>();
+    for (const group of groups) {
+      if (group.target_allocation_pct == null || group.total_value_gbp == null) continue;
+
+      const targetValue = totalValue * (group.target_allocation_pct / 100);
+      const gap = targetValue - group.total_value_gbp;
+      if (gap < MIN_UNDERWEIGHT_GAP_GBP) continue;
+
+      badges.set(group.id, {
+        label: `Underweight ${group.name} by ${toGbp(gap)}`,
+        tone: "cyan",
+      });
+    }
+    return badges;
+  }, [groups, instruments]);
+
+  const badgesFor = (inst: Instrument): HoldingBadge[] => {
+    if (inst.is_cash) return [];
+
+    const badges: HoldingBadge[] = [];
+    const groupBadge = inst.group_ids
+      .map((groupId) => underweightGroupBadges.get(groupId))
+      .find((badge): badge is HoldingBadge => badge != null);
+    if (groupBadge) badges.push(groupBadge);
+
+    if (
+      inst.latest_pct_change != null &&
+      inst.drawdown_from_peak_pct != null &&
+      inst.latest_pct_change >= TRIM_GAIN_THRESHOLD_PCT &&
+      inst.drawdown_from_peak_pct >= TRIM_NEAR_PEAK_DRAWDOWN_PCT
+    ) {
+      badges.push({
+        label: `Trim data: ${pct(inst.latest_pct_change)} gain, ${Math.abs(
+          inst.drawdown_from_peak_pct,
+        ).toFixed(1)}% off peak`,
+        tone: "amber",
+      });
+    }
+
+    if (
+      inst.latest_pct_change != null &&
+      inst.quantity_unchanged_snapshot_count != null &&
+      inst.latest_pct_change <= TOP_UP_LOSS_THRESHOLD_PCT &&
+      inst.quantity_unchanged_snapshot_count >= TOP_UP_FLAT_SNAPSHOT_COUNT
+    ) {
+      badges.push({
+        label: `Top-up data: ${pct(inst.latest_pct_change)}, qty flat ${inst.quantity_unchanged_snapshot_count} snapshots`,
+        tone: "rose",
+      });
+    }
+
+    return badges;
+  };
 
   return (
     <div className="glass overflow-hidden rounded-2xl">
@@ -105,6 +179,7 @@ export function HoldingsTable({
               const isSelected = selectedId === inst.id;
               const isPos = (inst.pnl_gbp ?? 0) >= 0;
               const isPctPos = (inst.latest_pct_change ?? 0) >= 0;
+              const badges = badgesFor(inst);
               return (
                 <tr
                   key={inst.id}
@@ -141,6 +216,24 @@ export function HoldingsTable({
                         <span className="text-[10px] text-slate-600">· {inst.ticker}</span>
                       ) : null}
                     </div>
+                    {badges.length > 0 ? (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {badges.map((badge) => (
+                          <span
+                            key={badge.label}
+                            className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                              badge.tone === "cyan"
+                                ? "border-cyan-400/20 bg-cyan-400/[0.08] text-cyan-200"
+                                : badge.tone === "amber"
+                                  ? "border-amber-400/20 bg-amber-400/[0.08] text-amber-200"
+                                  : "border-rose-400/20 bg-rose-400/[0.08] text-rose-200"
+                            }`}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                   </td>
                   <td className="tabular px-4 py-2.5 text-right text-slate-200">
                     {toGbp(inst.latest_value_gbp)}

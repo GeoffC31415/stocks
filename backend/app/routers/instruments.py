@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_session
-from app.models import HoldingSnapshot, Instrument, InstrumentGroupMember, InstrumentQuote
+from app.models import HoldingSnapshot, ImportBatch, Instrument, InstrumentGroupMember, InstrumentQuote
 from app.schemas import InstrumentHistoryPoint, InstrumentMarketPatch, InstrumentOut, InstrumentQuoteOut, OrderOut
 from app.services.market_data_service import infer_asset_class, refresh_instrument_quote
 from app.services.order_service import get_orders_for_instrument
@@ -15,6 +15,7 @@ from app.services.portfolio_service import (
     get_latest_batch,
     get_previous_batch,
     instrument_history,
+    snapshot_metrics,
 )
 
 router = APIRouter(prefix="/api/instruments", tags=["instruments"])
@@ -51,6 +52,22 @@ async def list_instruments(session: AsyncSession = Depends(get_session)) -> list
         )
         prev_snapshots = {s.instrument_id: s for s in prev_result.scalars().all()}
 
+    instrument_ids = [snap.instrument_id for snap in snapshots]
+    metrics_by_instrument: dict[int, dict[str, float | int | None]] = {}
+    if instrument_ids:
+        history_result = await session.execute(
+            select(HoldingSnapshot)
+            .join(ImportBatch, HoldingSnapshot.import_batch_id == ImportBatch.id)
+            .where(HoldingSnapshot.instrument_id.in_(instrument_ids))
+            .order_by(HoldingSnapshot.instrument_id, ImportBatch.as_of_date, ImportBatch.id)
+        )
+        history_by_instrument: dict[int, list[HoldingSnapshot]] = {}
+        for history_snapshot in history_result.scalars().all():
+            history_by_instrument.setdefault(history_snapshot.instrument_id, []).append(
+                history_snapshot
+            )
+        metrics_by_instrument = snapshot_metrics(history_by_instrument)
+
     return [
         build_instrument_out(
             snap.instrument,
@@ -58,6 +75,7 @@ async def list_instruments(session: AsyncSession = Depends(get_session)) -> list
             quote=quotes.get(snap.instrument_id),
             group_ids=by_instrument.get(snap.instrument_id, []),
             previous_snapshot=prev_snapshots.get(snap.instrument_id),
+            metrics=metrics_by_instrument.get(snap.instrument_id),
         )
         for snap in snapshots
     ]
