@@ -6,8 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_session
-from app.models import HoldingSnapshot, Instrument, InstrumentGroupMember
-from app.schemas import InstrumentHistoryPoint, InstrumentOut, OrderOut
+from app.models import HoldingSnapshot, Instrument, InstrumentGroupMember, InstrumentQuote
+from app.schemas import InstrumentHistoryPoint, InstrumentMarketPatch, InstrumentOut, InstrumentQuoteOut, OrderOut
+from app.services.market_data_service import infer_asset_class, refresh_instrument_quote
 from app.services.order_service import get_orders_for_instrument
 from app.services.portfolio_service import get_latest_batch, instrument_history
 
@@ -34,9 +35,13 @@ async def list_instruments(session: AsyncSession = Depends(get_session)) -> list
     for member in memberships:
         by_instrument.setdefault(member.instrument_id, []).append(member.group_id)
 
+    quote_result = await session.execute(select(InstrumentQuote))
+    quotes = {quote.instrument_id: quote for quote in quote_result.scalars().all()}
+
     out: list[InstrumentOut] = []
     for snap in snapshots:
         inst = snap.instrument
+        quote = quotes.get(inst.id)
         pnl = None
         if snap.value_gbp is not None and snap.book_cost_gbp is not None:
             pnl = snap.value_gbp - snap.book_cost_gbp
@@ -47,11 +52,18 @@ async def list_instruments(session: AsyncSession = Depends(get_session)) -> list
                 identifier=inst.identifier,
                 security_name=inst.security_name,
                 is_cash=inst.is_cash,
+                ticker=inst.ticker,
+                sector=inst.sector,
+                region=inst.region,
+                asset_class=inst.asset_class,
                 closed_at=inst.closed_at,
                 latest_value_gbp=snap.value_gbp,
                 latest_book_cost_gbp=snap.book_cost_gbp,
                 latest_pct_change=snap.pct_change,
                 pnl_gbp=pnl,
+                latest_quote_price_gbp=quote.price_gbp if quote is not None else None,
+                latest_quote_as_of_date=quote.as_of_date if quote is not None else None,
+                latest_quote_fetched_at=quote.fetched_at if quote is not None else None,
                 group_ids=sorted(by_instrument.get(inst.id, [])),
             )
         )
@@ -100,3 +112,62 @@ async def get_instrument_orders(
         )
         for o in orders
     ]
+
+
+@router.patch("/{instrument_id}/market", response_model=InstrumentOut)
+async def update_instrument_market(
+    instrument_id: int,
+    body: InstrumentMarketPatch,
+    session: AsyncSession = Depends(get_session),
+) -> InstrumentOut:
+    inst = await session.get(Instrument, instrument_id)
+    if inst is None:
+        raise HTTPException(status_code=404, detail="Instrument not found.")
+
+    if "ticker" in body.model_fields_set:
+        inst.ticker = body.ticker.strip() if body.ticker else None
+    if "sector" in body.model_fields_set:
+        inst.sector = body.sector.strip() if body.sector else None
+    if "region" in body.model_fields_set:
+        inst.region = body.region.strip() if body.region else None
+    if "asset_class" in body.model_fields_set:
+        inst.asset_class = body.asset_class.strip() if body.asset_class else None
+    if inst.asset_class is None:
+        inst.asset_class = infer_asset_class(inst)
+
+    await session.commit()
+    await session.refresh(inst)
+    return InstrumentOut(
+        id=inst.id,
+        account_name=inst.account_name,
+        identifier=inst.identifier,
+        security_name=inst.security_name,
+        is_cash=inst.is_cash,
+        ticker=inst.ticker,
+        sector=inst.sector,
+        region=inst.region,
+        asset_class=inst.asset_class,
+        closed_at=inst.closed_at,
+        group_ids=[],
+    )
+
+
+@router.post("/{instrument_id}/quote", response_model=InstrumentQuoteOut)
+async def refresh_quote(
+    instrument_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> InstrumentQuoteOut:
+    inst = await session.get(Instrument, instrument_id)
+    if inst is None:
+        raise HTTPException(status_code=404, detail="Instrument not found.")
+    quote = await refresh_instrument_quote(session, inst)
+    if quote is None:
+        raise HTTPException(status_code=400, detail="Set a Stooq-compatible ticker first.")
+    return InstrumentQuoteOut(
+        instrument_id=quote.instrument_id,
+        ticker=quote.ticker,
+        price_gbp=quote.price_gbp,
+        price_ccy=quote.price_ccy,
+        as_of_date=quote.as_of_date,
+        fetched_at=quote.fetched_at,
+    )

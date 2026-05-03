@@ -6,8 +6,20 @@ export type PortfolioSummary = {
   total_pnl_gbp: number;
   by_account: Record<string, number>;
   by_group: Record<string, number>;
+  allocation: AllocationRow[];
+  group_allocation: AllocationRow[];
   worst_pct: Instrument[];
   best_pct: Instrument[];
+};
+
+export type AllocationRow = {
+  label: string;
+  kind: string;
+  value_gbp: number;
+  weight_pct: number;
+  target_pct: number | null;
+  drift_pct: number | null;
+  is_concentration_risk: boolean;
 };
 
 export type Instrument = {
@@ -16,12 +28,32 @@ export type Instrument = {
   identifier: string;
   security_name: string;
   is_cash: boolean;
+  ticker: string | null;
+  sector: string | null;
+  region: string | null;
+  asset_class: string | null;
   closed_at: string | null;
   latest_value_gbp: number | null;
   latest_book_cost_gbp: number | null;
   latest_pct_change: number | null;
   pnl_gbp: number | null;
+  latest_quote_price_gbp: number | null;
+  latest_quote_as_of_date: string | null;
+  latest_quote_fetched_at: string | null;
+  trailing_drip_yield_pct: number | null;
   group_ids: number[];
+};
+
+export type ImportChangedEntry = {
+  instrument_id: number;
+  identifier: string;
+  account_name: string;
+  security_name?: string | null;
+  quantity_before?: number | null;
+  quantity_after?: number | null;
+  value_before?: number | null;
+  value_after?: number | null;
+  delta_value_gbp?: number | null;
 };
 
 export type ImportBatch = {
@@ -33,15 +65,56 @@ export type ImportBatch = {
   diff_summary: {
     new_instrument_ids?: number[];
     closed?: Array<Record<string, unknown>>;
-    changed?: Array<Record<string, unknown>>;
+    changed?: ImportChangedEntry[];
     row_count?: number;
+    previous_batch_id?: number | null;
+    previous_as_of_date?: string | null;
   } | null;
+};
+
+export type ImportDiffSummary = {
+  batch_id: number;
+  as_of_date: string;
+  previous_batch_id: number | null;
+  previous_as_of_date: string | null;
+  new_instrument_ids: number[];
+  closed: Array<Record<string, unknown>>;
+  changed: ImportChangedEntry[];
+  row_count: number | null;
+  orders_linked: number | null;
+};
+
+export type SnapshotDiffRow = {
+  instrument_id: number;
+  identifier: string;
+  security_name: string;
+  account_name: string;
+  quantity_from: number | null;
+  quantity_to: number | null;
+  delta_quantity: number | null;
+  value_from_gbp: number | null;
+  value_to_gbp: number | null;
+  delta_value_gbp: number | null;
+  price_from: number | null;
+  price_to: number | null;
+  delta_price: number | null;
+  weight_from_pct: number | null;
+  weight_to_pct: number | null;
+  delta_weight_pct: number | null;
+  status: string;
+};
+
+export type SnapshotDiffResponse = {
+  from_batch: ImportBatch;
+  to_batch: ImportBatch;
+  rows: SnapshotDiffRow[];
 };
 
 export type Group = {
   id: number;
   name: string;
   color: string | null;
+  target_allocation_pct: number | null;
   member_count: number;
   total_value_gbp: number | null;
 };
@@ -50,6 +123,7 @@ export type InstrumentHistoryPoint = {
   as_of_date: string;
   value_gbp: number | null;
   book_cost_gbp: number | null;
+  discretionary_cost_basis_gbp: number | null;
   quantity: number | null;
   pct_change: number | null;
 };
@@ -94,6 +168,22 @@ export type EstimatedTimeseriesPoint = {
   estimated_value_gbp: number;
 };
 
+export type BenchmarkPoint = {
+  date: string;
+  symbol: string;
+  close: number;
+  rebased_value: number;
+};
+
+export type InstrumentQuote = {
+  instrument_id: number;
+  ticker: string;
+  price_gbp: number | null;
+  price_ccy: string | null;
+  as_of_date: string | null;
+  fetched_at: string | null;
+};
+
 export type CashflowPoint = {
   month: string;
   monthly_discretionary: number;
@@ -106,6 +196,7 @@ export type CashflowPoint = {
 
 export type PositionSummary = {
   security_name: string;
+  instrument_id: number | null;
   total_buy_gbp: number;
   discretionary_buy_gbp: number;
   total_drip_gbp: number;
@@ -118,6 +209,7 @@ export type PositionSummary = {
   current_value_gbp: number | null;
   estimated_pnl_gbp: number | null;
   annualised_return_pct: number | null;
+  trailing_drip_yield_pct: number | null;
   realized_pnl_gbp: number | null;
   is_closed: boolean;
 };
@@ -203,16 +295,37 @@ export const api = {
   getTimeseries: () => requestJson<Array<{ as_of_date: string; total_value_gbp: number; total_book_cost_gbp: number }>>("/api/portfolio/timeseries"),
   getInstruments: () => requestJson<Instrument[]>("/api/instruments"),
   getImports: () => requestJson<ImportBatch[]>("/api/imports"),
+  getImport: (batchId: number) => requestJson<ImportBatch>(`/api/imports/${batchId}`),
+  getImportDiff: (batchId: number) =>
+    requestJson<ImportDiffSummary>(`/api/imports/${batchId}/diff`),
+  compareImports: (fromBatchId: number, toBatchId: number) =>
+    requestJson<SnapshotDiffResponse>(
+      `/api/imports/diff?from=${fromBatchId}&to=${toBatchId}`,
+    ),
   getGroups: () => requestJson<Group[]>("/api/groups"),
   getInstrumentHistory: (instrumentId: number) =>
     requestJson<InstrumentHistoryPoint[]>(`/api/instruments/${instrumentId}/history`),
-  createGroup: (name: string, color: string | null) =>
+  updateInstrumentMarket: (
+    instrumentId: number,
+    patch: { ticker?: string | null; sector?: string | null; region?: string | null; asset_class?: string | null },
+  ) =>
+    requestJson<Instrument>(`/api/instruments/${instrumentId}/market`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  refreshInstrumentQuote: (instrumentId: number) =>
+    requestJson<InstrumentQuote>(`/api/instruments/${instrumentId}/quote`, { method: "POST" }),
+  createGroup: (name: string, color: string | null, target_allocation_pct?: number | null) =>
     requestJson<Group>("/api/groups", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, color })
+      body: JSON.stringify({ name, color, target_allocation_pct })
     }),
-  updateGroup: (groupId: number, patch: { name?: string; color?: string | null }) =>
+  updateGroup: (
+    groupId: number,
+    patch: { name?: string; color?: string | null; target_allocation_pct?: number | null },
+  ) =>
     requestJson<Group>(`/api/groups/${groupId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -261,6 +374,13 @@ export const api = {
     requestJson<PositionSummary[]>(`/api/orders/positions?drip_threshold=${dripThreshold}`),
   getEstimatedTimeseries: () =>
     requestJson<EstimatedTimeseriesPoint[]>("/api/orders/estimated-timeseries"),
+  getBenchmarks: (symbols: string[], start?: string, baseValue?: number) => {
+    const params = new URLSearchParams();
+    for (const symbol of symbols) params.append("symbols", symbol);
+    if (start) params.set("start", start);
+    if (baseValue != null) params.set("base_value", String(baseValue));
+    return requestJson<BenchmarkPoint[]>(`/api/portfolio/benchmarks?${params.toString()}`);
+  },
   getGroupPerformance: (dripThreshold: number) =>
     requestJson<GroupPerformance[]>(
       `/api/groups/performance?drip_threshold=${dripThreshold}`,

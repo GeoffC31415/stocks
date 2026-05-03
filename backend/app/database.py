@@ -89,10 +89,32 @@ def _migrate_order_dedupe(sync_conn) -> None:
     )
 
 
+def _add_column_if_missing(sync_conn, table_name: str, column_name: str, ddl: str) -> None:
+    columns = {
+        row[1] for row in sync_conn.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name not in columns:
+        sync_conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {ddl}")
+
+
+def _migrate_portfolio_metadata(sync_conn) -> None:
+    _add_column_if_missing(sync_conn, "instruments", "ticker", "ticker VARCHAR(64)")
+    _add_column_if_missing(sync_conn, "instruments", "sector", "sector VARCHAR(128)")
+    _add_column_if_missing(sync_conn, "instruments", "region", "region VARCHAR(128)")
+    _add_column_if_missing(sync_conn, "instruments", "asset_class", "asset_class VARCHAR(128)")
+    _add_column_if_missing(
+        sync_conn,
+        "instrument_groups",
+        "target_allocation_pct",
+        "target_allocation_pct FLOAT",
+    )
+
+
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_migrate_order_dedupe)
+        await conn.run_sync(_migrate_portfolio_metadata)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

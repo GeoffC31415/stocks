@@ -101,9 +101,25 @@ export function HoldingsTable({
                     <div className="truncate text-xs text-slate-500">
                       {inst.security_name}
                     </div>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {inst.asset_class ? (
+                        <span className="text-[10px] text-slate-600">{inst.asset_class}</span>
+                      ) : null}
+                      {inst.sector ? (
+                        <span className="text-[10px] text-slate-600">· {inst.sector}</span>
+                      ) : null}
+                      {inst.ticker ? (
+                        <span className="text-[10px] text-slate-600">· {inst.ticker}</span>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="tabular px-4 py-2.5 text-right text-slate-200">
                     {toGbp(inst.latest_value_gbp)}
+                    {inst.latest_quote_price_gbp != null ? (
+                      <div className="text-[10px] text-slate-600">
+                        quote {toGbp(inst.latest_quote_price_gbp)}
+                      </div>
+                    ) : null}
                   </td>
                   <td
                     className={`tabular px-4 py-2.5 text-right font-medium ${

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Loader2, Sparkles, Wallet, Banknote } from "lucide-react";
-import { api } from "../lib/api";
+import { api, formatSnapshotDateIso, type AllocationRow, type ImportDiffSummary } from "../lib/api";
 import { toGbp } from "../lib/formatters";
 import { usePreferences } from "../state/usePreferences";
 import { HeroKpi } from "../components/HeroKpi";
@@ -31,6 +31,24 @@ export function Overview() {
     queryKey: ["estimated-timeseries"],
     queryFn: api.getEstimatedTimeseries,
     enabled: (analyticsQ.data?.total_orders ?? 0) > 0,
+  });
+  const importDiffQ = useQuery({
+    queryKey: ["import-diff", summaryQ.data?.import_batch_id],
+    queryFn: () => api.getImportDiff(summaryQ.data?.import_batch_id as number),
+    enabled: summaryQ.data?.import_batch_id != null,
+  });
+  const benchmarkStart = estimatedQ.data?.[0]?.month
+    ? `${estimatedQ.data[0].month}-01`
+    : undefined;
+  const benchmarkBaseValue = estimatedQ.data?.[0]?.estimated_value_gbp;
+  const benchmarksQ = useQuery({
+    queryKey: ["benchmarks", benchmarkStart, benchmarkBaseValue],
+    queryFn: () =>
+      api.getBenchmarks(["spx.us", "vwrl.uk"], benchmarkStart, benchmarkBaseValue),
+    enabled:
+      (analyticsQ.data?.total_orders ?? 0) > 0 &&
+      benchmarkStart != null &&
+      benchmarkBaseValue != null,
   });
 
   const summary = summaryQ.data;
@@ -167,6 +185,8 @@ export function Overview() {
         caption={hasOrders ? "vs. 12 months ago" : undefined}
       />
 
+      <WhatChangedCard diff={importDiffQ.data ?? null} />
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatCard
           label="Portfolio P&L"
@@ -248,10 +268,16 @@ export function Overview() {
         </div>
       )}
 
+      <AllocationPanel
+        allocation={summary.allocation ?? []}
+        groups={summary.group_allocation ?? []}
+      />
+
       <ChartPanel
         cashflow={cashflowQ.data ?? []}
         timeseries={timeseriesQ.data ?? []}
         estimatedTimeseries={estimatedQ.data ?? []}
+        benchmarks={benchmarksQ.data ?? []}
         hasOrders={hasOrders}
       />
 
@@ -270,6 +296,167 @@ export function Overview() {
           onSelect={(id) => navigate(`/holdings?inst=${id}`)}
         />
       </div>
+    </div>
+  );
+}
+
+function WhatChangedCard({ diff }: { diff: ImportDiffSummary | null }) {
+  if (!diff || diff.previous_batch_id == null) return null;
+
+  const topMovers = [...diff.changed]
+    .sort((a, b) => Math.abs(b.delta_value_gbp ?? 0) - Math.abs(a.delta_value_gbp ?? 0))
+    .slice(0, 3);
+
+  return (
+    <div className="glass rounded-2xl p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            What changed
+          </p>
+          <h2 className="mt-1 text-sm font-semibold text-white">
+            Since{" "}
+            {diff.previous_as_of_date
+              ? formatSnapshotDateIso(diff.previous_as_of_date)
+              : `batch ${diff.previous_batch_id}`}
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            window.location.href = `/diff?from=${diff.previous_batch_id}&to=${diff.batch_id}`;
+          }}
+          className="chip chip-muted"
+        >
+          Open diff
+        </button>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <ChangeStat label="New" value={diff.new_instrument_ids.length} />
+        <ChangeStat label="Closed" value={diff.closed.length} />
+        <ChangeStat label="Changed" value={diff.changed.length} />
+      </div>
+      {topMovers.length > 0 ? (
+        <div className="mt-4 space-y-2">
+          {topMovers.map((mover) => {
+            const delta = mover.delta_value_gbp ?? 0;
+            return (
+              <div key={mover.instrument_id} className="flex items-center gap-3 rounded-xl bg-white/[0.02] px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-slate-200">
+                    {mover.identifier}
+                  </p>
+                  <p className="truncate text-[11px] text-slate-600">
+                    {mover.security_name ?? mover.account_name}
+                  </p>
+                </div>
+                <div className={`tabular text-right text-xs font-semibold ${delta >= 0 ? "text-pos" : "text-neg"}`}>
+                  {delta >= 0 ? "+" : ""}
+                  {toGbp(delta)}
+                  <p className="font-normal text-slate-500">
+                    qty {mover.quantity_before ?? "—"} → {mover.quantity_after ?? "—"}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ChangeStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2">
+      <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="tabular text-lg font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function AllocationPanel({
+  allocation,
+  groups,
+}: {
+  allocation: AllocationRow[];
+  groups: AllocationRow[];
+}) {
+  const topHoldings = allocation.slice(0, 6);
+  const risky = topHoldings.find((row) => row.is_concentration_risk);
+
+  return (
+    <div className="glass rounded-2xl p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-white">Allocation</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Position concentration and group target drift from the latest snapshot.
+          </p>
+        </div>
+        {risky ? (
+          <span className="rounded-full border border-amber-400/30 bg-amber-400/[0.08] px-3 py-1 text-xs font-medium text-amber-200">
+            Concentration risk: {risky.label} at {risky.weight_pct.toFixed(1)}%
+          </span>
+        ) : null}
+      </div>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div className="space-y-2">
+          {topHoldings.map((row) => (
+            <AllocationBar key={row.label} label={row.label} value={row.weight_pct} />
+          ))}
+        </div>
+        <div className="space-y-2">
+          {groups.length === 0 ? (
+            <p className="rounded-xl bg-white/[0.02] p-3 text-xs text-slate-500">
+              Add groups and optional targets to track allocation drift.
+            </p>
+          ) : (
+            groups.map((row) => (
+              <AllocationBar
+                key={row.label}
+                label={row.label}
+                value={row.weight_pct}
+                target={row.target_pct}
+                drift={row.drift_pct}
+              />
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AllocationBar({
+  label,
+  value,
+  target,
+  drift,
+}: {
+  label: string;
+  value: number;
+  target?: number | null;
+  drift?: number | null;
+}) {
+  return (
+    <div className="rounded-xl bg-white/[0.02] p-3">
+      <div className="flex items-center justify-between gap-3 text-xs">
+        <span className="truncate font-medium text-slate-200">{label}</span>
+        <span className="tabular text-slate-400">
+          {value.toFixed(1)}%
+          {target != null ? ` / target ${target.toFixed(1)}%` : ""}
+        </span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+        <div className="h-full rounded-full bg-aurora-accent" style={{ width: `${Math.min(value, 100)}%` }} />
+      </div>
+      {drift != null ? (
+        <p className={`mt-1 tabular text-[11px] ${drift >= 0 ? "text-amber-200" : "text-slate-500"}`}>
+          Drift {drift >= 0 ? "+" : ""}
+          {drift.toFixed(1)} pts
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -15,11 +15,18 @@ export function GroupsSection({
 }) {
   const queryClient = useQueryClient();
   const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupTarget, setNewGroupTarget] = useState("");
 
   const createGroupMutation = useMutation({
-    mutationFn: () => api.createGroup(newGroupName.trim(), null),
+    mutationFn: () =>
+      api.createGroup(
+        newGroupName.trim(),
+        null,
+        newGroupTarget.trim() ? Number(newGroupTarget) : null,
+      ),
     onSuccess: () => {
       setNewGroupName("");
+      setNewGroupTarget("");
       queryClient.invalidateQueries({ queryKey: ["groups"] });
     },
   });
@@ -34,6 +41,12 @@ export function GroupsSection({
     mutationFn: ({ group, name }: { group: Group; name: string }) =>
       api.updateGroup(group.id, { name }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["groups"] }),
+  });
+
+  const updateGroupTargetMutation = useMutation({
+    mutationFn: ({ group, target }: { group: Group; target: number | null }) =>
+      api.updateGroup(group.id, { target_allocation_pct: target }),
+    onSuccess: () => queryClient.invalidateQueries(),
   });
 
   const deleteGroupMutation = useMutation({
@@ -57,12 +70,25 @@ export function GroupsSection({
             placeholder="Group name (e.g. Tech, ETFs, EM)"
             className="flex-1 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:border-aurora-cyan/60 focus:outline-none"
           />
+          <input
+            value={newGroupTarget}
+            onChange={(e) => setNewGroupTarget(e.target.value)}
+            placeholder="Target %"
+            type="number"
+            min="0"
+            max="100"
+            step="0.1"
+            className="w-28 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:border-aurora-cyan/60 focus:outline-none"
+          />
           <button
             type="button"
             className="btn-primary flex items-center gap-1.5 px-3 text-xs"
             onClick={() => createGroupMutation.mutate()}
             disabled={
-              !newGroupName.trim() || createGroupMutation.isPending
+              !newGroupName.trim() ||
+              createGroupMutation.isPending ||
+              Number(newGroupTarget || 0) < 0 ||
+              Number(newGroupTarget || 0) > 100
             }
           >
             <Plus size={14} />
@@ -93,6 +119,9 @@ export function GroupsSection({
               onRename={(name) =>
                 renameGroupMutation.mutateAsync({ group, name })
               }
+              onTargetSave={(target) =>
+                updateGroupTargetMutation.mutateAsync({ group, target })
+              }
               onDelete={() => deleteGroupMutation.mutateAsync({ group })}
             />
           ))}
@@ -108,6 +137,7 @@ function GroupEditor({
   current,
   onSave,
   onRename,
+  onTargetSave,
   onDelete,
 }: {
   group: Group;
@@ -115,6 +145,7 @@ function GroupEditor({
   current: Instrument[];
   onSave: (members: number[]) => void;
   onRename: (name: string) => Promise<unknown>;
+  onTargetSave: (target: number | null) => Promise<unknown>;
   onDelete: () => Promise<unknown>;
 }) {
   const [selected, setSelected] = useState<number[]>(
@@ -125,6 +156,10 @@ function GroupEditor({
   const [nameDraft, setNameDraft] = useState(group.name);
   const [renameError, setRenameError] = useState<string | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [targetDraft, setTargetDraft] = useState(
+    group.target_allocation_pct?.toString() ?? "",
+  );
+  const [isSavingTarget, setIsSavingTarget] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -133,6 +168,10 @@ function GroupEditor({
   useEffect(() => {
     if (!isEditingName) setNameDraft(group.name);
   }, [group.name, isEditingName]);
+
+  useEffect(() => {
+    setTargetDraft(group.target_allocation_pct?.toString() ?? "");
+  }, [group.target_allocation_pct]);
 
   useEffect(() => {
     if (isEditingName) inputRef.current?.select();
@@ -194,6 +233,17 @@ function GroupEditor({
       setRenameError(err instanceof Error ? err.message : "Rename failed.");
     } finally {
       setIsRenaming(false);
+    }
+  };
+
+  const submitTarget = async () => {
+    const target = targetDraft.trim() ? Number(targetDraft) : null;
+    if (target != null && (Number.isNaN(target) || target < 0 || target > 100)) return;
+    setIsSavingTarget(true);
+    try {
+      await onTargetSave(target);
+    } finally {
+      setIsSavingTarget(false);
     }
   };
 
@@ -298,6 +348,21 @@ function GroupEditor({
               ? toGbp(group.total_value_gbp)
               : "—"}
           </p>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              value={targetDraft}
+              onChange={(e) => setTargetDraft(e.target.value)}
+              onBlur={submitTarget}
+              type="number"
+              min="0"
+              max="100"
+              step="0.1"
+              placeholder="Target %"
+              disabled={isSavingTarget}
+              className="w-24 rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-[11px] text-slate-300 placeholder:text-slate-600 focus:border-aurora-cyan/60 focus:outline-none"
+            />
+            <span className="text-[11px] text-slate-600">target allocation</span>
+          </div>
           {renameError ? (
             <p className="mt-1 text-[11px] text-rose-400">{renameError}</p>
           ) : null}

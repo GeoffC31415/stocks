@@ -3,13 +3,14 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import { Info, Loader2 } from "lucide-react";
-import type { InstrumentHistoryPoint, Order } from "../lib/api";
+import type { Instrument, InstrumentHistoryPoint, Order } from "../lib/api";
 import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/chartDates";
 import { toGbp } from "../lib/formatters";
 import { OrderRow } from "./OrderRow";
@@ -47,6 +48,8 @@ function MiniTooltip({
 
 export function InstrumentDetail({
   name,
+  instrument,
+  trailingDripYieldPct,
   history,
   historyLoading,
   orders,
@@ -54,6 +57,8 @@ export function InstrumentDetail({
   hasOrders,
 }: {
   name: string | null;
+  instrument: Instrument | null;
+  trailingDripYieldPct: number | null;
   history: InstrumentHistoryPoint[];
   historyLoading: boolean;
   orders: Order[];
@@ -89,6 +94,23 @@ export function InstrumentDetail({
             {name}
           </h3>
         )}
+        {instrument ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {instrument.ticker ? <span className="chip chip-muted">{instrument.ticker}</span> : null}
+            {instrument.asset_class ? <span className="chip chip-muted">{instrument.asset_class}</span> : null}
+            {instrument.sector ? <span className="chip chip-muted">{instrument.sector}</span> : null}
+            {trailingDripYieldPct != null ? (
+              <span className="chip chip-muted">
+                DRIP yield {trailingDripYieldPct.toFixed(2)}%
+              </span>
+            ) : null}
+            {instrument.latest_quote_as_of_date ? (
+              <span className="chip chip-muted">
+                Quote {instrument.latest_quote_as_of_date}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="h-44 rounded-xl bg-white/[0.02] p-2">
@@ -139,6 +161,15 @@ export function InstrumentDetail({
               fill="transparent"
               strokeDasharray="3 3"
               name="Book cost"
+            />
+            <Line
+              type="monotone"
+              dataKey="discretionary_cost_basis_gbp"
+              stroke="#fbbf24"
+              strokeWidth={1.25}
+              strokeDasharray="4 3"
+              dot={false}
+              name="Discretionary basis"
             />
           </AreaChart>
         </ResponsiveContainer>

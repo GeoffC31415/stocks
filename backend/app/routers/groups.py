@@ -61,6 +61,7 @@ async def list_groups(session: AsyncSession = Depends(get_session)) -> list[Inst
             id=g.id,
             name=g.name,
             color=g.color,
+            target_allocation_pct=g.target_allocation_pct,
             member_count=len(g.members),
             total_value_gbp=totals.get(g.id, 0.0),
         )
@@ -78,7 +79,11 @@ async def create_group(
     ).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail="Group name already exists.")
-    group = InstrumentGroup(name=body.name.strip(), color=body.color)
+    group = InstrumentGroup(
+        name=body.name.strip(),
+        color=body.color,
+        target_allocation_pct=body.target_allocation_pct,
+    )
     session.add(group)
     await session.commit()
     await session.refresh(group)
@@ -86,6 +91,7 @@ async def create_group(
         id=group.id,
         name=group.name,
         color=group.color,
+        target_allocation_pct=group.target_allocation_pct,
         member_count=0,
         total_value_gbp=0.0,
     )
@@ -107,6 +113,8 @@ async def patch_group(
         group.name = new_name
     if body.color is not None:
         group.color = body.color
+    if "target_allocation_pct" in body.model_fields_set:
+        group.target_allocation_pct = body.target_allocation_pct
     await session.commit()
     await session.refresh(group)
     totals = await _group_totals(session)
@@ -117,6 +125,7 @@ async def patch_group(
         id=group.id,
         name=group.name,
         color=group.color,
+        target_allocation_pct=group.target_allocation_pct,
         member_count=len(member_count),
         total_value_gbp=totals.get(group.id, 0.0),
     )
@@ -166,6 +175,7 @@ async def replace_group_members(
         id=group.id,
         name=group.name,
         color=group.color,
+        target_allocation_pct=group.target_allocation_pct,
         member_count=len(instrument_ids),
         total_value_gbp=totals.get(group.id, 0.0),
     )

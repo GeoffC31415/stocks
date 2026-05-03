@@ -7,6 +7,7 @@ import {
   Upload,
   Layers,
   BarChart3,
+  GitCompareArrows,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -23,6 +24,7 @@ const NAV: NavItem[] = [
   { to: "/positions", label: "Positions", icon: Target },
   { to: "/import", label: "Import", icon: Upload },
   { to: "/groups", label: "Groups", icon: Layers },
+  { to: "/diff", label: "Diff", icon: GitCompareArrows },
 ];
 
 export function Sidebar() {

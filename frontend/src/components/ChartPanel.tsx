@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { CashflowPoint, EstimatedTimeseriesPoint } from "../lib/api";
+import type { BenchmarkPoint, CashflowPoint, EstimatedTimeseriesPoint } from "../lib/api";
 import {
   chartUtcMs,
   formatChartMonthTick,
@@ -81,25 +81,45 @@ export function ChartPanel({
   cashflow,
   timeseries,
   estimatedTimeseries,
+  benchmarks,
   hasOrders,
 }: {
   cashflow: CashflowPoint[];
   timeseries: TimeseriesPoint[];
   estimatedTimeseries: EstimatedTimeseriesPoint[];
+  benchmarks: BenchmarkPoint[];
   hasOrders: boolean;
 }) {
   const [tab, setTab] = useState<ChartTab>("estimated");
 
   const mergedEstimated = useMemo(() => {
     const byMonth = new Map(cashflow.map((c) => [c.month, c]));
+    const benchmarkByMonth = new Map<string, Record<string, number>>();
+    for (const point of benchmarks) {
+      const month = point.date.slice(0, 7);
+      benchmarkByMonth.set(month, {
+        ...(benchmarkByMonth.get(month) ?? {}),
+        [`benchmark_${point.symbol.replace(/[^a-z0-9]/gi, "_")}`]: point.rebased_value,
+      });
+    }
     return estimatedTimeseries.map((e) => ({
       month: e.month,
       estimated_value_gbp: e.estimated_value_gbp,
       cumulative_net_deployed:
         byMonth.get(e.month)?.cumulative_net_deployed ?? null,
+      ...(benchmarkByMonth.get(e.month) ?? {}),
       chartTime: chartUtcMs(e.month),
     }));
-  }, [cashflow, estimatedTimeseries]);
+  }, [benchmarks, cashflow, estimatedTimeseries]);
+
+  const benchmarkKeys = useMemo(
+    () =>
+      Array.from(new Set(benchmarks.map((point) => point.symbol))).map((symbol) => ({
+        symbol,
+        key: `benchmark_${symbol.replace(/[^a-z0-9]/gi, "_")}`,
+      })),
+    [benchmarks],
+  );
 
   const cashflowWithTime = useMemo(
     () =>
@@ -257,6 +277,18 @@ export function ChartPanel({
                 fill="url(#estDep)"
                 name="Net cash deployed"
               />
+              {benchmarkKeys.map(({ symbol, key }, index) => (
+                <Line
+                  key={key}
+                  type="monotone"
+                  dataKey={key}
+                  stroke={index === 0 ? "#fbbf24" : "#f87171"}
+                  strokeWidth={1.25}
+                  strokeDasharray="4 3"
+                  dot={false}
+                  name={`Benchmark ${symbol.toUpperCase()}`}
+                />
+              ))}
             </AreaChart>
           ) : activeTab === "deployment" ? (
             <AreaChart data={cashflowWithTime}>

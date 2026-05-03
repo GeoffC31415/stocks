@@ -41,6 +41,11 @@ export function Holdings() {
       api.getInstrumentOrders(selectedInstrument as number, dripThreshold),
     enabled: selectedInstrument !== null,
   });
+  const positionsQ = useQuery({
+    queryKey: ["positions", dripThreshold],
+    queryFn: () => api.getOrderPositions(dripThreshold),
+    enabled: (analyticsQ.data?.total_orders ?? 0) > 0,
+  });
 
   const instruments = instrumentsQ.data ?? [];
   const hasOrders = (analyticsQ.data?.total_orders ?? 0) > 0;
@@ -50,6 +55,16 @@ export function Holdings() {
       instruments.find((i) => i.id === selectedInstrument)?.security_name ??
       null,
     [instruments, selectedInstrument],
+  );
+  const selectedHolding = useMemo(
+    () => instruments.find((i) => i.id === selectedInstrument) ?? null,
+    [instruments, selectedInstrument],
+  );
+  const selectedPosition = useMemo(
+    () =>
+      positionsQ.data?.find((position) => position.instrument_id === selectedInstrument) ??
+      null,
+    [positionsQ.data, selectedInstrument],
   );
 
   return (
@@ -82,6 +97,8 @@ export function Holdings() {
           ) : (
             <InstrumentDetail
               name={selectedName}
+              instrument={selectedHolding}
+              trailingDripYieldPct={selectedPosition?.trailing_drip_yield_pct ?? null}
               history={historyQ.data ?? []}
               historyLoading={historyQ.isLoading}
               orders={instrOrdersQ.data ?? []}

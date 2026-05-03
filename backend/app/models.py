@@ -48,6 +48,10 @@ class Instrument(Base):
     identifier: Mapped[str] = mapped_column(String(128), index=True)
     security_name: Mapped[str] = mapped_column(String(1024))
     is_cash: Mapped[bool] = mapped_column(Boolean, default=False)
+    ticker: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sector: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    region: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    asset_class: Mapped[str | None] = mapped_column(String(128), nullable=True)
     closed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
@@ -134,6 +138,7 @@ class InstrumentGroup(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(256), unique=True)
     color: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    target_allocation_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
     )
@@ -153,3 +158,21 @@ class InstrumentGroupMember(Base):
 
     group: Mapped[InstrumentGroup] = relationship(back_populates="members")
     instrument: Mapped[Instrument] = relationship(back_populates="group_links")
+
+
+class InstrumentQuote(Base):
+    __tablename__ = "instrument_quotes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("instruments.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    ticker: Mapped[str] = mapped_column(String(64), index=True)
+    price_gbp: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price_ccy: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    as_of_date: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
+    fetched_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
+    )

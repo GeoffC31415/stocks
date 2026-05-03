@@ -38,6 +38,82 @@ def _cagr(start_value: float, end_value: float, start: datetime.date, end: datet
         return None
 
 
+def _cashflow_amount(order: Order, *, drip_threshold_gbp: float) -> float:
+    cost = order.cost_proceeds_gbp or 0.0
+    side = order.side.lower()
+    is_drip = side == "buy" and cost < drip_threshold_gbp
+    if side == "buy" and not is_drip:
+        return cost
+    if side == "sell":
+        return -cost
+    return 0.0
+
+
+def _modified_dietz_annualised(
+    orders: list[Order],
+    *,
+    end_value: float,
+    end_date: datetime.date,
+    drip_threshold_gbp: float,
+) -> float | None:
+    cashflows = [
+        (order.order_date.date(), _cashflow_amount(order, drip_threshold_gbp=drip_threshold_gbp))
+        for order in orders
+        if order.cost_proceeds_gbp is not None
+    ]
+    cashflows = [(flow_date, amount) for flow_date, amount in cashflows if amount != 0.0]
+    if not cashflows:
+        return None
+
+    start_date = min(flow_date for flow_date, _ in cashflows)
+    total_days = (end_date - start_date).days
+    if total_days < 91:
+        return None
+
+    net_flows = sum(amount for _, amount in cashflows)
+    weighted_flows = 0.0
+    for flow_date, amount in cashflows:
+        days_after_flow = max((end_date - flow_date).days, 0)
+        weighted_flows += amount * (days_after_flow / total_days)
+
+    if weighted_flows <= 0:
+        return None
+
+    period_return = (end_value - net_flows) / weighted_flows
+    if period_return <= -1:
+        return -100.0
+
+    years = total_days / 365.25
+    try:
+        return ((1.0 + period_return) ** (1.0 / years) - 1.0) * 100.0
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return None
+
+
+def _trailing_drip_yield_pct(
+    orders: list[Order],
+    *,
+    average_value_gbp: float | None,
+    end_date: datetime.date,
+    drip_threshold_gbp: float,
+) -> float | None:
+    if average_value_gbp is None or average_value_gbp <= 0:
+        return None
+    start_date = end_date - datetime.timedelta(days=365)
+    drip_total = 0.0
+    for order in orders:
+        cost = order.cost_proceeds_gbp or 0.0
+        if (
+            start_date <= order.order_date.date() <= end_date
+            and order.side.lower() == "buy"
+            and cost < drip_threshold_gbp
+        ):
+            drip_total += cost
+    if drip_total <= 0:
+        return None
+    return (drip_total / average_value_gbp) * 100.0
+
+
 async def import_order_history(
     session: AsyncSession,
     *,
@@ -324,11 +400,13 @@ async def get_order_positions(
                 "drip_count": 0,
                 "first_order": o.order_date,
                 "last_order": o.order_date,
+                "orders": [],
             }
         p = agg[key]
         cost = o.cost_proceeds_gbp or 0.0
         is_drip = o.side.lower() == "buy" and cost < drip_threshold_gbp
         p["order_count"] += 1
+        p["orders"].append(o)
         p["last_order"] = max(p["last_order"], o.order_date)
         p["first_order"] = min(p["first_order"], o.order_date)
         if o.side.lower() == "buy":
@@ -345,6 +423,7 @@ async def get_order_positions(
 
     batch = await get_latest_batch(session)
     instrument_values: dict[int, float] = {}
+    average_values: dict[int, float] = {}
     if batch:
         snap_result = await session.execute(
             select(HoldingSnapshot)
@@ -355,6 +434,18 @@ async def get_order_positions(
         for s in snap_result.scalars().all():
             if s.value_gbp is not None:
                 instrument_values[s.instrument_id] = s.value_gbp
+        history_result = await session.execute(
+            select(HoldingSnapshot).join(Instrument).where(Instrument.is_cash.is_(False))
+        )
+        value_samples: dict[int, list[float]] = defaultdict(list)
+        for s in history_result.scalars().all():
+            if s.value_gbp is not None:
+                value_samples[s.instrument_id].append(s.value_gbp)
+        average_values = {
+            instrument_id: sum(values) / len(values)
+            for instrument_id, values in value_samples.items()
+            if values
+        }
 
     today = datetime.date.today()
     result: list[dict] = []
@@ -373,8 +464,12 @@ async def get_order_positions(
 
         if current_value is not None:
             estimated_pnl = current_value - net_cost
-            if net_cost > 0:
-                annualised_return_pct = _cagr(net_cost, current_value, first_date, today)
+            annualised_return_pct = _modified_dietz_annualised(
+                p["orders"],
+                end_value=current_value,
+                end_date=today,
+                drip_threshold_gbp=drip_threshold_gbp,
+            )
         elif is_closed:
             realized_pnl = p["total_sell_gbp"] - p["total_buy_gbp"]
             if p["total_buy_gbp"] > 0 and p["total_sell_gbp"] > 0:
@@ -398,6 +493,26 @@ async def get_order_positions(
                 "current_value_gbp": round(current_value, 2) if current_value is not None else None,
                 "estimated_pnl_gbp": round(estimated_pnl, 2) if estimated_pnl is not None else None,
                 "annualised_return_pct": round(annualised_return_pct, 1) if annualised_return_pct is not None else None,
+                "trailing_drip_yield_pct": (
+                    round(
+                        _trailing_drip_yield_pct(
+                            p["orders"],
+                            average_value_gbp=average_values.get(iid) if iid is not None else None,
+                            end_date=today,
+                            drip_threshold_gbp=drip_threshold_gbp,
+                        ),
+                        2,
+                    )
+                    if iid is not None
+                    and _trailing_drip_yield_pct(
+                        p["orders"],
+                        average_value_gbp=average_values.get(iid),
+                        end_date=today,
+                        drip_threshold_gbp=drip_threshold_gbp,
+                    )
+                    is not None
+                    else None
+                ),
                 "realized_pnl_gbp": round(realized_pnl, 2) if realized_pnl is not None else None,
                 "is_closed": is_closed,
             }
@@ -487,12 +602,14 @@ async def get_group_performance(
                 "total_sell_gbp": 0.0,
                 "first_order": o.order_date,
                 "last_order": o.order_date,
+                "orders": [],
             },
         )
         cost = o.cost_proceeds_gbp or 0.0
         is_drip = o.side.lower() == "buy" and cost < drip_threshold_gbp
         slot["first_order"] = min(slot["first_order"], o.order_date)
         slot["last_order"] = max(slot["last_order"], o.order_date)
+        slot["orders"].append(o)
         if o.side.lower() == "buy":
             slot["total_buy_gbp"] += cost
             if is_drip:
@@ -565,7 +682,12 @@ async def get_group_performance(
                 and net_cost > 0
                 and first_dt is not None
             ):
-                cagr = _cagr(net_cost, current_value, first_dt.date(), today)
+                cagr = _modified_dietz_annualised(
+                    pos["orders"],
+                    end_value=current_value,
+                    end_date=today,
+                    drip_threshold_gbp=drip_threshold_gbp,
+                )
 
             members_view.append(
                 {
@@ -615,13 +737,19 @@ async def get_group_performance(
             if total_net_cost > 0
             else None
         )
+        group_orders = [
+            order
+            for iid in member_ids
+            for order in per_instrument.get(iid, {}).get("orders", [])
+        ]
         combined_cagr = (
-            _cagr(total_net_cost, total_value, earliest.date(), today)
-            if (
-                earliest is not None
-                and total_net_cost > 0
-                and total_value > 0
+            _modified_dietz_annualised(
+                group_orders,
+                end_value=total_value,
+                end_date=today,
+                drip_threshold_gbp=drip_threshold_gbp,
             )
+            if total_value > 0
             else None
         )
         weighted_cagr = (

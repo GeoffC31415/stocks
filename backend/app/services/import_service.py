@@ -32,6 +32,112 @@ async def _snapshots_for_batch(session: AsyncSession, batch_id: int) -> list[Hol
     return list(q.scalars().all())
 
 
+async def get_import_batch(session: AsyncSession, batch_id: int) -> ImportBatch | None:
+    return await session.get(ImportBatch, batch_id)
+
+
+async def get_import_diff_summary(session: AsyncSession, batch_id: int) -> dict[str, Any] | None:
+    batch = await get_import_batch(session, batch_id)
+    if batch is None:
+        return None
+
+    summary = batch.diff_summary or {}
+    previous_batch_id = summary.get("previous_batch_id")
+    previous_as_of_date = summary.get("previous_as_of_date")
+    if previous_batch_id is not None and previous_as_of_date is None:
+        prev_batch = await get_import_batch(session, int(previous_batch_id))
+        previous_as_of_date = prev_batch.as_of_date if prev_batch is not None else None
+
+    return {
+        "batch_id": batch.id,
+        "as_of_date": batch.as_of_date,
+        "previous_batch_id": previous_batch_id,
+        "previous_as_of_date": previous_as_of_date,
+        "new_instrument_ids": summary.get("new_instrument_ids", []),
+        "closed": summary.get("closed", []),
+        "changed": summary.get("changed", []),
+        "row_count": summary.get("row_count"),
+        "orders_linked": summary.get("orders_linked"),
+    }
+
+
+def _delta(after: float | None, before: float | None) -> float | None:
+    if after is None or before is None:
+        return None
+    return after - before
+
+
+async def compare_import_batches(
+    session: AsyncSession,
+    *,
+    from_batch_id: int,
+    to_batch_id: int,
+) -> dict[str, Any] | None:
+    from_batch = await get_import_batch(session, from_batch_id)
+    to_batch = await get_import_batch(session, to_batch_id)
+    if from_batch is None or to_batch is None:
+        return None
+
+    from_snapshots = await _snapshots_for_batch(session, from_batch_id)
+    to_snapshots = await _snapshots_for_batch(session, to_batch_id)
+    from_by_instrument = {s.instrument_id: s for s in from_snapshots}
+    to_by_instrument = {s.instrument_id: s for s in to_snapshots}
+    total_from = sum(s.value_gbp or 0.0 for s in from_snapshots)
+    total_to = sum(s.value_gbp or 0.0 for s in to_snapshots)
+
+    rows: list[dict[str, Any]] = []
+    for instrument_id in sorted(set(from_by_instrument) | set(to_by_instrument)):
+        from_snap = from_by_instrument.get(instrument_id)
+        to_snap = to_by_instrument.get(instrument_id)
+        snap = to_snap or from_snap
+        if snap is None:
+            continue
+
+        inst = snap.instrument
+        value_from = from_snap.value_gbp if from_snap is not None else None
+        value_to = to_snap.value_gbp if to_snap is not None else None
+        weight_from = ((value_from or 0.0) / total_from * 100.0) if total_from > 0 else None
+        weight_to = ((value_to or 0.0) / total_to * 100.0) if total_to > 0 else None
+        rows.append(
+            {
+                "instrument_id": instrument_id,
+                "identifier": inst.identifier,
+                "security_name": inst.security_name,
+                "account_name": inst.account_name,
+                "quantity_from": from_snap.quantity if from_snap is not None else None,
+                "quantity_to": to_snap.quantity if to_snap is not None else None,
+                "delta_quantity": _delta(
+                    to_snap.quantity if to_snap is not None else None,
+                    from_snap.quantity if from_snap is not None else None,
+                ),
+                "value_from_gbp": value_from,
+                "value_to_gbp": value_to,
+                "delta_value_gbp": _delta(value_to, value_from),
+                "price_from": from_snap.last_price if from_snap is not None else None,
+                "price_to": to_snap.last_price if to_snap is not None else None,
+                "delta_price": _delta(
+                    to_snap.last_price if to_snap is not None else None,
+                    from_snap.last_price if from_snap is not None else None,
+                ),
+                "weight_from_pct": weight_from,
+                "weight_to_pct": weight_to,
+                "delta_weight_pct": _delta(weight_to, weight_from),
+                "status": (
+                    "new"
+                    if from_snap is None
+                    else "closed"
+                    if to_snap is None
+                    else "changed"
+                    if _delta(value_to, value_from) or _delta(to_snap.quantity, from_snap.quantity)
+                    else "unchanged"
+                ),
+            }
+        )
+
+    rows.sort(key=lambda row: abs(row["delta_value_gbp"] or 0.0), reverse=True)
+    return {"from_batch": from_batch, "to_batch": to_batch, "rows": rows}
+
+
 async def get_or_create_instrument(
     session: AsyncSession,
     row: ParsedHoldingRow,
@@ -165,8 +271,12 @@ async def import_barclays_xls(
                     "instrument_id": iid,
                     "identifier": inst.identifier,
                     "account_name": inst.account_name,
+                    "security_name": inst.security_name,
                     "quantity_before": prev_s.quantity,
                     "quantity_after": snap.quantity,
+                    "value_before": prev_s.value_gbp,
+                    "value_after": snap.value_gbp,
+                    "delta_value_gbp": _delta(snap.value_gbp, prev_s.value_gbp),
                 }
             )
 
@@ -174,6 +284,8 @@ async def import_barclays_xls(
     orders_linked = await link_orders_to_instruments(session)
 
     summary: dict[str, Any] = {
+        "previous_batch_id": prev_batch.id if prev_batch is not None else None,
+        "previous_as_of_date": prev_batch.as_of_date.isoformat() if prev_batch is not None else None,
         "new_instrument_ids": new_ids,
         "closed": closed,
         "changed": changed,
