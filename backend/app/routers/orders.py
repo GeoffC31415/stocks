@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.models import Order
-from app.schemas import CashflowPoint, EstimatedTimeseriesPoint, OrderAnalytics, OrderImportBatchOut, OrderOut, PositionSummary
+from app.schemas import (
+    CashflowPoint,
+    EstimatedTimeseriesPoint,
+    OrderAnalytics,
+    OrderImportBatchOut,
+    OrderOut,
+    PositionSummary,
+    UnlinkedOrdersResponse,
+)
 from app.services.instrument_matcher import link_orders_to_instruments
 from app.services.order_service import (
     DuplicateOrderImportError,
@@ -102,6 +110,52 @@ async def backfill_instruments(
     linked = await link_orders_to_instruments(session)
     await session.commit()
     return {"orders_linked": linked}
+
+
+@router.get("/unlinked", response_model=UnlinkedOrdersResponse)
+async def list_unlinked_orders(
+    drip_threshold: float = _DRIP_DEFAULT,
+    limit: int = 200,
+    session: AsyncSession = Depends(get_session),
+) -> UnlinkedOrdersResponse:
+    """Orders that the matcher could not associate with an instrument.
+
+    These would otherwise be silently absent from per-position analytics.
+    """
+    count_result = await session.execute(
+        select(func.count())
+        .select_from(Order)
+        .where(Order.instrument_id.is_(None))
+    )
+    count = int(count_result.scalar_one() or 0)
+
+    rows_result = await session.execute(
+        select(Order)
+        .where(Order.instrument_id.is_(None))
+        .order_by(Order.order_date.desc())
+        .limit(limit)
+    )
+    orders = [
+        OrderOut(
+            id=o.id,
+            security_name=o.security_name,
+            instrument_id=o.instrument_id,
+            order_date=o.order_date,
+            order_status=o.order_status,
+            account_name=o.account_name,
+            side=o.side,
+            quantity=o.quantity,
+            cost_proceeds_gbp=o.cost_proceeds_gbp,
+            country=o.country,
+            is_drip=(
+                o.side.lower() == "buy"
+                and o.cost_proceeds_gbp is not None
+                and o.cost_proceeds_gbp < drip_threshold
+            ),
+        )
+        for o in rows_result.scalars().all()
+    ]
+    return UnlinkedOrdersResponse(count=count, orders=orders)
 
 
 @router.get("", response_model=list[OrderOut])

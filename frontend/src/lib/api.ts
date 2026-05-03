@@ -41,6 +41,8 @@ export type Instrument = {
   latest_quote_as_of_date: string | null;
   latest_quote_fetched_at: string | null;
   trailing_drip_yield_pct: number | null;
+  delta_value_gbp_since_prev_snapshot: number | null;
+  delta_quantity_since_prev_snapshot: number | null;
   group_ids: number[];
 };
 
@@ -131,6 +133,7 @@ export type InstrumentHistoryPoint = {
 export type Order = {
   id: number;
   security_name: string;
+  instrument_id: number | null;
   order_date: string;
   order_status: string;
   account_name: string;
@@ -139,6 +142,11 @@ export type Order = {
   cost_proceeds_gbp: number | null;
   country: string | null;
   is_drip: boolean;
+};
+
+export type UnlinkedOrdersResponse = {
+  count: number;
+  orders: Order[];
 };
 
 export type OrderAnalytics = {
@@ -366,6 +374,10 @@ export const api = {
     requestJson<OrderAnalytics>(`/api/orders/analytics?drip_threshold=${dripThreshold}`),
   getOrders: (dripThreshold: number) =>
     requestJson<Order[]>(`/api/orders?drip_threshold=${dripThreshold}&limit=500`),
+  getUnlinkedOrders: (dripThreshold: number) =>
+    requestJson<UnlinkedOrdersResponse>(
+      `/api/orders/unlinked?drip_threshold=${dripThreshold}&limit=200`,
+    ),
   getInstrumentOrders: (instrumentId: number, dripThreshold: number) =>
     requestJson<Order[]>(`/api/instruments/${instrumentId}/orders?drip_threshold=${dripThreshold}`),
   getCashflowTimeseries: (dripThreshold: number) =>

@@ -201,6 +201,11 @@ class OrderOut(BaseModel):
     is_drip: bool
 
 
+class UnlinkedOrdersResponse(BaseModel):
+    count: int
+    orders: list[OrderOut]
+
+
 class AnnualDripPoint(BaseModel):
     year: int
     total_gbp: float
