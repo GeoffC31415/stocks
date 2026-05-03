@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,12 +12,26 @@ from app.models import (
     ImportBatch,
     Instrument,
     InstrumentGroup,
+    InstrumentQuote,
     Order,
 )
+from app.schemas import InstrumentOut
 
 
 async def get_latest_batch(session: AsyncSession) -> ImportBatch | None:
     r = await session.execute(select(ImportBatch).order_by(ImportBatch.id.desc()).limit(1))
+    return r.scalar_one_or_none()
+
+
+async def get_previous_batch(
+    session: AsyncSession, *, before_batch_id: int
+) -> ImportBatch | None:
+    r = await session.execute(
+        select(ImportBatch)
+        .where(ImportBatch.id < before_batch_id)
+        .order_by(ImportBatch.id.desc())
+        .limit(1)
+    )
     return r.scalar_one_or_none()
 
 
@@ -33,10 +47,63 @@ async def snapshots_for_batch_with_instruments(
     return r.scalars().all()
 
 
-def _pnl_row(value_gbp: float | None, book_gbp: float | None) -> float | None:
-    if value_gbp is None or book_gbp is None:
+def compute_pnl_gbp(value_gbp: float | None, book_cost_gbp: float | None) -> float | None:
+    """Single source of truth for unrealised P&L per holding."""
+    if value_gbp is None or book_cost_gbp is None:
         return None
-    return value_gbp - book_gbp
+    return value_gbp - book_cost_gbp
+
+
+def _delta(after: float | None, before: float | None) -> float | None:
+    if after is None or before is None:
+        return None
+    return after - before
+
+
+def build_instrument_out(
+    instrument: Instrument,
+    snapshot: HoldingSnapshot | None,
+    *,
+    quote: InstrumentQuote | None = None,
+    group_ids: Sequence[int] | None = None,
+    trailing_drip_yield_pct: float | None = None,
+    previous_snapshot: HoldingSnapshot | None = None,
+) -> InstrumentOut:
+    """Build a single InstrumentOut from its model parts.
+
+    Centralises field mapping so financial fields like ``pnl_gbp`` and
+    snapshot-vs-previous-snapshot deltas have one definition.
+    """
+    value_gbp = snapshot.value_gbp if snapshot is not None else None
+    book_cost_gbp = snapshot.book_cost_gbp if snapshot is not None else None
+    pct_change = snapshot.pct_change if snapshot is not None else None
+    quantity = snapshot.quantity if snapshot is not None else None
+    prev_value = previous_snapshot.value_gbp if previous_snapshot is not None else None
+    prev_quantity = previous_snapshot.quantity if previous_snapshot is not None else None
+
+    return InstrumentOut(
+        id=instrument.id,
+        account_name=instrument.account_name,
+        identifier=instrument.identifier,
+        security_name=instrument.security_name,
+        is_cash=instrument.is_cash,
+        ticker=instrument.ticker,
+        sector=instrument.sector,
+        region=instrument.region,
+        asset_class=instrument.asset_class,
+        closed_at=instrument.closed_at,
+        latest_value_gbp=value_gbp,
+        latest_book_cost_gbp=book_cost_gbp,
+        latest_pct_change=pct_change,
+        pnl_gbp=compute_pnl_gbp(value_gbp, book_cost_gbp),
+        latest_quote_price_gbp=quote.price_gbp if quote is not None else None,
+        latest_quote_as_of_date=quote.as_of_date if quote is not None else None,
+        latest_quote_fetched_at=quote.fetched_at if quote is not None else None,
+        trailing_drip_yield_pct=trailing_drip_yield_pct,
+        delta_value_gbp_since_prev_snapshot=_delta(value_gbp, prev_value),
+        delta_quantity_since_prev_snapshot=_delta(quantity, prev_quantity),
+        group_ids=sorted(group_ids) if group_ids else [],
+    )
 
 
 async def build_portfolio_summary(session: AsyncSession) -> dict:
@@ -71,7 +138,7 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
         bc = s.book_cost_gbp
         if bc is not None and not inst.is_cash:
             total_book += bc
-        pnl = _pnl_row(s.value_gbp, s.book_cost_gbp)
+        pnl = compute_pnl_gbp(s.value_gbp, s.book_cost_gbp)
         instrument_rows.append(
             {
                 "instrument": inst,
@@ -209,22 +276,28 @@ async def instrument_history(
 
 
 async def portfolio_value_timeseries(session: AsyncSession) -> list[dict]:
-    r = await session.execute(
-        select(ImportBatch.id, ImportBatch.as_of_date).order_by(ImportBatch.as_of_date, ImportBatch.id)
+    """Aggregate value and (non-cash) book cost per import batch in a single query."""
+    book_cost_expr = case(
+        (Instrument.is_cash.is_(False), HoldingSnapshot.book_cost_gbp),
+        else_=0.0,
     )
-    batches = r.all()
-    series: list[dict] = []
-    for bid, as_of in batches:
-        snaps = await snapshots_for_batch_with_instruments(session, bid)
-        total_v = sum(s.value_gbp or 0.0 for s in snaps)
-        total_b = sum(
-            s.book_cost_gbp or 0.0 for s in snaps if not s.instrument.is_cash and s.book_cost_gbp
+    r = await session.execute(
+        select(
+            ImportBatch.as_of_date,
+            func.coalesce(func.sum(HoldingSnapshot.value_gbp), 0.0).label("total_value"),
+            func.coalesce(func.sum(book_cost_expr), 0.0).label("total_book"),
         )
-        series.append(
-            {
-                "as_of_date": as_of.isoformat(),
-                "total_value_gbp": total_v,
-                "total_book_cost_gbp": total_b,
-            }
-        )
-    return series
+        .select_from(ImportBatch)
+        .outerjoin(HoldingSnapshot, HoldingSnapshot.import_batch_id == ImportBatch.id)
+        .outerjoin(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
+        .group_by(ImportBatch.id, ImportBatch.as_of_date)
+        .order_by(ImportBatch.as_of_date, ImportBatch.id)
+    )
+    return [
+        {
+            "as_of_date": as_of.isoformat(),
+            "total_value_gbp": float(total_value or 0.0),
+            "total_book_cost_gbp": float(total_book or 0.0),
+        }
+        for as_of, total_value, total_book in r.all()
+    ]

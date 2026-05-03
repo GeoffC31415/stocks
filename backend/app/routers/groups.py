@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,22 +22,56 @@ router = APIRouter(prefix="/api/groups", tags=["groups"])
 _DRIP_DEFAULT = 1000.0
 
 
-async def _group_totals(session: AsyncSession) -> dict[int, float]:
+async def _all_group_totals(session: AsyncSession) -> dict[int, float]:
+    """Sum of latest-snapshot value per group, in a single grouped query."""
     batch = await get_latest_batch(session)
     if batch is None:
         return {}
-    snaps_result = await session.execute(
-        select(HoldingSnapshot).where(HoldingSnapshot.import_batch_id == batch.id)
-    )
-    by_instrument = {s.instrument_id: (s.value_gbp or 0.0) for s in snaps_result.scalars().all()}
-    members_result = await session.execute(select(InstrumentGroupMember))
-    totals: dict[int, float] = {}
-    for member in members_result.scalars().all():
-        totals[member.group_id] = totals.get(member.group_id, 0.0) + by_instrument.get(
-            member.instrument_id,
-            0.0,
+    r = await session.execute(
+        select(
+            InstrumentGroupMember.group_id,
+            func.coalesce(func.sum(HoldingSnapshot.value_gbp), 0.0),
         )
-    return totals
+        .select_from(InstrumentGroupMember)
+        .outerjoin(
+            HoldingSnapshot,
+            (HoldingSnapshot.instrument_id == InstrumentGroupMember.instrument_id)
+            & (HoldingSnapshot.import_batch_id == batch.id),
+        )
+        .group_by(InstrumentGroupMember.group_id)
+    )
+    return {group_id: float(total or 0.0) for group_id, total in r.all()}
+
+
+async def _single_group_summary(
+    session: AsyncSession, group_id: int
+) -> tuple[int, float]:
+    """Member count and current total value for a single group."""
+    member_count = (
+        await session.execute(
+            select(func.count())
+            .select_from(InstrumentGroupMember)
+            .where(InstrumentGroupMember.group_id == group_id)
+        )
+    ).scalar_one() or 0
+
+    batch = await get_latest_batch(session)
+    if batch is None:
+        return int(member_count), 0.0
+
+    total = (
+        await session.execute(
+            select(func.coalesce(func.sum(HoldingSnapshot.value_gbp), 0.0))
+            .select_from(InstrumentGroupMember)
+            .join(
+                HoldingSnapshot,
+                (HoldingSnapshot.instrument_id == InstrumentGroupMember.instrument_id)
+                & (HoldingSnapshot.import_batch_id == batch.id),
+            )
+            .where(InstrumentGroupMember.group_id == group_id)
+        )
+    ).scalar_one()
+    return int(member_count), float(total or 0.0)
 
 
 @router.get("/performance", response_model=list[GroupPerformance])
@@ -55,7 +89,7 @@ async def list_groups(session: AsyncSession = Depends(get_session)) -> list[Inst
         select(InstrumentGroup).options(selectinload(InstrumentGroup.members)).order_by(InstrumentGroup.name)
     )
     groups = result.scalars().unique().all()
-    totals = await _group_totals(session)
+    totals = await _all_group_totals(session)
     return [
         InstrumentGroupOut(
             id=g.id,
@@ -117,17 +151,14 @@ async def patch_group(
         group.target_allocation_pct = body.target_allocation_pct
     await session.commit()
     await session.refresh(group)
-    totals = await _group_totals(session)
-    member_count = (
-        await session.execute(select(InstrumentGroupMember).where(InstrumentGroupMember.group_id == group.id))
-    ).scalars().all()
+    member_count, total_value = await _single_group_summary(session, group.id)
     return InstrumentGroupOut(
         id=group.id,
         name=group.name,
         color=group.color,
         target_allocation_pct=group.target_allocation_pct,
-        member_count=len(member_count),
-        total_value_gbp=totals.get(group.id, 0.0),
+        member_count=member_count,
+        total_value_gbp=total_value,
     )
 
 
@@ -170,12 +201,12 @@ async def replace_group_members(
         session.add(InstrumentGroupMember(group_id=group_id, instrument_id=instrument_id))
 
     await session.commit()
-    totals = await _group_totals(session)
+    _, total_value = await _single_group_summary(session, group.id)
     return InstrumentGroupOut(
         id=group.id,
         name=group.name,
         color=group.color,
         target_allocation_pct=group.target_allocation_pct,
         member_count=len(instrument_ids),
-        total_value_gbp=totals.get(group.id, 0.0),
+        total_value_gbp=total_value,
     )
