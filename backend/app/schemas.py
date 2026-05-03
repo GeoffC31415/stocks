@@ -170,3 +170,38 @@ class PositionSummary(BaseModel):
 class EstimatedTimeseriesPoint(BaseModel):
     month: str
     estimated_value_gbp: float
+
+
+class GroupPerformanceTimeseriesPoint(BaseModel):
+    as_of_date: dt.date
+    value_gbp: float
+    book_cost_gbp: float
+
+
+class GroupPerformanceMember(BaseModel):
+    instrument_id: int
+    security_name: str
+    identifier: str
+    current_value_gbp: float | None
+    net_cost_gbp: float
+    pnl_gbp: float | None
+    annualised_return_pct: float | None
+    weight_pct: float | None
+    first_order_date: str | None
+
+
+class GroupPerformance(BaseModel):
+    group_id: int
+    name: str
+    color: str | None
+    member_count: int
+    members_with_value: int
+    total_current_value_gbp: float
+    total_net_cost_gbp: float
+    total_pnl_gbp: float
+    pnl_pct: float | None
+    combined_cagr_pct: float | None
+    weighted_cagr_pct: float | None
+    earliest_order_date: str | None
+    timeseries: list[GroupPerformanceTimeseriesPoint]
+    members: list[GroupPerformanceMember]

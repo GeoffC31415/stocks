@@ -122,6 +122,41 @@ export type PositionSummary = {
   is_closed: boolean;
 };
 
+export type GroupPerformanceTimeseriesPoint = {
+  as_of_date: string;
+  value_gbp: number;
+  book_cost_gbp: number;
+};
+
+export type GroupPerformanceMember = {
+  instrument_id: number;
+  security_name: string;
+  identifier: string;
+  current_value_gbp: number | null;
+  net_cost_gbp: number;
+  pnl_gbp: number | null;
+  annualised_return_pct: number | null;
+  weight_pct: number | null;
+  first_order_date: string | null;
+};
+
+export type GroupPerformance = {
+  group_id: number;
+  name: string;
+  color: string | null;
+  member_count: number;
+  members_with_value: number;
+  total_current_value_gbp: number;
+  total_net_cost_gbp: number;
+  total_pnl_gbp: number;
+  pnl_pct: number | null;
+  combined_cagr_pct: number | null;
+  weighted_cagr_pct: number | null;
+  earliest_order_date: string | null;
+  timeseries: GroupPerformanceTimeseriesPoint[];
+  members: GroupPerformanceMember[];
+};
+
 /**
  * Local calendar date derived from the file's last-modified instant (same value sent to the API as
  * file_metadata_date). Browsers do not expose true file creation time.
@@ -221,5 +256,9 @@ export const api = {
   getOrderPositions: (dripThreshold: number) =>
     requestJson<PositionSummary[]>(`/api/orders/positions?drip_threshold=${dripThreshold}`),
   getEstimatedTimeseries: () =>
-    requestJson<EstimatedTimeseriesPoint[]>("/api/orders/estimated-timeseries")
+    requestJson<EstimatedTimeseriesPoint[]>("/api/orders/estimated-timeseries"),
+  getGroupPerformance: (dripThreshold: number) =>
+    requestJson<GroupPerformance[]>(
+      `/api/groups/performance?drip_threshold=${dripThreshold}`,
+    ),
 };

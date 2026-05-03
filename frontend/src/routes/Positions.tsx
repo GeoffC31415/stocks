@@ -1,11 +1,17 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api } from "../lib/api";
 import { usePreferences } from "../state/usePreferences";
 import { PositionAnalysis } from "../components/PositionAnalysis";
+import { GroupPerformancePanel } from "../components/GroupPerformancePanel";
+import { SegmentedControl, type Segment } from "../components/SegmentedControl";
+
+type View = "positions" | "groups";
 
 export function Positions() {
   const { dripThreshold } = usePreferences();
+  const [view, setView] = useState<View>("positions");
 
   const positionsQ = useQuery({
     queryKey: ["positions", dripThreshold],
@@ -14,6 +20,11 @@ export function Positions() {
   const analyticsQ = useQuery({
     queryKey: ["order-analytics", dripThreshold],
     queryFn: () => api.getOrderAnalytics(dripThreshold),
+  });
+  const groupPerfQ = useQuery({
+    queryKey: ["group-performance", dripThreshold],
+    queryFn: () => api.getGroupPerformance(dripThreshold),
+    enabled: view === "groups",
   });
 
   const hasOrders = (analyticsQ.data?.total_orders ?? 0) > 0;
@@ -32,21 +43,44 @@ export function Positions() {
     );
   }
 
+  const viewSegments: Segment<View>[] = [
+    { key: "positions", label: "By position" },
+    { key: "groups", label: "By group" },
+  ];
+
   return (
     <div className="space-y-5">
-      <div>
-        <h1
-          className="text-2xl font-semibold text-white"
-          style={{ letterSpacing: "-0.02em" }}
-        >
-          Position analysis
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Cost basis & returns derived from order history.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1
+            className="text-2xl font-semibold text-white"
+            style={{ letterSpacing: "-0.02em" }}
+          >
+            {view === "positions" ? "Position analysis" : "Group performance"}
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {view === "positions"
+              ? "Cost basis & returns derived from order history."
+              : "Combined cost, value, P&L and CAGR per group — with rebased growth comparison."}
+          </p>
+        </div>
+        <SegmentedControl
+          layoutId="positions-view"
+          value={view}
+          onChange={setView}
+          tone={view === "positions" ? "accent" : "violet"}
+          segments={viewSegments}
+        />
       </div>
 
-      <PositionAnalysis positions={positionsQ.data ?? []} />
+      {view === "positions" ? (
+        <PositionAnalysis positions={positionsQ.data ?? []} />
+      ) : (
+        <GroupPerformancePanel
+          groups={groupPerfQ.data ?? []}
+          isLoading={groupPerfQ.isLoading}
+        />
+      )}
     </div>
   );
 }

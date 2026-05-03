@@ -7,10 +7,19 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_session
 from app.models import HoldingSnapshot, Instrument, InstrumentGroup, InstrumentGroupMember
-from app.schemas import GroupMembersBody, InstrumentGroupCreate, InstrumentGroupOut, InstrumentGroupPatch
+from app.schemas import (
+    GroupMembersBody,
+    GroupPerformance,
+    InstrumentGroupCreate,
+    InstrumentGroupOut,
+    InstrumentGroupPatch,
+)
+from app.services.order_service import get_group_performance
 from app.services.portfolio_service import get_latest_batch
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
+
+_DRIP_DEFAULT = 1000.0
 
 
 async def _group_totals(session: AsyncSession) -> dict[int, float]:
@@ -29,6 +38,15 @@ async def _group_totals(session: AsyncSession) -> dict[int, float]:
             0.0,
         )
     return totals
+
+
+@router.get("/performance", response_model=list[GroupPerformance])
+async def group_performance(
+    drip_threshold: float = _DRIP_DEFAULT,
+    session: AsyncSession = Depends(get_session),
+) -> list[GroupPerformance]:
+    data = await get_group_performance(session, drip_threshold_gbp=drip_threshold)
+    return [GroupPerformance(**row) for row in data]
 
 
 @router.get("", response_model=list[InstrumentGroupOut])

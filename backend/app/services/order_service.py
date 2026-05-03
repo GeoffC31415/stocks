@@ -7,7 +7,15 @@ from collections import defaultdict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import HoldingSnapshot, Instrument, Order, OrderImportBatch
+from app.models import (
+    HoldingSnapshot,
+    ImportBatch,
+    Instrument,
+    InstrumentGroup,
+    InstrumentGroupMember,
+    Order,
+    OrderImportBatch,
+)
 from app.services.barclays_order_parser import ParsedOrderRow, parse_barclays_order_xls_bytes
 from app.services.instrument_matcher import link_orders_to_instruments
 from app.services.order_fingerprint import order_fingerprint
@@ -402,6 +410,272 @@ async def get_order_positions(
         )
     )
     return result
+
+
+async def get_group_performance(
+    session: AsyncSession,
+    *,
+    drip_threshold_gbp: float = 1000.0,
+) -> list[dict]:
+    """Per-group performance: combined value, P&L, CAGR, snapshot history and member breakdown.
+
+    A group's combined CAGR uses the earliest order_date among members, the sum of
+    discretionary cost flows minus sells (i.e. external capital invested) and the
+    current snapshot value. A weighted-CAGR is also returned (average of member
+    CAGRs weighted by absolute net cost) which is more robust when members
+    started at very different times.
+    """
+    groups_result = await session.execute(
+        select(InstrumentGroup).order_by(InstrumentGroup.name)
+    )
+    groups = list(groups_result.scalars().all())
+    if not groups:
+        return []
+
+    members_result = await session.execute(select(InstrumentGroupMember))
+    members_by_group: dict[int, list[int]] = defaultdict(list)
+    for m in members_result.scalars().all():
+        members_by_group[m.group_id].append(m.instrument_id)
+
+    all_member_ids = {iid for ids in members_by_group.values() for iid in ids}
+    if not all_member_ids:
+        return [
+            {
+                "group_id": g.id,
+                "name": g.name,
+                "color": g.color,
+                "member_count": 0,
+                "members_with_value": 0,
+                "total_current_value_gbp": 0.0,
+                "total_net_cost_gbp": 0.0,
+                "total_pnl_gbp": 0.0,
+                "pnl_pct": None,
+                "combined_cagr_pct": None,
+                "weighted_cagr_pct": None,
+                "earliest_order_date": None,
+                "timeseries": [],
+                "members": [],
+            }
+            for g in groups
+        ]
+
+    instruments_result = await session.execute(
+        select(Instrument).where(Instrument.id.in_(all_member_ids))
+    )
+    instrument_by_id: dict[int, Instrument] = {
+        i.id: i for i in instruments_result.scalars().all()
+    }
+
+    orders_result = await session.execute(
+        select(Order)
+        .where(Order.instrument_id.in_(all_member_ids))
+        .order_by(Order.order_date)
+    )
+    orders = list(orders_result.scalars().all())
+
+    per_instrument: dict[int, dict] = {}
+    for o in orders:
+        iid = o.instrument_id
+        if iid is None:
+            continue
+        slot = per_instrument.setdefault(
+            iid,
+            {
+                "total_buy_gbp": 0.0,
+                "discretionary_buy_gbp": 0.0,
+                "total_drip_gbp": 0.0,
+                "total_sell_gbp": 0.0,
+                "first_order": o.order_date,
+                "last_order": o.order_date,
+            },
+        )
+        cost = o.cost_proceeds_gbp or 0.0
+        is_drip = o.side.lower() == "buy" and cost < drip_threshold_gbp
+        slot["first_order"] = min(slot["first_order"], o.order_date)
+        slot["last_order"] = max(slot["last_order"], o.order_date)
+        if o.side.lower() == "buy":
+            slot["total_buy_gbp"] += cost
+            if is_drip:
+                slot["total_drip_gbp"] += cost
+            else:
+                slot["discretionary_buy_gbp"] += cost
+        elif o.side.lower() == "sell":
+            slot["total_sell_gbp"] += cost
+
+    from app.services.portfolio_service import get_latest_batch
+
+    latest = await get_latest_batch(session)
+    current_values: dict[int, float] = {}
+    if latest is not None:
+        snap_result = await session.execute(
+            select(HoldingSnapshot).where(
+                HoldingSnapshot.import_batch_id == latest.id,
+                HoldingSnapshot.instrument_id.in_(all_member_ids),
+            )
+        )
+        for s in snap_result.scalars().all():
+            if s.value_gbp is not None:
+                current_values[s.instrument_id] = s.value_gbp
+
+    batches_result = await session.execute(
+        select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
+    )
+    batches = list(batches_result.scalars().all())
+
+    snapshots_by_batch: dict[int, dict[int, HoldingSnapshot]] = {}
+    if batches:
+        history_result = await session.execute(
+            select(HoldingSnapshot).where(
+                HoldingSnapshot.instrument_id.in_(all_member_ids)
+            )
+        )
+        for s in history_result.scalars().all():
+            snapshots_by_batch.setdefault(s.import_batch_id, {})[s.instrument_id] = s
+
+    today = datetime.date.today()
+    out: list[dict] = []
+
+    for g in groups:
+        member_ids = members_by_group.get(g.id, [])
+        members_view: list[dict] = []
+        total_value = 0.0
+        total_net_cost = 0.0
+        weighted_cagr_num = 0.0
+        weighted_cagr_den = 0.0
+        earliest: datetime.datetime | None = None
+        members_with_value = 0
+
+        for iid in member_ids:
+            inst = instrument_by_id.get(iid)
+            if inst is None:
+                continue
+            pos = per_instrument.get(iid)
+            current_value = current_values.get(iid)
+            net_cost = (
+                (pos["discretionary_buy_gbp"] - pos["total_sell_gbp"]) if pos else 0.0
+            )
+            pnl = (
+                (current_value - net_cost) if current_value is not None else None
+            )
+            cagr: float | None = None
+            first_dt = pos["first_order"] if pos else None
+            if (
+                pos is not None
+                and current_value is not None
+                and net_cost > 0
+                and first_dt is not None
+            ):
+                cagr = _cagr(net_cost, current_value, first_dt.date(), today)
+
+            members_view.append(
+                {
+                    "instrument_id": iid,
+                    "security_name": inst.security_name,
+                    "identifier": inst.identifier,
+                    "current_value_gbp": (
+                        round(current_value, 2) if current_value is not None else None
+                    ),
+                    "net_cost_gbp": round(net_cost, 2),
+                    "pnl_gbp": round(pnl, 2) if pnl is not None else None,
+                    "annualised_return_pct": (
+                        round(cagr, 1) if cagr is not None else None
+                    ),
+                    "weight_pct": None,
+                    "first_order_date": (
+                        first_dt.date().isoformat() if first_dt is not None else None
+                    ),
+                }
+            )
+
+            if current_value is not None:
+                total_value += current_value
+                members_with_value += 1
+            total_net_cost += net_cost
+            if first_dt is not None and (earliest is None or first_dt < earliest):
+                earliest = first_dt
+            if cagr is not None and net_cost > 0:
+                weighted_cagr_num += cagr * net_cost
+                weighted_cagr_den += net_cost
+
+        if total_value > 0:
+            for m in members_view:
+                if m["current_value_gbp"] is not None:
+                    m["weight_pct"] = round(
+                        (m["current_value_gbp"] / total_value) * 100.0, 1
+                    )
+
+        members_view.sort(
+            key=lambda m: (m["current_value_gbp"] or 0.0),
+            reverse=True,
+        )
+
+        total_pnl = total_value - total_net_cost
+        pnl_pct = (
+            round((total_pnl / total_net_cost) * 100.0, 1)
+            if total_net_cost > 0
+            else None
+        )
+        combined_cagr = (
+            _cagr(total_net_cost, total_value, earliest.date(), today)
+            if (
+                earliest is not None
+                and total_net_cost > 0
+                and total_value > 0
+            )
+            else None
+        )
+        weighted_cagr = (
+            (weighted_cagr_num / weighted_cagr_den) if weighted_cagr_den > 0 else None
+        )
+
+        timeseries: list[dict] = []
+        for batch in batches:
+            snaps = snapshots_by_batch.get(batch.id, {})
+            v = 0.0
+            bc = 0.0
+            for iid in member_ids:
+                snap = snaps.get(iid)
+                if snap is None:
+                    continue
+                if snap.value_gbp is not None:
+                    v += snap.value_gbp
+                if snap.book_cost_gbp is not None:
+                    bc += snap.book_cost_gbp
+            timeseries.append(
+                {
+                    "as_of_date": batch.as_of_date,
+                    "value_gbp": round(v, 2),
+                    "book_cost_gbp": round(bc, 2),
+                }
+            )
+
+        out.append(
+            {
+                "group_id": g.id,
+                "name": g.name,
+                "color": g.color,
+                "member_count": len(member_ids),
+                "members_with_value": members_with_value,
+                "total_current_value_gbp": round(total_value, 2),
+                "total_net_cost_gbp": round(total_net_cost, 2),
+                "total_pnl_gbp": round(total_pnl, 2),
+                "pnl_pct": pnl_pct,
+                "combined_cagr_pct": (
+                    round(combined_cagr, 1) if combined_cagr is not None else None
+                ),
+                "weighted_cagr_pct": (
+                    round(weighted_cagr, 1) if weighted_cagr is not None else None
+                ),
+                "earliest_order_date": (
+                    earliest.date().isoformat() if earliest is not None else None
+                ),
+                "timeseries": timeseries,
+                "members": members_view,
+            }
+        )
+
+    out.sort(key=lambda x: x["total_current_value_gbp"], reverse=True)
+    return out
 
 
 async def get_orders_for_instrument(
