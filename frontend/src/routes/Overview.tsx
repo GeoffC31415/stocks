@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
-import { Loader2, Sparkles, Wallet, Banknote } from "lucide-react";
+import { CalendarClock, Loader2, Sparkles, Wallet, Banknote } from "lucide-react";
 import { api, formatSnapshotDateIso, type AllocationRow, type ImportDiffSummary } from "../lib/api";
 import { toGbp } from "../lib/formatters";
 import { usePreferences } from "../state/usePreferences";
@@ -185,6 +185,8 @@ export function Overview() {
         caption={hasOrders ? "vs. 12 months ago" : undefined}
       />
 
+      <SnapshotStalenessChip asOfDate={summary.as_of_date} />
+
       <WhatChangedCard diff={importDiffQ.data ?? null} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -296,6 +298,45 @@ export function Overview() {
           onSelect={(id) => navigate(`/holdings?inst=${id}`)}
         />
       </div>
+    </div>
+  );
+}
+
+function SnapshotStalenessChip({ asOfDate }: { asOfDate: string | null }) {
+  if (!asOfDate) return null;
+
+  const parts = asOfDate.split("-").map(Number);
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return null;
+  const [y, m, d] = parts;
+  const snapshot = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  snapshot.setHours(0, 0, 0, 0);
+  const days = Math.max(
+    0,
+    Math.round((today.getTime() - snapshot.getTime()) / (24 * 60 * 60 * 1000)),
+  );
+
+  let ageLabel: string;
+  if (days === 0) ageLabel = "today";
+  else if (days === 1) ageLabel = "1 day old";
+  else ageLabel = `${days} days old`;
+
+  const isStale = days >= 14;
+  const toneClass = isStale
+    ? "border-amber-400/30 bg-amber-400/[0.08] text-amber-200"
+    : "border-white/[0.06] bg-white/[0.02] text-slate-400";
+
+  return (
+    <div
+      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] ${toneClass}`}
+    >
+      <CalendarClock size={12} />
+      <span className="tabular">
+        Snapshot from {formatSnapshotDateIso(asOfDate)}
+      </span>
+      <span className="text-slate-500">·</span>
+      <span className="tabular font-medium">{ageLabel}</span>
     </div>
   );
 }

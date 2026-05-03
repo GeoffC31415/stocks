@@ -3,7 +3,24 @@ import { Search } from "lucide-react";
 import type { Instrument } from "../lib/api";
 import { toGbp, pct } from "../lib/formatters";
 
-type SortKey = "value" | "pnl" | "pct";
+type SortKey = "value" | "pnl" | "pct" | "delta";
+
+const formatSignedGbp = (value: number | null): string => {
+  if (value == null) return "—";
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${toGbp(value)}`;
+};
+
+const formatSignedQty = (value: number | null): string => {
+  if (value == null) return "—";
+  const abs = Math.abs(value);
+  const formatted = abs >= 100 ? abs.toFixed(0) : abs.toFixed(abs >= 1 ? 2 : 4);
+  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
+  return `${sign}${formatted}`;
+};
+
+const hasMeaningfulDelta = (value: number | null): boolean =>
+  value != null && Math.abs(value) >= 0.005;
 
 export function HoldingsTable({
   instruments,
@@ -30,6 +47,11 @@ export function HoldingsTable({
       if (sort === "pnl") return (b.pnl_gbp ?? 0) - (a.pnl_gbp ?? 0);
       if (sort === "pct")
         return (b.latest_pct_change ?? 0) - (a.latest_pct_change ?? 0);
+      if (sort === "delta")
+        return (
+          Math.abs(b.delta_value_gbp_since_prev_snapshot ?? 0) -
+          Math.abs(a.delta_value_gbp_since_prev_snapshot ?? 0)
+        );
       return (b.latest_value_gbp ?? 0) - (a.latest_value_gbp ?? 0);
     });
   }, [instruments, query, sort]);
@@ -58,6 +80,7 @@ export function HoldingsTable({
           <option value="value">Sort: value</option>
           <option value="pnl">Sort: P&amp;L</option>
           <option value="pct">Sort: % change</option>
+          <option value="delta">Sort: Δ vs prev</option>
         </select>
       </div>
 
@@ -67,6 +90,12 @@ export function HoldingsTable({
             <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
               <th className="px-4 py-3">Instrument</th>
               <th className="px-4 py-3 text-right">Value</th>
+              <th
+                className="px-4 py-3 text-right"
+                title="Change in value since the previous snapshot"
+              >
+                Δ vs prev
+              </th>
               <th className="px-4 py-3 text-right">P&amp;L</th>
               <th className="px-4 py-3 text-right">% Chg</th>
             </tr>
@@ -121,6 +150,12 @@ export function HoldingsTable({
                       </div>
                     ) : null}
                   </td>
+                  <td className="tabular px-4 py-2.5 text-right">
+                    <DeltaCell
+                      deltaValue={inst.delta_value_gbp_since_prev_snapshot}
+                      deltaQty={inst.delta_quantity_since_prev_snapshot}
+                    />
+                  </td>
                   <td
                     className={`tabular px-4 py-2.5 text-right font-medium ${
                       isPos ? "text-pos" : "text-neg"
@@ -140,7 +175,7 @@ export function HoldingsTable({
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-xs text-slate-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-xs text-slate-500">
                   No instruments match.
                 </td>
               </tr>
@@ -149,5 +184,34 @@ export function HoldingsTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function DeltaCell({
+  deltaValue,
+  deltaQty,
+}: {
+  deltaValue: number | null;
+  deltaQty: number | null;
+}) {
+  if (deltaValue == null) {
+    return <span className="text-slate-600">—</span>;
+  }
+  const isMeaningful = hasMeaningfulDelta(deltaValue);
+  const tone = !isMeaningful
+    ? "text-slate-500"
+    : deltaValue > 0
+      ? "text-pos"
+      : "text-neg";
+  const showQty = hasMeaningfulDelta(deltaQty);
+  return (
+    <>
+      <div className={`font-medium ${tone}`}>{formatSignedGbp(deltaValue)}</div>
+      {showQty ? (
+        <div className="text-[10px] text-slate-600">
+          qty {formatSignedQty(deltaQty)}
+        </div>
+      ) : null}
+    </>
   );
 }
