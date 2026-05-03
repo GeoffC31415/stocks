@@ -8,31 +8,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.schemas import BenchmarkPoint, InstrumentOut, PortfolioSummary
 from app.services.market_data_service import fetch_history
-from app.services.portfolio_service import build_portfolio_summary, portfolio_value_timeseries
+from app.services.portfolio_service import (
+    build_instrument_out,
+    build_portfolio_summary,
+    portfolio_value_timeseries,
+)
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 
 def _to_instrument_out(row: dict) -> InstrumentOut:
-    inst = row["instrument"]
-    snap = row["snapshot"]
-    return InstrumentOut(
-        id=inst.id,
-        account_name=inst.account_name,
-        identifier=inst.identifier,
-        security_name=inst.security_name,
-        is_cash=inst.is_cash,
-        ticker=inst.ticker,
-        sector=inst.sector,
-        region=inst.region,
-        asset_class=inst.asset_class,
-        closed_at=inst.closed_at,
-        latest_value_gbp=snap.value_gbp,
-        latest_book_cost_gbp=snap.book_cost_gbp,
-        latest_pct_change=snap.pct_change,
-        pnl_gbp=row["pnl_gbp"],
-        group_ids=[],
-    )
+    return build_instrument_out(row["instrument"], row["snapshot"])
 
 
 @router.get("/summary", response_model=PortfolioSummary)

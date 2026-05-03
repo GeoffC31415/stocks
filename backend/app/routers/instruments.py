@@ -10,7 +10,12 @@ from app.models import HoldingSnapshot, Instrument, InstrumentGroupMember, Instr
 from app.schemas import InstrumentHistoryPoint, InstrumentMarketPatch, InstrumentOut, InstrumentQuoteOut, OrderOut
 from app.services.market_data_service import infer_asset_class, refresh_instrument_quote
 from app.services.order_service import get_orders_for_instrument
-from app.services.portfolio_service import get_latest_batch, instrument_history
+from app.services.portfolio_service import (
+    build_instrument_out,
+    get_latest_batch,
+    get_previous_batch,
+    instrument_history,
+)
 
 router = APIRouter(prefix="/api/instruments", tags=["instruments"])
 
@@ -38,36 +43,24 @@ async def list_instruments(session: AsyncSession = Depends(get_session)) -> list
     quote_result = await session.execute(select(InstrumentQuote))
     quotes = {quote.instrument_id: quote for quote in quote_result.scalars().all()}
 
-    out: list[InstrumentOut] = []
-    for snap in snapshots:
-        inst = snap.instrument
-        quote = quotes.get(inst.id)
-        pnl = None
-        if snap.value_gbp is not None and snap.book_cost_gbp is not None:
-            pnl = snap.value_gbp - snap.book_cost_gbp
-        out.append(
-            InstrumentOut(
-                id=inst.id,
-                account_name=inst.account_name,
-                identifier=inst.identifier,
-                security_name=inst.security_name,
-                is_cash=inst.is_cash,
-                ticker=inst.ticker,
-                sector=inst.sector,
-                region=inst.region,
-                asset_class=inst.asset_class,
-                closed_at=inst.closed_at,
-                latest_value_gbp=snap.value_gbp,
-                latest_book_cost_gbp=snap.book_cost_gbp,
-                latest_pct_change=snap.pct_change,
-                pnl_gbp=pnl,
-                latest_quote_price_gbp=quote.price_gbp if quote is not None else None,
-                latest_quote_as_of_date=quote.as_of_date if quote is not None else None,
-                latest_quote_fetched_at=quote.fetched_at if quote is not None else None,
-                group_ids=sorted(by_instrument.get(inst.id, [])),
-            )
+    prev_batch = await get_previous_batch(session, before_batch_id=batch.id)
+    prev_snapshots: dict[int, HoldingSnapshot] = {}
+    if prev_batch is not None:
+        prev_result = await session.execute(
+            select(HoldingSnapshot).where(HoldingSnapshot.import_batch_id == prev_batch.id)
         )
-    return out
+        prev_snapshots = {s.instrument_id: s for s in prev_result.scalars().all()}
+
+    return [
+        build_instrument_out(
+            snap.instrument,
+            snap,
+            quote=quotes.get(snap.instrument_id),
+            group_ids=by_instrument.get(snap.instrument_id, []),
+            previous_snapshot=prev_snapshots.get(snap.instrument_id),
+        )
+        for snap in snapshots
+    ]
 
 
 @router.get("/{instrument_id}/history", response_model=list[InstrumentHistoryPoint])
@@ -137,19 +130,7 @@ async def update_instrument_market(
 
     await session.commit()
     await session.refresh(inst)
-    return InstrumentOut(
-        id=inst.id,
-        account_name=inst.account_name,
-        identifier=inst.identifier,
-        security_name=inst.security_name,
-        is_cash=inst.is_cash,
-        ticker=inst.ticker,
-        sector=inst.sector,
-        region=inst.region,
-        asset_class=inst.asset_class,
-        closed_at=inst.closed_at,
-        group_ids=[],
-    )
+    return build_instrument_out(inst, snapshot=None)
 
 
 @router.post("/{instrument_id}/quote", response_model=InstrumentQuoteOut)
