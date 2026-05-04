@@ -1,6 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Layers, Pencil, Plus, Save, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Inbox,
+  Layers,
+  Pencil,
+  Plus,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
 import { api, type Group, type Instrument } from "../lib/api";
 import { toGbp } from "../lib/formatters";
 
@@ -16,6 +26,36 @@ export function GroupsSection({
   const queryClient = useQueryClient();
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupTarget, setNewGroupTarget] = useState("");
+  const [pendingGroupByInstrument, setPendingGroupByInstrument] = useState<
+    Record<number, number>
+  >({});
+
+  const groupNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const group of groups) map.set(group.id, group.name);
+    return map;
+  }, [groups]);
+
+  const sortByIdentifierAccount = (a: Instrument, b: Instrument) =>
+    `${a.identifier} ${a.account_name}`.localeCompare(
+      `${b.identifier} ${b.account_name}`,
+    );
+
+  const ungroupedInstruments = useMemo(
+    () =>
+      instruments
+        .filter((i) => !i.is_cash && i.group_ids.length === 0)
+        .sort(sortByIdentifierAccount),
+    [instruments],
+  );
+
+  const duplicatedInstruments = useMemo(
+    () =>
+      instruments
+        .filter((i) => !i.is_cash && i.group_ids.length > 1)
+        .sort(sortByIdentifierAccount),
+    [instruments],
+  );
 
   const createGroupMutation = useMutation({
     mutationFn: () =>
@@ -54,8 +94,178 @@ export function GroupsSection({
     onSuccess: () => queryClient.invalidateQueries(),
   });
 
+  const addInstrumentToGroupMutation = useMutation({
+    mutationFn: ({
+      groupId,
+      instrumentId,
+    }: {
+      groupId: number;
+      instrumentId: number;
+    }) => {
+      const currentMemberIds = (byGroup[groupId] ?? []).map((i) => i.id);
+      if (currentMemberIds.includes(instrumentId)) {
+        return Promise.resolve(null);
+      }
+      return api.replaceGroupMembers(groupId, [
+        ...currentMemberIds,
+        instrumentId,
+      ]);
+    },
+    onSuccess: (_data, variables) => {
+      setPendingGroupByInstrument((prev) => {
+        const next = { ...prev };
+        delete next[variables.instrumentId];
+        return next;
+      });
+      queryClient.invalidateQueries();
+    },
+  });
+
   return (
     <div className="space-y-5">
+      {duplicatedInstruments.length > 0 ? (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] p-5">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={14} className="text-amber-300" />
+            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-amber-200">
+              Possible double-counting
+            </h3>
+            <span className="chip chip-amber tabular text-[10px]">
+              {duplicatedInstruments.length} holding
+              {duplicatedInstruments.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <p className="mt-1.5 text-[12px] text-amber-200/80">
+            These holdings appear in more than one group, so their value will be
+            counted in each group&rsquo;s total.
+          </p>
+          <ul className="mt-3 space-y-1.5">
+            {duplicatedInstruments.map((i) => (
+              <li
+                key={i.id}
+                className="flex items-start justify-between gap-3 rounded-md border border-amber-500/10 bg-white/[0.02] px-3 py-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm text-slate-200">
+                      {i.identifier}
+                    </span>
+                    <span className="shrink-0 rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+                      {i.account_name}
+                    </span>
+                  </div>
+                  <div className="truncate text-[11px] text-slate-500">
+                    {i.security_name}
+                  </div>
+                </div>
+                <div className="flex flex-wrap justify-end gap-1">
+                  {i.group_ids.map((gid) => (
+                    <span
+                      key={gid}
+                      className="chip chip-amber tabular text-[10px]"
+                    >
+                      {groupNameById.get(gid) ?? `Group #${gid}`}
+                    </span>
+                  ))}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {ungroupedInstruments.length > 0 ? (
+        <div className="glass rounded-2xl p-5">
+          <div className="flex items-center gap-2">
+            <Inbox size={14} className="text-aurora-cyan" />
+            <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
+              Ungrouped holdings
+            </h3>
+            <span className="chip chip-muted tabular text-[10px]">
+              {ungroupedInstruments.length}
+            </span>
+          </div>
+          <p className="mt-1.5 text-[12px] text-slate-500">
+            {groups.length === 0
+              ? "Create a group above, then assign these holdings to it."
+              : "Holdings that don't belong to any group yet. Assign each one to keep your allocation complete."}
+          </p>
+          <ul className="mt-3 max-h-72 space-y-1.5 overflow-auto pr-1">
+            {ungroupedInstruments.map((i) => {
+              const pendingGroupId = pendingGroupByInstrument[i.id];
+              const isAdding =
+                addInstrumentToGroupMutation.isPending &&
+                addInstrumentToGroupMutation.variables?.instrumentId === i.id;
+              return (
+                <li
+                  key={i.id}
+                  className="flex items-center gap-3 rounded-md border border-white/[0.04] bg-white/[0.02] px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm text-slate-200">
+                        {i.identifier}
+                      </span>
+                      <span className="shrink-0 rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+                        {i.account_name}
+                      </span>
+                    </div>
+                    <div className="truncate text-[11px] text-slate-500">
+                      {i.security_name}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <select
+                      value={pendingGroupId ?? ""}
+                      onChange={(e) =>
+                        setPendingGroupByInstrument((prev) => {
+                          const next = { ...prev };
+                          if (e.target.value === "") delete next[i.id];
+                          else next[i.id] = Number(e.target.value);
+                          return next;
+                        })
+                      }
+                      disabled={groups.length === 0 || isAdding}
+                      className="rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none disabled:opacity-50"
+                    >
+                      <option value="">
+                        {groups.length === 0
+                          ? "No groups yet"
+                          : "Add to group…"}
+                      </option>
+                      {groups.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (pendingGroupId == null) return;
+                        addInstrumentToGroupMutation.mutate({
+                          groupId: pendingGroupId,
+                          instrumentId: i.id,
+                        });
+                      }}
+                      disabled={
+                        pendingGroupId == null ||
+                        groups.length === 0 ||
+                        isAdding
+                      }
+                      className="flex items-center gap-1 rounded-md bg-aurora-accent px-2.5 py-1 text-xs font-medium text-white shadow-glow-accent transition-opacity disabled:opacity-50"
+                    >
+                      <Plus size={12} />
+                      {isAdding ? "Adding…" : "Add"}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+
       <div className="glass rounded-2xl p-5">
         <div className="flex items-center gap-2">
           <Plus size={14} className="text-aurora-cyan" />
