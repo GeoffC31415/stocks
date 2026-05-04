@@ -29,6 +29,9 @@ export function GroupsSection({
   const [pendingGroupByInstrument, setPendingGroupByInstrument] = useState<
     Record<number, number>
   >({});
+  const [addErrorByInstrument, setAddErrorByInstrument] = useState<
+    Record<number, string>
+  >({});
 
   const groupNameById = useMemo(() => {
     const map = new Map<number, string>();
@@ -117,7 +120,21 @@ export function GroupsSection({
         delete next[variables.instrumentId];
         return next;
       });
+      setAddErrorByInstrument((prev) => {
+        if (!(variables.instrumentId in prev)) return prev;
+        const next = { ...prev };
+        delete next[variables.instrumentId];
+        return next;
+      });
       queryClient.invalidateQueries();
+    },
+    onError: (error, variables) => {
+      const message =
+        error instanceof Error ? error.message : "Failed to add to group.";
+      setAddErrorByInstrument((prev) => ({
+        ...prev,
+        [variables.instrumentId]: message,
+      }));
     },
   });
 
@@ -193,72 +210,80 @@ export function GroupsSection({
           <ul className="mt-3 max-h-72 space-y-1.5 overflow-auto pr-1">
             {ungroupedInstruments.map((i) => {
               const pendingGroupId = pendingGroupByInstrument[i.id];
+              const addError = addErrorByInstrument[i.id];
               const isAdding =
                 addInstrumentToGroupMutation.isPending &&
                 addInstrumentToGroupMutation.variables?.instrumentId === i.id;
               return (
                 <li
                   key={i.id}
-                  className="flex items-center gap-3 rounded-md border border-white/[0.04] bg-white/[0.02] px-3 py-2"
+                  className="rounded-md border border-white/[0.04] bg-white/[0.02] px-3 py-2"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm text-slate-200">
-                        {i.identifier}
-                      </span>
-                      <span className="shrink-0 rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
-                        {i.account_name}
-                      </span>
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm text-slate-200">
+                          {i.identifier}
+                        </span>
+                        <span className="shrink-0 rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+                          {i.account_name}
+                        </span>
+                      </div>
+                      <div className="truncate text-[11px] text-slate-500">
+                        {i.security_name}
+                      </div>
                     </div>
-                    <div className="truncate text-[11px] text-slate-500">
-                      {i.security_name}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <select
-                      value={pendingGroupId ?? ""}
-                      onChange={(e) =>
-                        setPendingGroupByInstrument((prev) => {
-                          const next = { ...prev };
-                          if (e.target.value === "") delete next[i.id];
-                          else next[i.id] = Number(e.target.value);
-                          return next;
-                        })
-                      }
-                      disabled={groups.length === 0 || isAdding}
-                      className="rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none disabled:opacity-50"
-                    >
-                      <option value="">
-                        {groups.length === 0
-                          ? "No groups yet"
-                          : "Add to group…"}
-                      </option>
-                      {groups.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.name}
+                    <div className="flex shrink-0 items-center gap-2">
+                      <select
+                        value={pendingGroupId ?? ""}
+                        onChange={(e) =>
+                          setPendingGroupByInstrument((prev) => {
+                            const next = { ...prev };
+                            if (e.target.value === "") delete next[i.id];
+                            else next[i.id] = Number(e.target.value);
+                            return next;
+                          })
+                        }
+                        disabled={groups.length === 0 || isAdding}
+                        className="rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none disabled:opacity-50"
+                      >
+                        <option value="">
+                          {groups.length === 0
+                            ? "No groups yet"
+                            : "Add to group…"}
                         </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (pendingGroupId == null) return;
-                        addInstrumentToGroupMutation.mutate({
-                          groupId: pendingGroupId,
-                          instrumentId: i.id,
-                        });
-                      }}
-                      disabled={
-                        pendingGroupId == null ||
-                        groups.length === 0 ||
-                        isAdding
-                      }
-                      className="flex items-center gap-1 rounded-md bg-aurora-accent px-2.5 py-1 text-xs font-medium text-white shadow-glow-accent transition-opacity disabled:opacity-50"
-                    >
-                      <Plus size={12} />
-                      {isAdding ? "Adding…" : "Add"}
-                    </button>
+                        {groups.map((g) => (
+                          <option key={g.id} value={g.id}>
+                            {g.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (pendingGroupId == null) return;
+                          addInstrumentToGroupMutation.mutate({
+                            groupId: pendingGroupId,
+                            instrumentId: i.id,
+                          });
+                        }}
+                        disabled={
+                          pendingGroupId == null ||
+                          groups.length === 0 ||
+                          isAdding
+                        }
+                        className="flex items-center gap-1 rounded-md bg-aurora-accent px-2.5 py-1 text-xs font-medium text-white shadow-glow-accent transition-opacity disabled:opacity-50"
+                      >
+                        <Plus size={12} />
+                        {isAdding ? "Adding…" : "Add"}
+                      </button>
+                    </div>
                   </div>
+                  {addError ? (
+                    <p className="mt-1.5 text-[11px] text-rose-400">
+                      {addError}
+                    </p>
+                  ) : null}
                 </li>
               );
             })}

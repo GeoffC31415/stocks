@@ -186,9 +186,19 @@ async def replace_group_members(
     existing_members_result = await session.execute(
         select(InstrumentGroupMember).where(InstrumentGroupMember.group_id == group_id)
     )
-    for member in existing_members_result.scalars().all():
-        await session.delete(member)
-    for instrument_id in instrument_ids:
+    existing_members = list(existing_members_result.scalars().all())
+    existing_instrument_ids = {member.instrument_id for member in existing_members}
+    desired_instrument_ids = set(instrument_ids)
+
+    # Diff-based update: only delete members that are no longer wanted and only
+    # insert members that aren't already there. Replacing the full set in one
+    # flush would tickle a unique-constraint violation under SQLAlchemy 2.0's
+    # insertmanyvalues path because the new INSERTs can be ordered before the
+    # pending DELETEs for the same (group_id, instrument_id) pair.
+    for member in existing_members:
+        if member.instrument_id not in desired_instrument_ids:
+            await session.delete(member)
+    for instrument_id in desired_instrument_ids - existing_instrument_ids:
         session.add(InstrumentGroupMember(group_id=group_id, instrument_id=instrument_id))
 
     await session.commit()
