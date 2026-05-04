@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: dark;
   --bg-base: #070a1a;
   --bg-surface: #0d1224;
   --bg-glass: rgba(15, 23, 42, 0.55);
@@ -42,6 +43,36 @@ body {
 .tabular {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
+}
+
+/*
+ * Native form controls (select dropdowns, date pickers, etc.) are rendered
+ * by the OS, so our dark Tailwind classes don't reach them. Without these
+ * rules the dropdown popup is near-white on Chrome/Windows and our light
+ * option text becomes unreadable.
+ */
+select,
+input[type="date"],
+input[type="number"],
+input[type="text"],
+input[type="search"] {
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background-color: #0d1224;
+  color: #e2e8f0;
+}
+
+select option:checked,
+select option:hover {
+  background-color: #1e293b;
+  color: #ffffff;
+}
+
+select option:disabled {
+  color: #64748b;
 }
 
 @layer components {
