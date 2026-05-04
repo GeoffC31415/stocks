@@ -48,7 +48,7 @@ export function Holdings() {
   });
   const groupsQ = useQuery({ queryKey: ["groups"], queryFn: api.getGroups });
 
-  const allInstruments = instrumentsQ.data ?? [];
+  const allInstruments = useMemo(() => instrumentsQ.data ?? [], [instrumentsQ.data]);
   const instruments = useMemo(
     () =>
       accountFilter === "all"

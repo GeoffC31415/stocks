@@ -68,7 +68,9 @@ class HoldingSnapshot(Base):
     __tablename__ = "holding_snapshots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id", ondelete="CASCADE"))
+    import_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("import_batches.id", ondelete="CASCADE")
+    )
     instrument_id: Mapped[int] = mapped_column(ForeignKey("instruments.id", ondelete="CASCADE"))
 
     investment_label: Mapped[str] = mapped_column(String(1024))
@@ -101,7 +103,7 @@ class OrderImportBatch(Base):
     filename: Mapped[str | None] = mapped_column(String(512), nullable=True)
     row_count: Mapped[int] = mapped_column(Integer, default=0)
 
-    orders: Mapped[list["Order"]] = relationship(
+    orders: Mapped[list[Order]] = relationship(
         back_populates="import_batch", cascade="all, delete-orphan"
     )
 

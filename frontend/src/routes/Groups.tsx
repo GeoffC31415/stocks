@@ -10,8 +10,8 @@ export function Groups() {
   });
   const groupsQ = useQuery({ queryKey: ["groups"], queryFn: api.getGroups });
 
-  const instruments = instrumentsQ.data ?? [];
-  const groups = groupsQ.data ?? [];
+  const instruments = useMemo(() => instrumentsQ.data ?? [], [instrumentsQ.data]);
+  const groups = useMemo(() => groupsQ.data ?? [], [groupsQ.data]);
 
   const byGroup = useMemo(() => {
     const grouped: Record<number, typeof instruments> = {};

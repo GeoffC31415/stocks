@@ -1,14 +1,16 @@
-import asyncio
 import datetime as dt
+from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-from app.models import Base, Instrument
+import app.routers.imports as imports_router
+import pytest
+from app.models import ImportBatch, Instrument
 from app.services.barclays_parser import ParsedHoldingRow
-from app.services.import_service import import_holding_snapshot
 from app.services.hl_parser import HL_ACCOUNT_NAME
+from app.services.import_service import import_holding_snapshot
 from app.services.portfolio_service import portfolio_value_timeseries
+from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _holding(
@@ -39,63 +41,100 @@ def _holding(
     )
 
 
-async def _import_hl_after_barclays() -> tuple[Instrument, dict, list[dict]]:
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    Session = async_sessionmaker(engine, expire_on_commit=False)
-    async with Session() as session:
-        await import_holding_snapshot(
-            session,
-            parsed_rows=[
-                _holding(
-                    account_name="Barclays ISA",
-                    identifier="VWRL",
-                    investment="Vanguard FTSE All-World",
-                    value_gbp=1000,
-                )
-            ],
-            as_of_date=dt.date(2026, 5, 1),
-            filename="barclays.xls",
-            file_sha256="barclays",
-        )
-        _, summary = await import_holding_snapshot(
-            session,
-            parsed_rows=[
-                _holding(
-                    account_name=HL_ACCOUNT_NAME,
-                    identifier="EQQQ",
-                    investment="Invesco Nasdaq 100",
-                    value_gbp=2000,
-                )
-            ],
-            as_of_date=dt.date(2026, 5, 4),
-            filename="hl.csv",
-            file_sha256="hl",
-        )
-        barclays = (
-            await session.execute(
-                select(Instrument).where(
-                    Instrument.account_name == "Barclays ISA",
-                    Instrument.identifier == "VWRL",
-                )
+async def _import_hl_after_barclays(
+    async_session: AsyncSession,
+) -> tuple[Instrument, dict[str, Any], list[dict[str, Any]]]:
+    await import_holding_snapshot(
+        async_session,
+        parsed_rows=[
+            _holding(
+                account_name="Barclays ISA",
+                identifier="VWRL",
+                investment="Vanguard FTSE All-World",
+                value_gbp=1000,
             )
-        ).scalar_one()
-        timeseries = await portfolio_value_timeseries(session)
+        ],
+        as_of_date=dt.date(2026, 5, 1),
+        filename="barclays.xls",
+        file_sha256="barclays",
+    )
+    _, summary = await import_holding_snapshot(
+        async_session,
+        parsed_rows=[
+            _holding(
+                account_name=HL_ACCOUNT_NAME,
+                identifier="EQQQ",
+                investment="Invesco Nasdaq 100",
+                value_gbp=2000,
+            )
+        ],
+        as_of_date=dt.date(2026, 5, 4),
+        filename="hl.csv",
+        file_sha256="hl",
+    )
+    barclays = (
+        await async_session.execute(
+            select(Instrument).where(
+                Instrument.account_name == "Barclays ISA",
+                Instrument.identifier == "VWRL",
+            )
+        )
+    ).scalar_one()
+    timeseries = await portfolio_value_timeseries(async_session)
 
-    await engine.dispose()
     return barclays, summary, timeseries
 
 
-def test_importing_hl_snapshot_does_not_close_barclays_instruments() -> None:
-    barclays, summary, _ = asyncio.run(_import_hl_after_barclays())
+async def test_importing_hl_snapshot_does_not_close_barclays_instruments(
+    async_session: AsyncSession,
+) -> None:
+    barclays, summary, _ = await _import_hl_after_barclays(async_session)
 
     assert barclays.closed_at is None
     assert summary["closed"] == []
 
 
-def test_portfolio_timeseries_carries_forward_other_account_snapshots() -> None:
-    _, _, timeseries = asyncio.run(_import_hl_after_barclays())
+async def test_portfolio_timeseries_carries_forward_other_account_snapshots(
+    async_session: AsyncSession,
+) -> None:
+    _, _, timeseries = await _import_hl_after_barclays(async_session)
 
     assert [row["total_value_gbp"] for row in timeseries] == [1000.0, 3000.0]
+
+
+async def test_create_import_endpoint_uses_overridden_session(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_import_barclays_xls(
+        session: AsyncSession,
+        *,
+        file_bytes: bytes,
+        filename: str | None,
+        as_of_date: dt.date | None,
+        file_metadata_as_of: dt.date | None = None,
+        force: bool = False,
+    ) -> tuple[ImportBatch, dict[str, Any]]:
+        batch = ImportBatch(
+            as_of_date=as_of_date or file_metadata_as_of or dt.date(2026, 5, 4),
+            file_sha256="fake-sha",
+            filename=filename,
+            diff_summary={"row_count": 0},
+        )
+        session.add(batch)
+        await session.flush()
+        return batch, {"row_count": 0, "force": force, "bytes": len(file_bytes)}
+
+    monkeypatch.setattr(imports_router, "import_barclays_xls", fake_import_barclays_xls)
+
+    response = await client.post(
+        "/api/imports",
+        data={"as_of_date": "2026-05-04", "force": "true"},
+        files={"file": ("snapshot.xls", b"synthetic workbook bytes", "application/vnd.ms-excel")},
+    )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["batch"]["filename"] == "snapshot.xls"
+    assert payload["batch"]["as_of_date"] == "2026-05-04"
+    assert payload["summary"] == {"row_count": 0, "force": True, "bytes": 24}

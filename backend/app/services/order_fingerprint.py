@@ -6,10 +6,7 @@ import json
 
 
 def _normalise_datetime(value: dt.datetime | str) -> str:
-    if isinstance(value, str):
-        parsed = dt.datetime.fromisoformat(value)
-    else:
-        parsed = value
+    parsed = dt.datetime.fromisoformat(value) if isinstance(value, str) else value
 
     if parsed.tzinfo is not None:
         parsed = parsed.astimezone(dt.UTC).replace(tzinfo=None)

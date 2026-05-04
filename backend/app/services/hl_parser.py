@@ -101,7 +101,9 @@ def parse_hl_holdings_csv_bytes(data: bytes) -> tuple[list[ParsedHoldingRow], dt
                 account_name=HL_ACCOUNT_NAME,
                 investment=stock,
                 identifier=code,
-                quantity=_to_float(row[col["units held"]]) if col["units held"] < len(row) else None,
+                quantity=_to_float(row[col["units held"]])
+                if col["units held"] < len(row)
+                else None,
                 last_price=None,
                 last_price_ccy="GBX",
                 value=None,
@@ -116,7 +118,9 @@ def parse_hl_holdings_csv_bytes(data: bytes) -> tuple[list[ParsedHoldingRow], dt
                 book_cost=None,
                 book_cost_ccy="GBP",
                 average_fx_rate=None,
-                book_cost_gbp=_to_float(row[col["cost (£)"]]) if col["cost (£)"] < len(row) else None,
+                book_cost_gbp=_to_float(row[col["cost (£)"]])
+                if col["cost (£)"] < len(row)
+                else None,
                 pct_change=(
                     _to_float(row[col["gain/loss (%)"]])
                     if "gain/loss (%)" in col and col["gain/loss (%)"] < len(row)
@@ -169,7 +173,9 @@ def parse_hl_activity_csv_bytes(
         if not _TRADE_REF_RE.match(reference):
             continue
 
-        unit_cost = _to_float(row[col["unit cost (p)"]]) if col["unit cost (p)"] < len(row) else None
+        unit_cost = (
+            _to_float(row[col["unit cost (p)"]]) if col["unit cost (p)"] < len(row) else None
+        )
         quantity = _to_float(row[col["quantity"]]) if col["quantity"] < len(row) else None
         value = _to_float(row[col["value (£)"]]) if col["value (£)"] < len(row) else None
         if unit_cost is None or quantity is None or value is None:

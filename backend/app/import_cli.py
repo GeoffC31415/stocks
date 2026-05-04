@@ -6,7 +6,11 @@ import datetime as dt
 from pathlib import Path
 
 from app.database import SessionLocal, init_db
-from app.services.import_service import DuplicateImportError, import_barclays_xls, import_hl_holdings_csv
+from app.services.import_service import (
+    DuplicateImportError,
+    import_barclays_xls,
+    import_hl_holdings_csv,
+)
 
 
 def _file_metadata_as_of_date(path: Path) -> dt.date:

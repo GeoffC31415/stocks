@@ -244,9 +244,7 @@ async def import_holding_snapshot(
                 prev_by_instrument[snapshot.instrument_id] = snapshot
 
     prev_batch = (
-        max(previous_batches.values(), key=lambda batch: batch.id)
-        if previous_batches
-        else None
+        max(previous_batches.values(), key=lambda batch: batch.id) if previous_batches else None
     )
 
     batch = ImportBatch(
@@ -330,11 +328,14 @@ async def import_holding_snapshot(
             )
 
     from app.services.instrument_matcher import link_orders_to_instruments
+
     orders_linked = await link_orders_to_instruments(session)
 
     summary: dict[str, Any] = {
         "previous_batch_id": prev_batch.id if prev_batch is not None else None,
-        "previous_as_of_date": prev_batch.as_of_date.isoformat() if prev_batch is not None else None,
+        "previous_as_of_date": prev_batch.as_of_date.isoformat()
+        if prev_batch is not None
+        else None,
         "new_instrument_ids": new_ids,
         "closed": closed,
         "changed": changed,

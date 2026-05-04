@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 
+from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -13,7 +14,7 @@ engine = create_async_engine(
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-def _migrate_order_dedupe(sync_conn) -> None:
+def _migrate_order_dedupe(sync_conn: Connection) -> None:
     order_columns = {
         row[1] for row in sync_conn.exec_driver_sql("PRAGMA table_info(orders)").fetchall()
     }
@@ -84,12 +85,13 @@ def _migrate_order_dedupe(sync_conn) -> None:
     )
     sync_conn.exec_driver_sql("DELETE FROM order_import_batches WHERE row_count = 0")
     sync_conn.exec_driver_sql(
-        "CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_order_fingerprint "
-        "ON orders(order_fingerprint)"
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_orders_order_fingerprint ON orders(order_fingerprint)"
     )
 
 
-def _add_column_if_missing(sync_conn, table_name: str, column_name: str, ddl: str) -> None:
+def _add_column_if_missing(
+    sync_conn: Connection, table_name: str, column_name: str, ddl: str
+) -> None:
     columns = {
         row[1] for row in sync_conn.exec_driver_sql(f"PRAGMA table_info({table_name})").fetchall()
     }
@@ -97,7 +99,7 @@ def _add_column_if_missing(sync_conn, table_name: str, column_name: str, ddl: st
         sync_conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {ddl}")
 
 
-def _migrate_portfolio_metadata(sync_conn) -> None:
+def _migrate_portfolio_metadata(sync_conn: Connection) -> None:
     _add_column_if_missing(sync_conn, "instruments", "ticker", "ticker VARCHAR(64)")
     _add_column_if_missing(sync_conn, "instruments", "sector", "sector VARCHAR(128)")
     _add_column_if_missing(sync_conn, "instruments", "region", "region VARCHAR(128)")

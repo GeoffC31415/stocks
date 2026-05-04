@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,9 +39,7 @@ async def get_latest_batch_for_account(
     return r.scalar_one_or_none()
 
 
-async def get_previous_batch(
-    session: AsyncSession, *, before_batch_id: int
-) -> ImportBatch | None:
+async def get_previous_batch(session: AsyncSession, *, before_batch_id: int) -> ImportBatch | None:
     r = await session.execute(
         select(ImportBatch)
         .where(ImportBatch.id < before_batch_id)
@@ -120,7 +119,7 @@ def _quantity_unchanged_snapshot_count(snapshots: Sequence[HoldingSnapshot]) -> 
 
 
 def snapshot_metrics(
-    snapshots_by_instrument: dict[int, Sequence[HoldingSnapshot]],
+    snapshots_by_instrument: Mapping[int, Sequence[HoldingSnapshot]],
 ) -> dict[int, dict[str, float | int | None]]:
     """Peak and quantity-stability metrics derived from an instrument's snapshot history."""
     metrics: dict[int, dict[str, float | int | None]] = {}
@@ -171,6 +170,10 @@ def build_instrument_out(
     prev_value = previous_snapshot.value_gbp if previous_snapshot is not None else None
     prev_quantity = previous_snapshot.quantity if previous_snapshot is not None else None
 
+    quantity_unchanged_snapshot_count = (
+        metrics.get("quantity_unchanged_snapshot_count") if metrics else None
+    )
+
     return InstrumentOut(
         id=instrument.id,
         account_name=instrument.account_name,
@@ -196,15 +199,15 @@ def build_instrument_out(
         peak_last_price=metrics.get("peak_last_price") if metrics else None,
         drawdown_from_peak_pct=metrics.get("drawdown_from_peak_pct") if metrics else None,
         quantity_unchanged_snapshot_count=(
-            int(metrics["quantity_unchanged_snapshot_count"])
-            if metrics and metrics.get("quantity_unchanged_snapshot_count") is not None
+            int(quantity_unchanged_snapshot_count)
+            if quantity_unchanged_snapshot_count is not None
             else None
         ),
         group_ids=sorted(group_ids) if group_ids else [],
     )
 
 
-async def build_portfolio_summary(session: AsyncSession) -> dict:
+async def build_portfolio_summary(session: AsyncSession) -> dict[str, Any]:
     snaps = await get_current_snapshots(session)
     if not snaps:
         return {
@@ -232,7 +235,7 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
     total_book = 0.0
     by_account: dict[str, float] = defaultdict(float)
 
-    instrument_rows: list[dict] = []
+    instrument_rows: list[dict[str, Any]] = []
     for s in snaps:
         inst = s.instrument
         v = s.value_gbp or 0.0
@@ -264,8 +267,10 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
     )
     groups = r_groups.scalars().unique().all()
     by_group: dict[str, float] = {}
-    inst_to_value = {row["instrument"].id: row["snapshot"].value_gbp or 0.0 for row in instrument_rows}
-    group_allocation: list[dict] = []
+    inst_to_value = {
+        row["instrument"].id: row["snapshot"].value_gbp or 0.0 for row in instrument_rows
+    }
+    group_allocation: list[dict[str, Any]] = []
     for g in groups:
         total_g = 0.0
         for m in g.members:
@@ -337,11 +342,9 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
 async def instrument_history(
     session: AsyncSession,
     instrument_id: int,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     orders_result = await session.execute(
-        select(Order)
-        .where(Order.instrument_id == instrument_id)
-        .order_by(Order.order_date)
+        select(Order).where(Order.instrument_id == instrument_id).order_by(Order.order_date)
     )
     orders = list(orders_result.scalars().all())
     discretionary_basis_by_date: dict[object, float] = {}
@@ -354,9 +357,11 @@ async def instrument_history(
         .where(HoldingSnapshot.instrument_id == instrument_id)
         .order_by(ImportBatch.as_of_date, ImportBatch.id)
     )
-    out: list[dict] = []
+    out: list[dict[str, Any]] = []
     for snap, batch in r.all():
-        while order_index < len(orders) and orders[order_index].order_date.date() <= batch.as_of_date:
+        while (
+            order_index < len(orders) and orders[order_index].order_date.date() <= batch.as_of_date
+        ):
             order = orders[order_index]
             cost = order.cost_proceeds_gbp or 0.0
             if order.side.lower() == "buy" and not order.is_drip:
@@ -378,7 +383,7 @@ async def instrument_history(
     return out
 
 
-async def portfolio_value_timeseries(session: AsyncSession) -> list[dict]:
+async def portfolio_value_timeseries(session: AsyncSession) -> list[dict[str, Any]]:
     """Portfolio value after each import, carrying forward untouched account snapshots."""
     batches_result = await session.execute(
         select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
@@ -398,7 +403,7 @@ async def portfolio_value_timeseries(session: AsyncSession) -> list[dict]:
         snapshots_by_batch[snapshot.import_batch_id].append(snapshot)
 
     current_by_instrument: dict[int, HoldingSnapshot] = {}
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for batch in batches:
         for snapshot in snapshots_by_batch.get(batch.id, []):
             current_by_instrument[snapshot.instrument_id] = snapshot

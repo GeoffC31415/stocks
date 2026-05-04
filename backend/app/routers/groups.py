@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_session
-from app.models import HoldingSnapshot, Instrument, InstrumentGroup, InstrumentGroupMember
+from app.models import Instrument, InstrumentGroup, InstrumentGroupMember
 from app.schemas import (
     GroupMembersBody,
     GroupPerformance,
@@ -28,8 +28,7 @@ async def _all_group_totals(session: AsyncSession) -> dict[int, float]:
     if not current_snapshots:
         return {}
     value_by_instrument = {
-        snapshot.instrument_id: snapshot.value_gbp or 0.0
-        for snapshot in current_snapshots
+        snapshot.instrument_id: snapshot.value_gbp or 0.0 for snapshot in current_snapshots
     }
     result = await session.execute(select(InstrumentGroupMember))
     totals: dict[int, float] = {}
@@ -41,9 +40,7 @@ async def _all_group_totals(session: AsyncSession) -> dict[int, float]:
     return totals
 
 
-async def _single_group_summary(
-    session: AsyncSession, group_id: int
-) -> tuple[int, float]:
+async def _single_group_summary(session: AsyncSession, group_id: int) -> tuple[int, float]:
     """Member count and current total value for a single group."""
     member_count = (
         await session.execute(
@@ -55,13 +52,14 @@ async def _single_group_summary(
 
     current_snapshots = await get_current_snapshots(session)
     value_by_instrument = {
-        snapshot.instrument_id: snapshot.value_gbp or 0.0
-        for snapshot in current_snapshots
+        snapshot.instrument_id: snapshot.value_gbp or 0.0 for snapshot in current_snapshots
     }
     members = await session.execute(
         select(InstrumentGroupMember).where(InstrumentGroupMember.group_id == group_id)
     )
-    total = sum(value_by_instrument.get(member.instrument_id, 0.0) for member in members.scalars().all())
+    total = sum(
+        value_by_instrument.get(member.instrument_id, 0.0) for member in members.scalars().all()
+    )
     return int(member_count), float(total or 0.0)
 
 
@@ -77,7 +75,9 @@ async def group_performance(
 @router.get("", response_model=list[InstrumentGroupOut])
 async def list_groups(session: AsyncSession = Depends(get_session)) -> list[InstrumentGroupOut]:
     result = await session.execute(
-        select(InstrumentGroup).options(selectinload(InstrumentGroup.members)).order_by(InstrumentGroup.name)
+        select(InstrumentGroup)
+        .options(selectinload(InstrumentGroup.members))
+        .order_by(InstrumentGroup.name)
     )
     groups = result.scalars().unique().all()
     totals = await _all_group_totals(session)
@@ -100,7 +100,9 @@ async def create_group(
     session: AsyncSession = Depends(get_session),
 ) -> InstrumentGroupOut:
     existing = (
-        await session.execute(select(InstrumentGroup).where(InstrumentGroup.name == body.name.strip()))
+        await session.execute(
+            select(InstrumentGroup).where(InstrumentGroup.name == body.name.strip())
+        )
     ).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail="Group name already exists.")
@@ -177,9 +179,13 @@ async def replace_group_members(
 
     instrument_ids = sorted(set(body.instrument_ids))
     if instrument_ids:
-        result = await session.execute(select(Instrument.id).where(Instrument.id.in_(instrument_ids)))
+        result = await session.execute(
+            select(Instrument.id).where(Instrument.id.in_(instrument_ids))
+        )
         existing = set(result.scalars().all())
-        missing = [instrument_id for instrument_id in instrument_ids if instrument_id not in existing]
+        missing = [
+            instrument_id for instrument_id in instrument_ids if instrument_id not in existing
+        ]
         if missing:
             raise HTTPException(status_code=400, detail=f"Unknown instrument ids: {missing}")
 

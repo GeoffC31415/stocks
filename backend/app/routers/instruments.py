@@ -5,8 +5,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
-from app.models import HoldingSnapshot, ImportBatch, Instrument, InstrumentGroupMember, InstrumentQuote
-from app.schemas import InstrumentHistoryPoint, InstrumentMarketPatch, InstrumentOut, InstrumentQuoteOut, OrderOut
+from app.models import (
+    HoldingSnapshot,
+    ImportBatch,
+    Instrument,
+    InstrumentGroupMember,
+    InstrumentQuote,
+)
+from app.schemas import (
+    InstrumentHistoryPoint,
+    InstrumentMarketPatch,
+    InstrumentOut,
+    InstrumentQuoteOut,
+    OrderOut,
+)
 from app.services.market_data_service import infer_asset_class, refresh_instrument_quote
 from app.services.order_service import get_orders_for_instrument
 from app.services.portfolio_service import (

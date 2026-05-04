@@ -3,6 +3,7 @@ Single unified matcher that resolves an order's security_name to an Instrument.
 
 Called once at import/backfill time so all queries can use FK joins.
 """
+
 from __future__ import annotations
 
 import re
@@ -13,12 +14,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Instrument, Order
 
-_NOISE = frozenset({
-    "plc", "ord", "group", "holdings", "holding", "limited", "ltd",
-    "inc", "corp", "the", "and", "of", "co", "new", "np", "di",
-    "corporation", "company", "common", "shares", "share", "etf",
-    "ucits", "fund", "funds", "public",
-})
+_NOISE = frozenset(
+    {
+        "plc",
+        "ord",
+        "group",
+        "holdings",
+        "holding",
+        "limited",
+        "ltd",
+        "inc",
+        "corp",
+        "the",
+        "and",
+        "of",
+        "co",
+        "new",
+        "np",
+        "di",
+        "corporation",
+        "company",
+        "common",
+        "shares",
+        "share",
+        "etf",
+        "ucits",
+        "fund",
+        "funds",
+        "public",
+    }
+)
 
 _NORMALISE_RE = re.compile(r"[^a-z0-9 ]+")
 
@@ -28,10 +53,7 @@ def _normalise(name: str) -> str:
 
 
 def _meaningful_tokens(name: str) -> frozenset[str]:
-    return frozenset(
-        t for t in _normalise(name).split()
-        if t not in _NOISE and len(t) > 1
-    )
+    return frozenset(t for t in _normalise(name).split() if t not in _NOISE and len(t) > 1)
 
 
 def match_order_to_instrument(
@@ -79,11 +101,10 @@ def match_order_to_instrument(
         best_len = 0
         for inst in candidates:
             i_norm = _normalise(inst.security_name)
-            if o_norm in i_norm or i_norm in o_norm:
+            if (o_norm in i_norm or i_norm in o_norm) and len(i_norm) > best_len:
                 # prefer the longer instrument name (more specific match)
-                if len(i_norm) > best_len:
-                    best = inst
-                    best_len = len(i_norm)
+                best = inst
+                best_len = len(i_norm)
         return best
 
     def _try_token(candidates: Sequence[Instrument]) -> Instrument | None:
@@ -123,16 +144,12 @@ async def link_orders_to_instruments(
     If *orders* is None, loads all unlinked orders from the DB.
     Returns the number of orders that were linked.
     """
-    instruments = list(
-        (await session.execute(select(Instrument))).scalars().all()
-    )
+    instruments = list((await session.execute(select(Instrument))).scalars().all())
     if not instruments:
         return 0
 
     if orders is None:
-        result = await session.execute(
-            select(Order).where(Order.instrument_id.is_(None))
-        )
+        result = await session.execute(select(Order).where(Order.instrument_id.is_(None)))
         orders = list(result.scalars().all())
 
     linked = 0
@@ -140,7 +157,9 @@ async def link_orders_to_instruments(
         if order.instrument_id is not None:
             continue
         match = match_order_to_instrument(
-            order.security_name, order.account_name, instruments,
+            order.security_name,
+            order.account_name,
+            instruments,
         )
         if match:
             order.instrument_id = match.id

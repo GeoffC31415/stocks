@@ -161,9 +161,7 @@ async def list_unlinked_orders(
     These would otherwise be silently absent from per-position analytics.
     """
     count_result = await session.execute(
-        select(func.count())
-        .select_from(Order)
-        .where(Order.instrument_id.is_(None))
+        select(func.count()).select_from(Order).where(Order.instrument_id.is_(None))
     )
     count = int(count_result.scalar_one() or 0)
 

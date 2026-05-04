@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +18,7 @@ from app.services.portfolio_service import (
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 
-def _to_instrument_out(row: dict) -> InstrumentOut:
+def _to_instrument_out(row: dict[str, Any]) -> InstrumentOut:
     return build_instrument_out(row["instrument"], row["snapshot"])
 
 
@@ -40,7 +41,7 @@ async def summary(session: AsyncSession = Depends(get_session)) -> PortfolioSumm
 
 
 @router.get("/timeseries")
-async def timeseries(session: AsyncSession = Depends(get_session)) -> list[dict]:
+async def timeseries(session: AsyncSession = Depends(get_session)) -> list[dict[str, Any]]:
     return await portfolio_value_timeseries(session)
 
 
@@ -50,7 +51,7 @@ async def benchmarks(
     start: dt.date | None = None,
     base_value: float = 100.0,
 ) -> list[BenchmarkPoint]:
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for symbol in symbols:
         rows.extend(await fetch_history(symbol, start=start, base_value=base_value))
     rows.sort(key=lambda row: (row["date"], row["symbol"]))
