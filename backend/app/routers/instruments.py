@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.database import get_session
 from app.models import HoldingSnapshot, ImportBatch, Instrument, InstrumentGroupMember, InstrumentQuote
@@ -12,8 +11,7 @@ from app.services.market_data_service import infer_asset_class, refresh_instrume
 from app.services.order_service import get_orders_for_instrument
 from app.services.portfolio_service import (
     build_instrument_out,
-    get_latest_batch,
-    get_previous_batch,
+    get_current_snapshots,
     instrument_history,
     snapshot_metrics,
 )
@@ -23,17 +21,9 @@ router = APIRouter(prefix="/api/instruments", tags=["instruments"])
 
 @router.get("", response_model=list[InstrumentOut])
 async def list_instruments(session: AsyncSession = Depends(get_session)) -> list[InstrumentOut]:
-    batch = await get_latest_batch(session)
-    if batch is None:
+    snapshots = await get_current_snapshots(session)
+    if not snapshots:
         return []
-
-    snap_result = await session.execute(
-        select(HoldingSnapshot)
-        .where(HoldingSnapshot.import_batch_id == batch.id)
-        .options(selectinload(HoldingSnapshot.instrument))
-        .order_by(HoldingSnapshot.value_gbp.desc().nullslast())
-    )
-    snapshots = snap_result.scalars().all()
 
     membership_result = await session.execute(select(InstrumentGroupMember))
     memberships = membership_result.scalars().all()
@@ -44,16 +34,9 @@ async def list_instruments(session: AsyncSession = Depends(get_session)) -> list
     quote_result = await session.execute(select(InstrumentQuote))
     quotes = {quote.instrument_id: quote for quote in quote_result.scalars().all()}
 
-    prev_batch = await get_previous_batch(session, before_batch_id=batch.id)
-    prev_snapshots: dict[int, HoldingSnapshot] = {}
-    if prev_batch is not None:
-        prev_result = await session.execute(
-            select(HoldingSnapshot).where(HoldingSnapshot.import_batch_id == prev_batch.id)
-        )
-        prev_snapshots = {s.instrument_id: s for s in prev_result.scalars().all()}
-
     instrument_ids = [snap.instrument_id for snap in snapshots]
     metrics_by_instrument: dict[int, dict[str, float | int | None]] = {}
+    prev_snapshots: dict[int, HoldingSnapshot] = {}
     if instrument_ids:
         history_result = await session.execute(
             select(HoldingSnapshot)
@@ -67,6 +50,18 @@ async def list_instruments(session: AsyncSession = Depends(get_session)) -> list
                 history_snapshot
             )
         metrics_by_instrument = snapshot_metrics(history_by_instrument)
+        current_batch_by_instrument = {
+            snapshot.instrument_id: snapshot.import_batch_id for snapshot in snapshots
+        }
+        for instrument_id, history in history_by_instrument.items():
+            current_batch_id = current_batch_by_instrument.get(instrument_id)
+            prior = [
+                snapshot
+                for snapshot in history
+                if current_batch_id is not None and snapshot.import_batch_id < current_batch_id
+            ]
+            if prior:
+                prev_snapshots[instrument_id] = prior[-1]
 
     return [
         build_instrument_out(

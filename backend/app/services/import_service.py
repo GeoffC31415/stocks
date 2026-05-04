@@ -10,17 +10,14 @@ from sqlalchemy.orm import selectinload
 
 from app.models import HoldingSnapshot, ImportBatch, Instrument
 from app.services.barclays_parser import ParsedHoldingRow, parse_barclays_xls_bytes
+from app.services.hl_parser import parse_hl_holdings_csv_bytes
+from app.services.portfolio_service import get_latest_batch_for_account
 
 
 class DuplicateImportError(Exception):
     def __init__(self, batch_id: int) -> None:
         self.batch_id = batch_id
         super().__init__(f"Identical file already imported as batch {batch_id}")
-
-
-async def _latest_batch(session: AsyncSession) -> ImportBatch | None:
-    q = await session.execute(select(ImportBatch).order_by(ImportBatch.id.desc()).limit(1))
-    return q.scalar_one_or_none()
 
 
 async def _snapshots_for_batch(session: AsyncSession, batch_id: int) -> list[HoldingSnapshot]:
@@ -181,28 +178,80 @@ async def import_barclays_xls(
     force: bool = False,
 ) -> tuple[ImportBatch, dict[str, Any]]:
     sha = hashlib.sha256(file_bytes).hexdigest()
-    if not force:
-        dup = (
-            await session.execute(select(ImportBatch).where(ImportBatch.file_sha256 == sha))
-        ).scalar_one_or_none()
-        if dup is not None:
-            raise DuplicateImportError(dup.id)
-
     parsed_rows, inferred_as_of = parse_barclays_xls_bytes(
         file_bytes,
         default_as_of_date=as_of_date,
     )
     effective_date = as_of_date or file_metadata_as_of or inferred_as_of
+    return await import_holding_snapshot(
+        session,
+        parsed_rows=parsed_rows,
+        as_of_date=effective_date,
+        filename=filename,
+        file_sha256=sha,
+        force=force,
+    )
 
-    prev_batch = await _latest_batch(session)
+
+async def import_hl_holdings_csv(
+    session: AsyncSession,
+    *,
+    file_bytes: bytes,
+    filename: str | None,
+    as_of_date: dt.date | None,
+    file_metadata_as_of: dt.date | None = None,
+    force: bool = False,
+) -> tuple[ImportBatch, dict[str, Any]]:
+    sha = hashlib.sha256(file_bytes).hexdigest()
+    parsed_rows, inferred_as_of = parse_hl_holdings_csv_bytes(file_bytes)
+    effective_date = as_of_date or inferred_as_of or file_metadata_as_of or dt.date.today()
+    return await import_holding_snapshot(
+        session,
+        parsed_rows=parsed_rows,
+        as_of_date=effective_date,
+        filename=filename,
+        file_sha256=sha,
+        force=force,
+    )
+
+
+async def import_holding_snapshot(
+    session: AsyncSession,
+    *,
+    parsed_rows: list[ParsedHoldingRow],
+    as_of_date: dt.date,
+    filename: str | None,
+    file_sha256: str,
+    force: bool = False,
+) -> tuple[ImportBatch, dict[str, Any]]:
+    if not force:
+        dup = (
+            await session.execute(select(ImportBatch).where(ImportBatch.file_sha256 == file_sha256))
+        ).scalar_one_or_none()
+        if dup is not None:
+            raise DuplicateImportError(dup.id)
+
+    batch_accounts = {row.account_name for row in parsed_rows}
+    previous_batches: dict[int, ImportBatch] = {}
     prev_by_instrument: dict[int, HoldingSnapshot] = {}
-    if prev_batch is not None:
-        for s in await _snapshots_for_batch(session, prev_batch.id):
-            prev_by_instrument[s.instrument_id] = s
+    for account_name in batch_accounts:
+        prev_batch = await get_latest_batch_for_account(session, account_name)
+        if prev_batch is None:
+            continue
+        previous_batches[prev_batch.id] = prev_batch
+        for snapshot in await _snapshots_for_batch(session, prev_batch.id):
+            if snapshot.instrument.account_name == account_name:
+                prev_by_instrument[snapshot.instrument_id] = snapshot
+
+    prev_batch = (
+        max(previous_batches.values(), key=lambda batch: batch.id)
+        if previous_batches
+        else None
+    )
 
     batch = ImportBatch(
-        as_of_date=effective_date,
-        file_sha256=sha,
+        as_of_date=as_of_date,
+        file_sha256=file_sha256,
         filename=filename,
         diff_summary=None,
     )

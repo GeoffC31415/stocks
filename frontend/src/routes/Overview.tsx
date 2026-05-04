@@ -12,9 +12,10 @@ import { PerformersSection } from "../components/PerformersSection";
 
 export function Overview() {
   const navigate = useNavigate();
-  const { dripThreshold } = usePreferences();
+  const { dripThreshold, accountFilter } = usePreferences();
 
   const summaryQ = useQuery({ queryKey: ["summary"], queryFn: api.getSummary });
+  const instrumentsQ = useQuery({ queryKey: ["instruments"], queryFn: api.getInstruments });
   const timeseriesQ = useQuery({
     queryKey: ["timeseries"],
     queryFn: api.getTimeseries,
@@ -51,7 +52,64 @@ export function Overview() {
       benchmarkBaseValue != null,
   });
 
-  const summary = summaryQ.data;
+  const rawSummary = summaryQ.data;
+  const filteredInstruments = useMemo(() => {
+    const instruments = instrumentsQ.data ?? [];
+    if (accountFilter === "all") return instruments;
+    return instruments.filter((instrument) => instrument.account_name === accountFilter);
+  }, [accountFilter, instrumentsQ.data]);
+  const summary = useMemo(() => {
+    if (!rawSummary || accountFilter === "all") return rawSummary;
+
+    const totalValue = filteredInstruments.reduce(
+      (total, instrument) => total + (instrument.latest_value_gbp ?? 0),
+      0,
+    );
+    const totalBook = filteredInstruments.reduce(
+      (total, instrument) =>
+        total + (instrument.is_cash ? 0 : (instrument.latest_book_cost_gbp ?? 0)),
+      0,
+    );
+    const totalPnl = filteredInstruments.reduce(
+      (total, instrument) => total + (instrument.pnl_gbp ?? 0),
+      0,
+    );
+    const nonCash = filteredInstruments.filter((instrument) => !instrument.is_cash);
+    const nonCashTotal = nonCash.reduce(
+      (total, instrument) => total + (instrument.latest_value_gbp ?? 0),
+      0,
+    );
+    const allocation = [...nonCash]
+      .sort((a, b) => (b.latest_value_gbp ?? 0) - (a.latest_value_gbp ?? 0))
+      .map((instrument) => ({
+        label: instrument.security_name,
+        kind: "holding",
+        value_gbp: instrument.latest_value_gbp ?? 0,
+        weight_pct:
+          nonCashTotal > 0
+            ? ((instrument.latest_value_gbp ?? 0) / nonCashTotal) * 100
+            : 0,
+        target_pct: null,
+        drift_pct: null,
+        is_concentration_risk:
+          nonCashTotal > 0 &&
+          ((instrument.latest_value_gbp ?? 0) / nonCashTotal) * 100 > 20,
+      }));
+    const withPct = nonCash.filter((instrument) => instrument.latest_pct_change != null);
+    return {
+      ...rawSummary,
+      total_value_gbp: totalValue,
+      total_book_cost_gbp: totalBook,
+      total_pnl_gbp: totalPnl,
+      allocation,
+      worst_pct: [...withPct]
+        .sort((a, b) => (a.latest_pct_change ?? 0) - (b.latest_pct_change ?? 0))
+        .slice(0, 8),
+      best_pct: [...withPct]
+        .sort((a, b) => (b.latest_pct_change ?? 0) - (a.latest_pct_change ?? 0))
+        .slice(0, 8),
+    };
+  }, [accountFilter, filteredInstruments, rawSummary]);
   const analytics = analyticsQ.data;
   const hasOrders = (analytics?.total_orders ?? 0) > 0;
 

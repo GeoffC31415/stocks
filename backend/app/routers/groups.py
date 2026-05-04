@@ -15,7 +15,7 @@ from app.schemas import (
     InstrumentGroupPatch,
 )
 from app.services.order_service import get_group_performance
-from app.services.portfolio_service import get_latest_batch
+from app.services.portfolio_service import get_current_snapshots
 
 router = APIRouter(prefix="/api/groups", tags=["groups"])
 
@@ -24,23 +24,21 @@ _DRIP_DEFAULT = 1000.0
 
 async def _all_group_totals(session: AsyncSession) -> dict[int, float]:
     """Sum of latest-snapshot value per group, in a single grouped query."""
-    batch = await get_latest_batch(session)
-    if batch is None:
+    current_snapshots = await get_current_snapshots(session)
+    if not current_snapshots:
         return {}
-    r = await session.execute(
-        select(
-            InstrumentGroupMember.group_id,
-            func.coalesce(func.sum(HoldingSnapshot.value_gbp), 0.0),
+    value_by_instrument = {
+        snapshot.instrument_id: snapshot.value_gbp or 0.0
+        for snapshot in current_snapshots
+    }
+    result = await session.execute(select(InstrumentGroupMember))
+    totals: dict[int, float] = {}
+    for member in result.scalars().all():
+        totals[member.group_id] = totals.get(member.group_id, 0.0) + value_by_instrument.get(
+            member.instrument_id,
+            0.0,
         )
-        .select_from(InstrumentGroupMember)
-        .outerjoin(
-            HoldingSnapshot,
-            (HoldingSnapshot.instrument_id == InstrumentGroupMember.instrument_id)
-            & (HoldingSnapshot.import_batch_id == batch.id),
-        )
-        .group_by(InstrumentGroupMember.group_id)
-    )
-    return {group_id: float(total or 0.0) for group_id, total in r.all()}
+    return totals
 
 
 async def _single_group_summary(
@@ -55,22 +53,15 @@ async def _single_group_summary(
         )
     ).scalar_one() or 0
 
-    batch = await get_latest_batch(session)
-    if batch is None:
-        return int(member_count), 0.0
-
-    total = (
-        await session.execute(
-            select(func.coalesce(func.sum(HoldingSnapshot.value_gbp), 0.0))
-            .select_from(InstrumentGroupMember)
-            .join(
-                HoldingSnapshot,
-                (HoldingSnapshot.instrument_id == InstrumentGroupMember.instrument_id)
-                & (HoldingSnapshot.import_batch_id == batch.id),
-            )
-            .where(InstrumentGroupMember.group_id == group_id)
-        )
-    ).scalar_one()
+    current_snapshots = await get_current_snapshots(session)
+    value_by_instrument = {
+        snapshot.instrument_id: snapshot.value_gbp or 0.0
+        for snapshot in current_snapshots
+    }
+    members = await session.execute(
+        select(InstrumentGroupMember).where(InstrumentGroupMember.group_id == group_id)
+    )
+    total = sum(value_by_instrument.get(member.instrument_id, 0.0) for member in members.scalars().all())
     return int(member_count), float(total or 0.0)
 
 

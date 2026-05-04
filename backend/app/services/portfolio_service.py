@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Sequence
 
-from sqlalchemy import case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -20,6 +20,21 @@ from app.schemas import InstrumentOut
 
 async def get_latest_batch(session: AsyncSession) -> ImportBatch | None:
     r = await session.execute(select(ImportBatch).order_by(ImportBatch.id.desc()).limit(1))
+    return r.scalar_one_or_none()
+
+
+async def get_latest_batch_for_account(
+    session: AsyncSession,
+    account_name: str,
+) -> ImportBatch | None:
+    r = await session.execute(
+        select(ImportBatch)
+        .join(HoldingSnapshot, HoldingSnapshot.import_batch_id == ImportBatch.id)
+        .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
+        .where(Instrument.account_name == account_name)
+        .order_by(ImportBatch.id.desc())
+        .limit(1)
+    )
     return r.scalar_one_or_none()
 
 
@@ -43,6 +58,31 @@ async def snapshots_for_batch_with_instruments(
         select(HoldingSnapshot)
         .where(HoldingSnapshot.import_batch_id == batch_id)
         .options(selectinload(HoldingSnapshot.instrument))
+    )
+    return r.scalars().all()
+
+
+async def get_current_snapshots(session: AsyncSession) -> Sequence[HoldingSnapshot]:
+    """Latest non-closed snapshot per instrument, across all account-specific batches."""
+    latest_by_instrument = (
+        select(
+            HoldingSnapshot.instrument_id,
+            func.max(HoldingSnapshot.import_batch_id).label("latest_batch_id"),
+        )
+        .group_by(HoldingSnapshot.instrument_id)
+        .subquery()
+    )
+    r = await session.execute(
+        select(HoldingSnapshot)
+        .join(
+            latest_by_instrument,
+            (HoldingSnapshot.instrument_id == latest_by_instrument.c.instrument_id)
+            & (HoldingSnapshot.import_batch_id == latest_by_instrument.c.latest_batch_id),
+        )
+        .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
+        .where(Instrument.closed_at.is_(None))
+        .options(selectinload(HoldingSnapshot.instrument))
+        .order_by(HoldingSnapshot.value_gbp.desc().nullslast())
     )
     return r.scalars().all()
 
@@ -165,8 +205,8 @@ def build_instrument_out(
 
 
 async def build_portfolio_summary(session: AsyncSession) -> dict:
-    batch = await get_latest_batch(session)
-    if batch is None:
+    snaps = await get_current_snapshots(session)
+    if not snaps:
         return {
             "as_of_date": None,
             "import_batch_id": None,
@@ -182,7 +222,12 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
             "instruments": [],
         }
 
-    snaps = await snapshots_for_batch_with_instruments(session, batch.id)
+    batch_ids = {snapshot.import_batch_id for snapshot in snaps}
+    batch_result = await session.execute(select(ImportBatch).where(ImportBatch.id.in_(batch_ids)))
+    batches = list(batch_result.scalars().all())
+    latest_batch = max(batches, key=lambda batch: batch.id) if batches else None
+    latest_as_of = max((batch.as_of_date for batch in batches), default=None)
+
     total_value = 0.0
     total_book = 0.0
     by_account: dict[str, float] = defaultdict(float)
@@ -274,8 +319,8 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
     best = sorted(with_pct, key=lambda x: x["snapshot"].pct_change or 0.0, reverse=True)[:8]
 
     return {
-        "as_of_date": batch.as_of_date,
-        "import_batch_id": batch.id,
+        "as_of_date": latest_as_of,
+        "import_batch_id": latest_batch.id if latest_batch is not None else None,
         "total_value_gbp": total_value,
         "total_book_cost_gbp": total_book,
         "total_pnl_gbp": total_pnl_gbp,
@@ -334,28 +379,47 @@ async def instrument_history(
 
 
 async def portfolio_value_timeseries(session: AsyncSession) -> list[dict]:
-    """Aggregate value and (non-cash) book cost per import batch in a single query."""
-    book_cost_expr = case(
-        (Instrument.is_cash.is_(False), HoldingSnapshot.book_cost_gbp),
-        else_=0.0,
+    """Portfolio value after each import, carrying forward untouched account snapshots."""
+    batches_result = await session.execute(
+        select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
     )
-    r = await session.execute(
-        select(
-            ImportBatch.as_of_date,
-            func.coalesce(func.sum(HoldingSnapshot.value_gbp), 0.0).label("total_value"),
-            func.coalesce(func.sum(book_cost_expr), 0.0).label("total_book"),
+    batches = list(batches_result.scalars().all())
+    if not batches:
+        return []
+
+    snapshots_result = await session.execute(
+        select(HoldingSnapshot)
+        .join(Instrument)
+        .options(selectinload(HoldingSnapshot.instrument))
+        .order_by(HoldingSnapshot.import_batch_id)
+    )
+    snapshots_by_batch: dict[int, list[HoldingSnapshot]] = defaultdict(list)
+    for snapshot in snapshots_result.scalars().all():
+        snapshots_by_batch[snapshot.import_batch_id].append(snapshot)
+
+    current_by_instrument: dict[int, HoldingSnapshot] = {}
+    rows: list[dict] = []
+    for batch in batches:
+        for snapshot in snapshots_by_batch.get(batch.id, []):
+            current_by_instrument[snapshot.instrument_id] = snapshot
+
+        for closed in (batch.diff_summary or {}).get("closed", []):
+            instrument_id = closed.get("instrument_id")
+            if instrument_id is not None:
+                current_by_instrument.pop(int(instrument_id), None)
+
+        total_value = sum(snapshot.value_gbp or 0.0 for snapshot in current_by_instrument.values())
+        total_book = sum(
+            snapshot.book_cost_gbp or 0.0
+            for snapshot in current_by_instrument.values()
+            if not snapshot.instrument.is_cash
         )
-        .select_from(ImportBatch)
-        .outerjoin(HoldingSnapshot, HoldingSnapshot.import_batch_id == ImportBatch.id)
-        .outerjoin(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
-        .group_by(ImportBatch.id, ImportBatch.as_of_date)
-        .order_by(ImportBatch.as_of_date, ImportBatch.id)
-    )
-    return [
-        {
-            "as_of_date": as_of.isoformat(),
-            "total_value_gbp": float(total_value or 0.0),
-            "total_book_cost_gbp": float(total_book or 0.0),
-        }
-        for as_of, total_value, total_book in r.all()
-    ]
+        rows.append(
+            {
+                "as_of_date": batch.as_of_date.isoformat(),
+                "total_value_gbp": float(total_value or 0.0),
+                "total_book_cost_gbp": float(total_book or 0.0),
+            }
+        )
+
+    return rows

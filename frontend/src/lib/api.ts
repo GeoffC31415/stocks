@@ -364,12 +364,33 @@ export const api = {
       body: formData
     });
   },
+  importHlHoldingsCsv: async (file: File, asOfDate: string | null, force: boolean) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    if (asOfDate) formData.append("as_of_date", asOfDate);
+    if (!asOfDate) formData.append("file_metadata_date", snapshotDateIsoFromFile(file));
+    formData.append("force", String(force));
+    return requestJson<{ batch: ImportBatch; summary: Record<string, unknown> }>("/api/imports/hl", {
+      method: "POST",
+      body: formData
+    });
+  },
   importOrderXls: async (file: File, dripThreshold: number, force: boolean) => {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("drip_threshold", String(dripThreshold));
     formData.append("force", String(force));
     return requestJson<OrderImportBatchOut>("/api/orders/import", {
+      method: "POST",
+      body: formData
+    });
+  },
+  importHlOrdersCsv: async (file: File, dripThreshold: number, force: boolean) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("drip_threshold", String(dripThreshold));
+    formData.append("force", String(force));
+    return requestJson<OrderImportBatchOut>("/api/orders/import/hl", {
       method: "POST",
       body: formData
     });

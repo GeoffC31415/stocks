@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Calendar, Settings2, Upload } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { toGbp, formatOrderDate } from "../lib/formatters";
 import { usePreferences } from "../state/usePreferences";
+import { SegmentedControl, type Segment } from "../components/SegmentedControl";
 
 export function Topbar() {
   const navigate = useNavigate();
-  const { dripThreshold, setDripThreshold } = usePreferences();
+  const { dripThreshold, setDripThreshold, accountFilter, setAccountFilter } = usePreferences();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(String(dripThreshold));
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -21,6 +22,23 @@ export function Topbar() {
   useEffect(() => {
     setDraft(String(dripThreshold));
   }, [dripThreshold, open]);
+
+  const accountNames = useMemo(
+    () => Object.keys(summaryQ.data?.by_account ?? {}).sort(),
+    [summaryQ.data?.by_account],
+  );
+  const accountSegments: Segment<string>[] = useMemo(
+    () => [
+      { key: "all", label: "All" },
+      ...accountNames.map((name) => ({ key: name, label: name })),
+    ],
+    [accountNames],
+  );
+
+  useEffect(() => {
+    if (accountFilter === "all" || accountNames.length === 0) return;
+    if (!accountNames.includes(accountFilter)) setAccountFilter("all");
+  }, [accountFilter, accountNames, setAccountFilter]);
 
   useEffect(() => {
     if (!open) return;
@@ -55,6 +73,17 @@ export function Topbar() {
       </div>
 
       <div className="flex items-center gap-3">
+        {accountSegments.length > 1 ? (
+          <SegmentedControl
+            layoutId="account-filter"
+            value={accountFilter}
+            onChange={setAccountFilter}
+            tone="violet"
+            size="sm"
+            segments={accountSegments}
+          />
+        ) : null}
+
         <div className="relative" ref={popoverRef}>
           <button
             type="button"

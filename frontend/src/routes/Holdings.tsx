@@ -11,7 +11,7 @@ import {
 
 export function Holdings() {
   const [params, setParams] = useSearchParams();
-  const { dripThreshold } = usePreferences();
+  const { dripThreshold, accountFilter } = usePreferences();
   const selectedRaw = params.get("inst");
   const selectedInstrument = selectedRaw ? Number(selectedRaw) : null;
 
@@ -48,7 +48,14 @@ export function Holdings() {
   });
   const groupsQ = useQuery({ queryKey: ["groups"], queryFn: api.getGroups });
 
-  const instruments = instrumentsQ.data ?? [];
+  const allInstruments = instrumentsQ.data ?? [];
+  const instruments = useMemo(
+    () =>
+      accountFilter === "all"
+        ? allInstruments
+        : allInstruments.filter((instrument) => instrument.account_name === accountFilter),
+    [accountFilter, allInstruments],
+  );
   const groups = groupsQ.data ?? [];
   const hasOrders = (analyticsQ.data?.total_orders ?? 0) > 0;
 

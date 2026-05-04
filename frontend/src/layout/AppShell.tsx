@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { AuroraBackground } from "../components/AuroraBackground";
@@ -7,12 +7,37 @@ import { Topbar } from "./Topbar";
 import { PreferencesContext } from "../state/usePreferences";
 import { DRIP_DEFAULT } from "../lib/formatters";
 
+const DRIP_STORAGE_KEY = "portfolio.dripThreshold";
+const ACCOUNT_FILTER_STORAGE_KEY = "portfolio.accountFilter";
+
+const storedNumber = (key: string, fallback: number): number => {
+  const raw = window.localStorage.getItem(key);
+  if (raw == null) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+};
+
 export function AppShell() {
   const location = useLocation();
-  const [dripThreshold, setDripThreshold] = useState(DRIP_DEFAULT);
+  const [dripThreshold, setDripThreshold] = useState(() =>
+    storedNumber(DRIP_STORAGE_KEY, DRIP_DEFAULT),
+  );
+  const [accountFilter, setAccountFilter] = useState(
+    () => window.localStorage.getItem(ACCOUNT_FILTER_STORAGE_KEY) ?? "all",
+  );
+
+  useEffect(() => {
+    window.localStorage.setItem(DRIP_STORAGE_KEY, String(dripThreshold));
+  }, [dripThreshold]);
+
+  useEffect(() => {
+    window.localStorage.setItem(ACCOUNT_FILTER_STORAGE_KEY, accountFilter);
+  }, [accountFilter]);
 
   return (
-    <PreferencesContext.Provider value={{ dripThreshold, setDripThreshold }}>
+    <PreferencesContext.Provider
+      value={{ dripThreshold, setDripThreshold, accountFilter, setAccountFilter }}
+    >
       <AuroraBackground />
       <div className="flex min-h-screen">
         <Sidebar />

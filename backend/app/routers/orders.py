@@ -22,6 +22,7 @@ from app.services.order_service import (
     get_estimated_portfolio_timeseries,
     get_order_analytics,
     get_order_positions,
+    import_hl_orders_csv,
     import_order_history,
 )
 
@@ -45,6 +46,43 @@ async def import_orders(
 
     try:
         batch, _ = await import_order_history(
+            session,
+            file_bytes=payload,
+            filename=file.filename,
+            drip_threshold_gbp=drip_threshold,
+            force=force,
+        )
+    except DuplicateOrderImportError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"This order history file was already imported (batch {exc.batch_id}).",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Import failed: {exc}") from exc
+
+    return OrderImportBatchOut(
+        id=batch.id,
+        created_at=batch.created_at,
+        filename=batch.filename,
+        row_count=batch.row_count,
+    )
+
+
+@router.post("/import/hl", response_model=OrderImportBatchOut, status_code=status.HTTP_201_CREATED)
+async def import_hl_orders(
+    file: UploadFile = File(...),
+    drip_threshold: float = Form(default=_DRIP_DEFAULT),
+    force: bool = Form(default=False),
+    session: AsyncSession = Depends(get_session),
+) -> OrderImportBatchOut:
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a .csv file.")
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    try:
+        batch, _ = await import_hl_orders_csv(
             session,
             file_bytes=payload,
             filename=file.filename,

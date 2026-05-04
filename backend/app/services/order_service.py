@@ -17,6 +17,7 @@ from app.models import (
     OrderImportBatch,
 )
 from app.services.barclays_order_parser import ParsedOrderRow, parse_barclays_order_xls_bytes
+from app.services.hl_parser import parse_hl_activity_csv_bytes
 from app.services.instrument_matcher import link_orders_to_instruments
 from app.services.order_fingerprint import order_fingerprint
 
@@ -122,6 +123,47 @@ async def import_order_history(
     drip_threshold_gbp: float,
     force: bool = False,
 ) -> tuple[OrderImportBatch, int]:
+    parsed: list[ParsedOrderRow] = parse_barclays_order_xls_bytes(
+        file_bytes, drip_threshold_gbp=drip_threshold_gbp
+    )
+    return await ingest_parsed_orders(
+        session,
+        parsed=parsed,
+        file_bytes=file_bytes,
+        filename=filename,
+        force=force,
+    )
+
+
+async def import_hl_orders_csv(
+    session: AsyncSession,
+    *,
+    file_bytes: bytes,
+    filename: str | None,
+    drip_threshold_gbp: float,
+    force: bool = False,
+) -> tuple[OrderImportBatch, int]:
+    parsed = parse_hl_activity_csv_bytes(
+        file_bytes,
+        drip_threshold_gbp=drip_threshold_gbp,
+    )
+    return await ingest_parsed_orders(
+        session,
+        parsed=parsed,
+        file_bytes=file_bytes,
+        filename=filename,
+        force=force,
+    )
+
+
+async def ingest_parsed_orders(
+    session: AsyncSession,
+    *,
+    parsed: list[ParsedOrderRow],
+    file_bytes: bytes,
+    filename: str | None,
+    force: bool = False,
+) -> tuple[OrderImportBatch, int]:
     sha = hashlib.sha256(file_bytes).hexdigest()
     if not force:
         dup = (
@@ -131,10 +173,6 @@ async def import_order_history(
         ).scalar_one_or_none()
         if dup is not None:
             raise DuplicateOrderImportError(dup.id)
-
-    parsed: list[ParsedOrderRow] = parse_barclays_order_xls_bytes(
-        file_bytes, drip_threshold_gbp=drip_threshold_gbp
-    )
 
     existing = await session.execute(select(Order.order_fingerprint))
     seen_fingerprints = {fingerprint for fingerprint in existing.scalars().all() if fingerprint}
@@ -317,22 +355,18 @@ async def get_estimated_portfolio_timeseries(
 
     Uses the instrument_id FK on orders for reliable price lookup.
     """
-    from app.services.portfolio_service import get_latest_batch
+    from app.services.portfolio_service import get_current_snapshots
 
-    batch = await get_latest_batch(session)
-    if not batch:
-        return []
-
-    snap_result = await session.execute(
-        select(HoldingSnapshot)
-        .where(HoldingSnapshot.import_batch_id == batch.id)
-        .join(Instrument)
-        .where(Instrument.is_cash.is_(False))
-    )
+    snapshots = await get_current_snapshots(session)
     price_per_instrument: dict[int, float] = {}
-    for s in snap_result.scalars().all():
-        if s.quantity and s.quantity > 0 and s.value_gbp:
-            price_per_instrument[s.instrument_id] = s.value_gbp / s.quantity
+    for snapshot in snapshots:
+        if (
+            not snapshot.instrument.is_cash
+            and snapshot.quantity
+            and snapshot.quantity > 0
+            and snapshot.value_gbp
+        ):
+            price_per_instrument[snapshot.instrument_id] = snapshot.value_gbp / snapshot.quantity
 
     if not price_per_instrument:
         return []
@@ -419,20 +453,14 @@ async def get_order_positions(
         elif o.side.lower() == "sell":
             p["total_sell_gbp"] += cost
 
-    from app.services.portfolio_service import get_latest_batch
+    from app.services.portfolio_service import get_current_snapshots
 
-    batch = await get_latest_batch(session)
     instrument_values: dict[int, float] = {}
     average_values: dict[int, float] = {}
-    if batch:
-        snap_result = await session.execute(
-            select(HoldingSnapshot)
-            .where(HoldingSnapshot.import_batch_id == batch.id)
-            .join(Instrument)
-            .where(Instrument.is_cash.is_(False))
-        )
-        for s in snap_result.scalars().all():
-            if s.value_gbp is not None:
+    current_snapshots = await get_current_snapshots(session)
+    if current_snapshots:
+        for s in current_snapshots:
+            if not s.instrument.is_cash and s.value_gbp is not None:
                 instrument_values[s.instrument_id] = s.value_gbp
         history_result = await session.execute(
             select(HoldingSnapshot).join(Instrument).where(Instrument.is_cash.is_(False))
@@ -619,20 +647,12 @@ async def get_group_performance(
         elif o.side.lower() == "sell":
             slot["total_sell_gbp"] += cost
 
-    from app.services.portfolio_service import get_latest_batch
+    from app.services.portfolio_service import get_current_snapshots
 
-    latest = await get_latest_batch(session)
     current_values: dict[int, float] = {}
-    if latest is not None:
-        snap_result = await session.execute(
-            select(HoldingSnapshot).where(
-                HoldingSnapshot.import_batch_id == latest.id,
-                HoldingSnapshot.instrument_id.in_(all_member_ids),
-            )
-        )
-        for s in snap_result.scalars().all():
-            if s.value_gbp is not None:
-                current_values[s.instrument_id] = s.value_gbp
+    for s in await get_current_snapshots(session):
+        if s.instrument_id in all_member_ids and s.value_gbp is not None:
+            current_values[s.instrument_id] = s.value_gbp
 
     batches_result = await session.execute(
         select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
@@ -648,6 +668,34 @@ async def get_group_performance(
         )
         for s in history_result.scalars().all():
             snapshots_by_batch.setdefault(s.import_batch_id, {})[s.instrument_id] = s
+
+    group_timeseries: dict[int, list[dict]] = {group.id: [] for group in groups}
+    current_snapshots: dict[int, HoldingSnapshot] = {}
+    for batch in batches:
+        current_snapshots.update(snapshots_by_batch.get(batch.id, {}))
+        for closed in (batch.diff_summary or {}).get("closed", []):
+            instrument_id = closed.get("instrument_id")
+            if instrument_id is not None:
+                current_snapshots.pop(int(instrument_id), None)
+
+        for group in groups:
+            v = 0.0
+            bc = 0.0
+            for iid in members_by_group.get(group.id, []):
+                snap = current_snapshots.get(iid)
+                if snap is None:
+                    continue
+                if snap.value_gbp is not None:
+                    v += snap.value_gbp
+                if snap.book_cost_gbp is not None:
+                    bc += snap.book_cost_gbp
+            group_timeseries[group.id].append(
+                {
+                    "as_of_date": batch.as_of_date,
+                    "value_gbp": round(v, 2),
+                    "book_cost_gbp": round(bc, 2),
+                }
+            )
 
     today = datetime.date.today()
     out: list[dict] = []
@@ -756,27 +804,6 @@ async def get_group_performance(
             (weighted_cagr_num / weighted_cagr_den) if weighted_cagr_den > 0 else None
         )
 
-        timeseries: list[dict] = []
-        for batch in batches:
-            snaps = snapshots_by_batch.get(batch.id, {})
-            v = 0.0
-            bc = 0.0
-            for iid in member_ids:
-                snap = snaps.get(iid)
-                if snap is None:
-                    continue
-                if snap.value_gbp is not None:
-                    v += snap.value_gbp
-                if snap.book_cost_gbp is not None:
-                    bc += snap.book_cost_gbp
-            timeseries.append(
-                {
-                    "as_of_date": batch.as_of_date,
-                    "value_gbp": round(v, 2),
-                    "book_cost_gbp": round(bc, 2),
-                }
-            )
-
         out.append(
             {
                 "group_id": g.id,
@@ -797,7 +824,7 @@ async def get_group_performance(
                 "earliest_order_date": (
                     earliest.date().isoformat() if earliest is not None else None
                 ),
-                "timeseries": timeseries,
+                "timeseries": group_timeseries.get(g.id, []),
                 "members": members_view,
             }
         )

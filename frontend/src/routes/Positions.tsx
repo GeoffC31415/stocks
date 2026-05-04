@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { api } from "../lib/api";
@@ -10,7 +10,7 @@ import { SegmentedControl, type Segment } from "../components/SegmentedControl";
 type View = "positions" | "groups";
 
 export function Positions() {
-  const { dripThreshold } = usePreferences();
+  const { dripThreshold, accountFilter } = usePreferences();
   const [view, setView] = useState<View>("positions");
 
   const positionsQ = useQuery({
@@ -26,8 +26,31 @@ export function Positions() {
     queryFn: () => api.getGroupPerformance(dripThreshold),
     enabled: view === "groups",
   });
+  const instrumentsQ = useQuery({
+    queryKey: ["instruments"],
+    queryFn: api.getInstruments,
+  });
 
   const hasOrders = (analyticsQ.data?.total_orders ?? 0) > 0;
+  const instrumentAccountById = useMemo(
+    () =>
+      new Map(
+        (instrumentsQ.data ?? []).map((instrument) => [
+          instrument.id,
+          instrument.account_name,
+        ]),
+      ),
+    [instrumentsQ.data],
+  );
+  const positions = useMemo(() => {
+    const rows = positionsQ.data ?? [];
+    if (accountFilter === "all") return rows;
+    return rows.filter(
+      (position) =>
+        position.instrument_id != null &&
+        instrumentAccountById.get(position.instrument_id) === accountFilter,
+    );
+  }, [accountFilter, instrumentAccountById, positionsQ.data]);
 
   if (!hasOrders) {
     return (
@@ -74,7 +97,7 @@ export function Positions() {
       </div>
 
       {view === "positions" ? (
-        <PositionAnalysis positions={positionsQ.data ?? []} />
+        <PositionAnalysis positions={positions} />
       ) : (
         <GroupPerformancePanel
           groups={groupPerfQ.data ?? []}

@@ -385,6 +385,11 @@ function GroupEditor({
       <div className="max-h-44 overflow-auto rounded-xl border border-white/[0.04] bg-white/[0.02] p-2">
         {instruments
           .filter((i) => !i.is_cash)
+          .sort((a, b) =>
+            `${a.identifier} ${a.account_name}`.localeCompare(
+              `${b.identifier} ${b.account_name}`,
+            ),
+          )
           .map((i) => {
             const isOn = selected.includes(i.id);
             return (
@@ -406,9 +411,16 @@ function GroupEditor({
                   }
                   className="accent-aurora-cyan"
                 />
-                <span className="truncate text-slate-300">{i.identifier}</span>
-                <span className="ml-auto truncate text-[11px] text-slate-600">
-                  {i.security_name}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2">
+                    <span className="truncate text-slate-300">{i.identifier}</span>
+                    <span className="shrink-0 rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+                      {i.account_name}
+                    </span>
+                  </span>
+                  <span className="block truncate text-[11px] text-slate-600">
+                    {i.security_name}
+                  </span>
                 </span>
               </label>
             );
