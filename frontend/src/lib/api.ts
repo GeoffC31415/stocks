@@ -22,6 +22,7 @@ export type AllocationRow = {
   target_pct: number | null;
   drift_pct: number | null;
   is_concentration_risk: boolean;
+  member_ids?: number[];
 };
 
 export type Instrument = {

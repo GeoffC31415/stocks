@@ -89,7 +89,7 @@ export function Sidebar() {
       </nav>
 
       <div className="px-5 py-4 text-[10px] text-slate-600">
-        Barclays XLS · DRIP-aware
+        Portfolio Tracker · DRIP analysis
       </div>
     </aside>
   );

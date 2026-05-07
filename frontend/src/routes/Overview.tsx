@@ -105,12 +105,30 @@ export function Overview() {
         }
       }
     }
+    // Filter group_allocation to only include instruments from the selected account
+    const filteredGroupAllocation = (rawSummary.group_allocation ?? []).map((group) => {
+      const memberIds = group.member_ids ?? [];
+      const filteredValue = filteredInstruments
+        .filter((inst) => memberIds.includes(inst.id))
+        .reduce((sum, inst) => sum + (inst.latest_value_gbp ?? 0), 0);
+      const weightPct = totalValue > 0 ? (filteredValue / totalValue) * 100 : 0;
+      return {
+        ...group,
+        value_gbp: Math.round(filteredValue * 100) / 100,
+        weight_pct: Math.round(weightPct * 100) / 100,
+        drift_pct:
+          group.target_pct != null
+            ? Math.round((weightPct - group.target_pct) * 100) / 100
+            : null,
+      };
+    });
     return {
       ...rawSummary,
       total_value_gbp: totalValue,
       total_book_cost_gbp: totalBook,
       total_pnl_gbp: totalPnl,
       allocation,
+      group_allocation: filteredGroupAllocation,
       worst_pct: [...withPct]
         .sort((a, b) => (a.latest_pct_change ?? 0) - (b.latest_pct_change ?? 0))
         .slice(0, 8),

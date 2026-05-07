@@ -289,6 +289,7 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
                     else None
                 ),
                 "is_concentration_risk": False,
+                "member_ids": [m.instrument_id for m in g.members],
             }
         )
 

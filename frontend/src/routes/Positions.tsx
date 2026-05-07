@@ -52,6 +52,44 @@ export function Positions() {
     );
   }, [accountFilter, instrumentAccountById, positionsQ.data]);
 
+  const filteredGroupPerformance = useMemo(() => {
+    const groups = groupPerfQ.data ?? [];
+    if (accountFilter === "all") return groups;
+    return groups.map((group) => {
+      const filteredMembers = group.members.filter(
+        (m) => instrumentAccountById.get(m.instrument_id) === accountFilter,
+      );
+      const totalValue = filteredMembers.reduce((s, m) => s + (m.current_value_gbp ?? 0), 0);
+      const totalCost = filteredMembers.reduce((s, m) => s + m.net_cost_gbp, 0);
+      const totalPnl = filteredMembers.reduce((s, m) => s + (m.pnl_gbp ?? 0), 0);
+      const pnlPct = totalCost !== 0 ? (totalPnl / totalCost) * 100 : null;
+      // Recompute weighted CAGR from members
+      const totalWeight = filteredMembers.reduce((s, m) => s + (m.current_value_gbp ?? 0), 0);
+      let weightedCagr = 0;
+      if (totalWeight > 0) {
+        for (const m of filteredMembers) {
+          const w = (m.current_value_gbp ?? 0) / totalWeight;
+          if (m.annualised_return_pct != null) weightedCagr += w * m.annualised_return_pct;
+        }
+      }
+      const earliestDate = filteredMembers
+        .map((m) => m.first_order_date)
+        .filter((d): d is string => d != null)
+        .sort()[0] ?? null;
+      return {
+        ...group,
+        members: filteredMembers,
+        total_current_value_gbp: totalValue,
+        total_net_cost_gbp: totalCost,
+        total_pnl_gbp: totalPnl,
+        pnl_pct: pnlPct,
+        weighted_cagr_pct: totalWeight > 0 ? weightedCagr : null,
+        earliest_order_date: earliestDate,
+        members_with_value: filteredMembers.filter((m) => m.current_value_gbp != null).length,
+      };
+    });
+  }, [accountFilter, groupPerfQ.data, instrumentAccountById]);
+
   if (!hasOrders) {
     return (
       <div className="glass mx-auto max-w-xl rounded-2xl p-8 text-center">
@@ -100,7 +138,7 @@ export function Positions() {
         <PositionAnalysis positions={positions} />
       ) : (
         <GroupPerformancePanel
-          groups={groupPerfQ.data ?? []}
+          groups={filteredGroupPerformance}
           isLoading={groupPerfQ.isLoading}
         />
       )}
