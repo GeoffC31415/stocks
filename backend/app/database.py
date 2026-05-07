@@ -97,6 +97,124 @@ def _add_column_if_missing(sync_conn, table_name: str, column_name: str, ddl: st
         sync_conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN {ddl}")
 
 
+def _migrate_match_metadata(sync_conn) -> None:
+    """Add match metadata columns to orders table and create new alias/audit tables."""
+    # Match metadata columns on orders
+    _add_column_if_missing(sync_conn, "orders", "match_status", "match_status VARCHAR(32)")
+    _add_column_if_missing(sync_conn, "orders", "match_method", "match_method VARCHAR(64)")
+    _add_column_if_missing(sync_conn, "orders", "match_confidence", "match_confidence FLOAT")
+    _add_column_if_missing(sync_conn, "orders", "match_evidence", "match_evidence JSON")
+    _add_column_if_missing(sync_conn, "orders", "matched_at", "matched_at DATETIME")
+    _add_column_if_missing(sync_conn, "orders", "matched_by", "matched_by VARCHAR(128)")
+
+    # Backfill match_status for existing orders
+    sync_conn.exec_driver_sql(
+        "UPDATE orders SET match_status = 'legacy_matched', match_method = 'legacy', "
+        "matched_at = datetime('now'), matched_by = 'system_backfill' "
+        "WHERE match_status IS NULL AND instrument_id IS NOT NULL"
+    )
+    sync_conn.exec_driver_sql(
+        "UPDATE orders SET match_status = 'unmatched' "
+        "WHERE match_status IS NULL AND instrument_id IS NULL"
+    )
+
+    # account_aliases table
+    sync_conn.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS account_aliases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source VARCHAR(64) NOT NULL,
+            source_account_name VARCHAR(512) NOT NULL,
+            canonical_account_name VARCHAR(512) NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+            created_by VARCHAR(128),
+            notes VARCHAR(1024),
+            UNIQUE(source, source_account_name)
+        )
+        """
+    )
+
+    # instrument_aliases table
+    sync_conn.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS instrument_aliases (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            instrument_id INTEGER NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
+            source VARCHAR(64) NOT NULL,
+            source_account_name VARCHAR(512),
+            canonical_account_name VARCHAR(512),
+            source_security_name VARCHAR(1024) NOT NULL,
+            source_security_name_norm VARCHAR(1024) NOT NULL,
+            alias_type VARCHAR(32) NOT NULL,
+            confidence FLOAT,
+            created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+            created_by VARCHAR(128),
+            notes VARCHAR(1024),
+            UNIQUE(source, source_account_name, source_security_name_norm)
+        )
+        """
+    )
+
+    # order_match_audit table
+    sync_conn.exec_driver_sql(
+        """
+        CREATE TABLE IF NOT EXISTS order_match_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            order_id INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+            old_instrument_id INTEGER REFERENCES instruments(id) ON DELETE SET NULL,
+            new_instrument_id INTEGER REFERENCES instruments(id) ON DELETE SET NULL,
+            old_status VARCHAR(32),
+            new_status VARCHAR(32),
+            method VARCHAR(64),
+            confidence FLOAT,
+            evidence JSON,
+            changed_at DATETIME NOT NULL DEFAULT (datetime('now')),
+            changed_by VARCHAR(128),
+            reason VARCHAR(1024)
+        )
+        """
+    )
+
+    # Seed account_aliases: self-aliases for known snapshot account names
+    # This ensures every account seen in snapshots has a canonical mapping
+    snapshot_accounts = sync_conn.exec_driver_sql(
+        "SELECT DISTINCT account_name FROM instruments WHERE account_name IS NOT NULL"
+    ).fetchall()
+    for (acct,) in snapshot_accounts:
+        sync_conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO account_aliases (source, source_account_name, canonical_account_name) "
+            "VALUES ('barclays_snapshot', ?, ?)",
+            (acct, acct),
+        )
+
+    # Seed account_aliases for order account names
+    order_accounts = sync_conn.exec_driver_sql(
+        "SELECT DISTINCT account_name FROM orders WHERE account_name IS NOT NULL"
+    ).fetchall()
+    for (acct,) in order_accounts:
+        sync_conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO account_aliases (source, source_account_name, canonical_account_name) "
+            "VALUES ('barclays_orders', ?, ?)",
+            (acct, acct),
+        )
+
+    # Seed instrument_aliases from existing instruments (import_name type)
+    instruments = sync_conn.exec_driver_sql(
+        "SELECT id, account_name, security_name FROM instruments WHERE is_cash = 0"
+    ).fetchall()
+    import re
+    _norm_re = re.compile(r"[^a-z0-9 ]+")
+    for (inst_id, acct, sec_name,) in instruments:
+        norm_name = _norm_re.sub(" ", sec_name.lower()).strip()
+        sync_conn.exec_driver_sql(
+            "INSERT OR IGNORE INTO instrument_aliases "
+            "(instrument_id, source, source_account_name, canonical_account_name, "
+            "source_security_name, source_security_name_norm, alias_type, confidence) "
+            "VALUES (?, 'barclays_snapshot', ?, ?, ?, ?, 'import_name', 1.0)",
+            (inst_id, acct, acct, sec_name, norm_name),
+        )
+
+
 def _migrate_portfolio_metadata(sync_conn) -> None:
     _add_column_if_missing(sync_conn, "instruments", "ticker", "ticker VARCHAR(64)")
     _add_column_if_missing(sync_conn, "instruments", "sector", "sector VARCHAR(128)")
@@ -115,6 +233,7 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_migrate_order_dedupe)
         await conn.run_sync(_migrate_portfolio_metadata)
+        await conn.run_sync(_migrate_match_metadata)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

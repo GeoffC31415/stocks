@@ -232,6 +232,10 @@ async def list_orders(
                 cost_proceeds_gbp=o.cost_proceeds_gbp,
                 country=o.country,
                 is_drip=computed_drip,
+                match_status=o.match_status,
+                match_method=o.match_method,
+                match_confidence=o.match_confidence,
+                matched_at=o.matched_at,
             )
         )
 

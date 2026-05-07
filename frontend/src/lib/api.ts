@@ -150,6 +150,10 @@ export type Order = {
   cost_proceeds_gbp: number | null;
   country: string | null;
   is_drip: boolean;
+  match_status: string | null;
+  match_method: string | null;
+  match_confidence: number | null;
+  matched_at: string | null;
 };
 
 export type UnlinkedOrdersResponse = {
@@ -263,6 +267,128 @@ export type GroupPerformance = {
   earliest_order_date: string | null;
   timeseries: GroupPerformanceTimeseriesPoint[];
   members: GroupPerformanceMember[];
+};
+
+// ---------------------------------------------------------------------------
+// Matching admin types
+// ---------------------------------------------------------------------------
+
+export type MatchSummary = {
+  orders_total: number;
+  orders_matched: number;
+  orders_unmatched: number;
+  orders_auto_high: number;
+  orders_auto_review: number;
+  orders_manual: number;
+  orders_ignored: number;
+  orders_legacy: number;
+  unmatched_groups: number;
+  instruments_with_reconciliation_issues: number;
+};
+
+export type MatchCandidate = {
+  instrument_id: number;
+  security_name: string;
+  score: number;
+  method: string | null;
+};
+
+export type UnmatchedGroup = {
+  group_key: string;
+  source: string;
+  account_name: string;
+  canonical_account_name: string | null;
+  security_name: string;
+  normalised_name: string;
+  order_count: number;
+  first_order_date: string | null;
+  last_order_date: string | null;
+  net_quantity: number | null;
+  buy_total_gbp: number | null;
+  sell_total_gbp: number | null;
+  candidate_count: number;
+  best_candidate: MatchCandidate | null;
+};
+
+export type AccountAlias = {
+  id: number;
+  source: string;
+  source_account_name: string;
+  canonical_account_name: string;
+  created_at: string;
+  created_by: string | null;
+  notes: string | null;
+};
+
+export type InstrumentAlias = {
+  id: number;
+  instrument_id: number;
+  source: string;
+  source_account_name: string | null;
+  canonical_account_name: string | null;
+  source_security_name: string;
+  source_security_name_norm: string;
+  alias_type: string;
+  confidence: number | null;
+  created_at: string;
+  created_by: string | null;
+  notes: string | null;
+};
+
+export type OrderMatchAudit = {
+  id: number;
+  order_id: number;
+  old_instrument_id: number | null;
+  new_instrument_id: number | null;
+  old_status: string | null;
+  new_status: string | null;
+  method: string | null;
+  confidence: number | null;
+  evidence: Record<string, unknown> | null;
+  changed_at: string;
+  changed_by: string | null;
+  reason: string | null;
+};
+
+export type ReconciliationRow = {
+  instrument_id: number;
+  security_name: string;
+  account_name: string;
+  is_closed: boolean;
+  latest_snapshot_date: string | null;
+  snapshot_quantity: number | null;
+  order_derived_quantity: number | null;
+  quantity_delta: number | null;
+  snapshot_book_cost_gbp: number | null;
+  order_net_cost_gbp: number | null;
+  drip_total_gbp: number | null;
+  buy_total_gbp: number | null;
+  sell_total_gbp: number | null;
+  unmatched_order_count: number;
+  matched_order_count: number;
+  match_status_summary: Record<string, number>;
+  latest_value_gbp: number | null;
+  status: string;
+};
+
+export type BackfillResult = {
+  dry_run: boolean;
+  orders_examined: number;
+  would_auto_match: number;
+  would_mark_review: number;
+  would_remain_unmatched: number;
+  actually_linked: number;
+  examples: Array<Record<string, unknown>>;
+};
+
+export type CandidateDetail = {
+  instrument_id: number;
+  security_name: string;
+  account_name: string;
+  score: number;
+  method: string | null;
+  scores: Record<string, number>;
+  is_closed: boolean;
 };
 
 /**
@@ -426,4 +552,85 @@ export const api = {
     requestJson<GroupPerformance[]>(
       `/api/groups/performance?drip_threshold=${dripThreshold}`,
     ),
+
+  // Matching admin
+  getMatchingSummary: () => requestJson<MatchSummary>("/api/matching/summary"),
+  getUnmatchedGroups: (limit?: number, account?: string) => {
+    const params = new URLSearchParams();
+    if (limit) params.set("limit", String(limit));
+    if (account) params.set("account", account);
+    return requestJson<UnmatchedGroup[]>(`/api/matching/unmatched-groups?${params.toString()}`);
+  },
+  getMatchingCandidates: (securityName: string, accountName: string) =>
+    requestJson<{ candidates: CandidateDetail[] }>(
+      `/api/matching/candidates?security_name=${encodeURIComponent(securityName)}&account_name=${encodeURIComponent(accountName)}`,
+    ),
+  resolveGroup: (body: { source: string; account_name: string; security_name: string; instrument_id: number; create_alias?: boolean; apply_to_existing_orders?: boolean; reason?: string }) =>
+    requestJson<{ affected_orders: number }>("/api/matching/resolve-group", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  resolveOrder: (orderId: number, body: { instrument_id?: number | null; match_status?: string; reason?: string }) =>
+    requestJson<{ order_id: number }>(`/api/matching/orders/${orderId}/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  unmatchOrder: (orderId: number) =>
+    requestJson<{ order_id: number }>(`/api/matching/orders/${orderId}/unmatch`, {
+      method: "POST",
+    }),
+  ignoreGroup: (body: { source: string; account_name: string; security_name: string; reason?: string }) =>
+    requestJson<{ affected_orders: number }>("/api/matching/ignore-group", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  ignoreOrder: (orderId: number) =>
+    requestJson<{ order_id: number }>(`/api/matching/orders/${orderId}/ignore`, {
+      method: "POST",
+    }),
+  backfillMatching: (body: { mode?: string; dry_run?: boolean; min_auto_confidence?: number }) =>
+    requestJson<BackfillResult>("/api/matching/backfill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  getAccountAliases: () => requestJson<AccountAlias[]>("/api/matching/account-aliases"),
+  createAccountAlias: (body: { source: string; source_account_name: string; canonical_account_name: string; notes?: string }) =>
+    requestJson<AccountAlias>("/api/matching/account-aliases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  deleteAccountAlias: async (aliasId: number): Promise<void> => {
+    const response = await fetch(`/api/matching/account-aliases/${aliasId}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await toError(response));
+  },
+  getInstrumentAliases: () => requestJson<InstrumentAlias[]>("/api/matching/instrument-aliases"),
+  createInstrumentAlias: (body: { instrument_id: number; source: string; source_account_name?: string; canonical_account_name?: string; source_security_name: string; alias_type?: string; confidence?: number; notes?: string }) =>
+    requestJson<InstrumentAlias>("/api/matching/instrument-aliases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  createHistoricalInstrument: (body: { security_name: string; account_name?: string; identifier?: string; closed?: boolean; reason?: string }) =>
+    requestJson<{ instrument_id: number; identifier: string; security_name: string; affected_orders: number }>("/api/matching/create-instrument", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  deleteInstrumentAlias: async (aliasId: number): Promise<void> => {
+    const response = await fetch(`/api/matching/instrument-aliases/${aliasId}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(await toError(response));
+  },
+  getReconciliation: () => requestJson<ReconciliationRow[]>("/api/matching/reconciliation"),
+  getAuditLog: (orderId?: number, instrumentId?: number, limit?: number) => {
+    const params = new URLSearchParams();
+    if (orderId != null) params.set("order_id", String(orderId));
+    if (instrumentId != null) params.set("instrument_id", String(instrumentId));
+    if (limit != null) params.set("limit", String(limit));
+    return requestJson<OrderMatchAudit[]>(`/api/matching/audit?${params.toString()}`);
+  },
 };

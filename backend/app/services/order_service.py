@@ -42,7 +42,8 @@ def _cagr(start_value: float, end_value: float, start: datetime.date, end: datet
 def _cashflow_amount(order: Order, *, drip_threshold_gbp: float) -> float:
     cost = order.cost_proceeds_gbp or 0.0
     side = order.side.lower()
-    is_drip = side == "buy" and cost < drip_threshold_gbp
+    # Use the stored is_drip flag as the authoritative classification
+    is_drip = order.is_drip if side == "buy" else False
     if side == "buy" and not is_drip:
         return cost
     if side == "sell":
@@ -260,7 +261,8 @@ async def get_order_analytics(
 
     for o in orders:
         cost = o.cost_proceeds_gbp or 0.0
-        is_drip = o.side.lower() == "buy" and o.cost_proceeds_gbp is not None and o.cost_proceeds_gbp < drip_threshold_gbp
+        # Use the stored is_drip flag as the authoritative classification
+        is_drip = o.is_drip if o.side.lower() == "buy" else False
 
         if o.side.lower() == "buy":
             total_buy += cost
@@ -314,7 +316,7 @@ async def get_cashflow_timeseries(
         if key not in monthly:
             monthly[key] = {"discretionary": 0.0, "drip": 0.0, "sells": 0.0}
         cost = o.cost_proceeds_gbp or 0.0
-        is_drip = o.side.lower() == "buy" and cost < drip_threshold_gbp
+        is_drip = o.is_drip if o.side.lower() == "buy" else False
         if o.side.lower() == "buy":
             if is_drip:
                 monthly[key]["drip"] += cost
@@ -438,7 +440,9 @@ async def get_order_positions(
             }
         p = agg[key]
         cost = o.cost_proceeds_gbp or 0.0
-        is_drip = o.side.lower() == "buy" and cost < drip_threshold_gbp
+        # Use the stored is_drip flag from import time as the authoritative classification.
+        # Recomputing at query time with a different threshold would misclassify orders.
+        is_drip = o.is_drip if o.side.lower() == "buy" else False
         p["order_count"] += 1
         p["orders"].append(o)
         p["last_order"] = max(p["last_order"], o.order_date)
@@ -634,7 +638,8 @@ async def get_group_performance(
             },
         )
         cost = o.cost_proceeds_gbp or 0.0
-        is_drip = o.side.lower() == "buy" and cost < drip_threshold_gbp
+        # Use the stored is_drip flag as the authoritative classification
+        is_drip = o.is_drip if o.side.lower() == "buy" else False
         slot["first_order"] = min(slot["first_order"], o.order_date)
         slot["last_order"] = max(slot["last_order"], o.order_date)
         slot["orders"].append(o)

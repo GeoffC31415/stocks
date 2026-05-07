@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, FileSpreadsheet, Upload } from "lucide-react";
+import { CheckCircle2, FileSpreadsheet, Upload, AlertTriangle, Link } from "lucide-react";
 import {
   api,
   formatSnapshotDateIso,
@@ -152,10 +152,15 @@ export function ImportPanel() {
             </p>
           )}
           {importMutation.isSuccess && (
-            <p className="flex items-center gap-1 text-xs text-pos">
-              <CheckCircle2 size={12} />
-              Import complete.
-            </p>
+            <div className="space-y-1">
+              <p className="flex items-center gap-1 text-xs text-pos">
+                <CheckCircle2 size={12} />
+                Import complete.
+              </p>
+              {importMutation.data?.summary && (
+                <ImportSummary summary={importMutation.data.summary} />
+              )}
+            </div>
           )}
         </div>
       ) : (
@@ -302,5 +307,41 @@ function CheckboxRow({
       />
       {label}
     </label>
+  );
+}
+
+function ImportSummary({ summary }: { summary: Record<string, unknown> }) {
+  const ordersLinked = summary.orders_linked as number | undefined;
+  const closed = summary.closed as Array<Record<string, unknown>> | undefined;
+  const changed = summary.changed as Array<Record<string, unknown>> | undefined;
+  const newIds = summary.new_instrument_ids as number[] | undefined;
+
+  if (!ordersLinked && !closed && !changed && !newIds) return null;
+
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 space-y-1">
+      {ordersLinked != null && ordersLinked > 0 && (
+        <p className="text-[11px] text-emerald-400">
+          <Link size={10} className="inline mr-1" />
+          {ordersLinked} orders linked to instruments
+        </p>
+      )}
+      {newIds && newIds.length > 0 && (
+        <p className="text-[11px] text-slate-400">
+          {newIds.length} new instruments detected
+        </p>
+      )}
+      {closed && closed.length > 0 && (
+        <p className="text-[11px] text-amber-400">
+          <AlertTriangle size={10} className="inline mr-1" />
+          {closed.length} instruments closed
+        </p>
+      )}
+      {changed && changed.length > 0 && (
+        <p className="text-[11px] text-slate-400">
+          {changed.length} instruments changed
+        </p>
+      )}
+    </div>
   );
 }

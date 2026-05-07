@@ -62,6 +62,9 @@ class Instrument(Base):
     group_links: Mapped[list[InstrumentGroupMember]] = relationship(
         back_populates="instrument", cascade="all, delete-orphan"
     )
+    aliases: Mapped[list["InstrumentAlias"]] = relationship(
+        back_populates="instrument", cascade="all, delete-orphan"
+    )
 
 
 class HoldingSnapshot(Base):
@@ -128,8 +131,19 @@ class Order(Base):
     is_drip: Mapped[bool] = mapped_column(Boolean, default=False)
     order_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
 
+    # Match metadata
+    match_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    match_method: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    match_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    match_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    matched_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    matched_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
     import_batch: Mapped[OrderImportBatch] = relationship(back_populates="orders")
     instrument: Mapped[Instrument | None] = relationship(back_populates="orders")
+    match_audit: Mapped[list["OrderMatchAudit"]] = relationship(
+        back_populates="order", cascade="all, delete-orphan"
+    )
 
 
 class InstrumentGroup(Base):
@@ -176,3 +190,77 @@ class InstrumentQuote(Base):
     fetched_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
     )
+
+
+class AccountAlias(Base):
+    """Map source account names to canonical account names for deterministic matching."""
+    __tablename__ = "account_aliases"
+    __table_args__ = (UniqueConstraint("source", "source_account_name", name="uq_account_alias_source"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(64))
+    source_account_name: Mapped[str] = mapped_column(String(512))
+    canonical_account_name: Mapped[str] = mapped_column(String(512))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
+    )
+    created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+
+class InstrumentAlias(Base):
+    """Persist reusable mappings from external/imported security names to internal instruments."""
+    __tablename__ = "instrument_aliases"
+    __table_args__ = (
+        UniqueConstraint(
+            "source", "source_account_name", "source_security_name_norm",
+            name="uq_instrument_alias_source_account_name",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    instrument_id: Mapped[int] = mapped_column(
+        ForeignKey("instruments.id", ondelete="CASCADE"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(String(64))
+    source_account_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    canonical_account_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    source_security_name: Mapped[str] = mapped_column(String(1024))
+    source_security_name_norm: Mapped[str] = mapped_column(String(1024))
+    alias_type: Mapped[str] = mapped_column(String(32))
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
+    )
+    created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    instrument: Mapped[Instrument] = relationship(back_populates="aliases")
+
+
+class OrderMatchAudit(Base):
+    """Immutable change history for order-instrument matching decisions."""
+    __tablename__ = "order_match_audit"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        ForeignKey("orders.id", ondelete="CASCADE"), nullable=False
+    )
+    old_instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("instruments.id", ondelete="SET NULL"), nullable=True
+    )
+    new_instrument_id: Mapped[int | None] = mapped_column(
+        ForeignKey("instruments.id", ondelete="SET NULL"), nullable=True
+    )
+    old_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    new_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    method: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    changed_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
+    )
+    changed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    order: Mapped[Order] = relationship(back_populates="match_audit")

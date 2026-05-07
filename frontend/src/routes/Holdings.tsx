@@ -8,6 +8,7 @@ import {
   InstrumentDetail,
   InstrumentDetailEmpty,
 } from "../components/InstrumentDetail";
+import { MatchingWarningBanner } from "../components/MatchingWarningBanner";
 
 export function Holdings() {
   const [params, setParams] = useSearchParams();
@@ -78,6 +79,8 @@ export function Holdings() {
 
   return (
     <div className="space-y-5">
+      <MatchingWarningBanner />
+
       <div className="flex items-baseline justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-white" style={{ letterSpacing: "-0.02em" }}>

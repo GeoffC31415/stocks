@@ -7,6 +7,7 @@ import { Positions } from "./routes/Positions";
 import { ImportPage } from "./routes/Import";
 import { Groups } from "./routes/Groups";
 import { Diff } from "./routes/Diff";
+import { MatchingAdmin } from "./routes/MatchingAdmin";
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="/import" element={<ImportPage />} />
           <Route path="/groups" element={<Groups />} />
           <Route path="/diff" element={<Diff />} />
+          <Route path="/matching" element={<MatchingAdmin />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

@@ -6,6 +6,7 @@ import { toGbp } from "../lib/formatters";
 import { usePreferences } from "../state/usePreferences";
 import { StatCard } from "../components/StatCard";
 import { OrderHistorySection } from "../components/OrderHistorySection";
+import { MatchingWarningBanner } from "../components/MatchingWarningBanner";
 
 export function Orders() {
   const { dripThreshold, accountFilter } = usePreferences();
@@ -90,6 +91,8 @@ export function Orders() {
 
   return (
     <div className="space-y-6">
+      <MatchingWarningBanner />
+
       <div>
         <h1
           className="text-2xl font-semibold text-white"

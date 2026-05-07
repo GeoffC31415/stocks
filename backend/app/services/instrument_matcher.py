@@ -2,6 +2,9 @@
 Single unified matcher that resolves an order's security_name to an Instrument.
 
 Called once at import/backfill time so all queries can use FK joins.
+
+This module now delegates to the new matching engine in services/matching/.
+The legacy functions are kept for backward compatibility.
 """
 from __future__ import annotations
 
@@ -122,28 +125,14 @@ async def link_orders_to_instruments(
     Resolve instrument_id for orders that don't have one yet.
     If *orders* is None, loads all unlinked orders from the DB.
     Returns the number of orders that were linked.
+
+    Delegates to the new matching engine.
     """
-    instruments = list(
-        (await session.execute(select(Instrument))).scalars().all()
+    from app.services.matching.resolver import resolve_batch
+
+    result = await resolve_batch(
+        session,
+        source="barclays_orders",
+        mode="unmatched_only",
     )
-    if not instruments:
-        return 0
-
-    if orders is None:
-        result = await session.execute(
-            select(Order).where(Order.instrument_id.is_(None))
-        )
-        orders = list(result.scalars().all())
-
-    linked = 0
-    for order in orders:
-        if order.instrument_id is not None:
-            continue
-        match = match_order_to_instrument(
-            order.security_name, order.account_name, instruments,
-        )
-        if match:
-            order.instrument_id = match.id
-            linked += 1
-
-    return linked
+    return result["orders_linked"]

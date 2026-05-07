@@ -204,6 +204,10 @@ class OrderOut(BaseModel):
     cost_proceeds_gbp: float | None
     country: str | None
     is_drip: bool
+    match_status: str | None = None
+    match_method: str | None = None
+    match_confidence: float | None = None
+    matched_at: dt.datetime | None = None
 
 
 class UnlinkedOrdersResponse(BaseModel):
@@ -322,3 +326,172 @@ class GroupPerformance(BaseModel):
     earliest_order_date: str | None
     timeseries: list[GroupPerformanceTimeseriesPoint]
     members: list[GroupPerformanceMember]
+
+
+# ---------------------------------------------------------------------------
+# Matching admin schemas
+# ---------------------------------------------------------------------------
+
+class AccountAliasIn(BaseModel):
+    source: str
+    source_account_name: str
+    canonical_account_name: str
+    notes: str | None = None
+
+
+class AccountAliasOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source: str
+    source_account_name: str
+    canonical_account_name: str
+    created_at: dt.datetime
+    created_by: str | None = None
+    notes: str | None = None
+
+
+class InstrumentAliasIn(BaseModel):
+    instrument_id: int
+    source: str
+    source_account_name: str | None = None
+    canonical_account_name: str | None = None
+    source_security_name: str
+    alias_type: str = "manual"
+    confidence: float | None = None
+    notes: str | None = None
+
+
+class InstrumentAliasOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    instrument_id: int
+    source: str
+    source_account_name: str | None = None
+    canonical_account_name: str | None = None
+    source_security_name: str
+    source_security_name_norm: str
+    alias_type: str
+    confidence: float | None = None
+    created_at: dt.datetime
+    created_by: str | None = None
+    notes: str | None = None
+
+
+class OrderMatchAuditOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    order_id: int
+    old_instrument_id: int | None = None
+    new_instrument_id: int | None = None
+    old_status: str | None = None
+    new_status: str | None = None
+    method: str | None = None
+    confidence: float | None = None
+    evidence: dict[str, Any] | None = None
+    changed_at: dt.datetime
+    changed_by: str | None = None
+    reason: str | None = None
+
+
+class MatchSummary(BaseModel):
+    orders_total: int
+    orders_matched: int
+    orders_unmatched: int
+    orders_auto_high: int
+    orders_auto_review: int
+    orders_manual: int
+    orders_ignored: int
+    orders_legacy: int = 0
+    unmatched_groups: int
+    instruments_with_reconciliation_issues: int = 0
+
+
+class MatchCandidate(BaseModel):
+    instrument_id: int
+    security_name: str
+    score: float
+    method: str | None = None
+
+
+class UnmatchedGroup(BaseModel):
+    group_key: str
+    source: str
+    account_name: str
+    canonical_account_name: str | None = None
+    security_name: str
+    normalised_name: str
+    order_count: int
+    first_order_date: str | None = None
+    last_order_date: str | None = None
+    net_quantity: float | None = None
+    buy_total_gbp: float | None = None
+    sell_total_gbp: float | None = None
+    candidate_count: int = 0
+    best_candidate: MatchCandidate | None = None
+
+
+class ResolveGroupBody(BaseModel):
+    source: str
+    account_name: str
+    security_name: str
+    instrument_id: int
+    create_alias: bool = True
+    apply_to_existing_orders: bool = True
+    reason: str | None = None
+
+
+class ResolveOrderBody(BaseModel):
+    instrument_id: int | None = None
+    match_status: str | None = None
+    reason: str | None = None
+
+
+class BackfillRequest(BaseModel):
+    mode: str = "unmatched_only"
+    dry_run: bool = True
+    min_auto_confidence: float = 0.92
+    include_review_candidates: bool = True
+
+
+class BackfillResult(BaseModel):
+    dry_run: bool
+    orders_examined: int
+    would_auto_match: int = 0
+    would_mark_review: int = 0
+    would_remain_unmatched: int = 0
+    actually_linked: int = 0
+    examples: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ReconciliationRow(BaseModel):
+    instrument_id: int
+    security_name: str
+    account_name: str
+    is_closed: bool
+    latest_snapshot_date: str | None = None
+    snapshot_quantity: float | None = None
+    order_derived_quantity: float | None = None
+    quantity_delta: float | None = None
+    snapshot_book_cost_gbp: float | None = None
+    order_net_cost_gbp: float | None = None
+    drip_total_gbp: float | None = None
+    buy_total_gbp: float | None = None
+    sell_total_gbp: float | None = None
+    unmatched_order_count: int = 0
+    matched_order_count: int = 0
+    match_status_summary: dict[str, int] = Field(default_factory=dict)
+    latest_value_gbp: float | None = None
+    status: str = "ok"
+
+
+class CreateHistoricalInstrumentBody(BaseModel):
+    """Create a new instrument for historical/order-only securities."""
+    security_name: str
+    account_name: str | None = None
+    identifier: str | None = None  # optional real identifier; auto-generated if omitted
+    closed: bool = True  # historical instruments are closed by default
+    reason: str | None = None
+

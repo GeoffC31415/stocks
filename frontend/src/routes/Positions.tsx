@@ -6,6 +6,7 @@ import { usePreferences } from "../state/usePreferences";
 import { PositionAnalysis } from "../components/PositionAnalysis";
 import { GroupPerformancePanel } from "../components/GroupPerformancePanel";
 import { SegmentedControl, type Segment } from "../components/SegmentedControl";
+import { MatchingWarningBanner } from "../components/MatchingWarningBanner";
 
 type View = "positions" | "groups";
 
@@ -111,6 +112,8 @@ export function Positions() {
 
   return (
     <div className="space-y-5">
+      <MatchingWarningBanner />
+
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1
