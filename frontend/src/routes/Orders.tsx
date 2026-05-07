@@ -68,7 +68,7 @@ export function Orders() {
       annual_drip: [...annualDrip.entries()]
         .sort(([a], [b]) => a - b)
         .map(([year, total_gbp]) => ({ year, total_gbp })),
-      first_order_date: orders.at(-1)?.order_date ?? null,
+      first_order_date: orders[orders.length - 1]?.order_date ?? null,
     };
   }, [accountFilter, analytics, orders]);
   const hasOrders = (filteredAnalytics?.total_orders ?? 0) > 0;
