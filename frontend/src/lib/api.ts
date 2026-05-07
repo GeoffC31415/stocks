@@ -10,6 +10,8 @@ export type PortfolioSummary = {
   group_allocation: AllocationRow[];
   worst_pct: Instrument[];
   best_pct: Instrument[];
+  latest_snapshot_date?: string | null;
+  earliest_snapshot_date?: string | null;
 };
 
 export type AllocationRow = {
@@ -40,6 +42,7 @@ export type Instrument = {
   latest_quote_price_gbp: number | null;
   latest_quote_as_of_date: string | null;
   latest_quote_fetched_at: string | null;
+  snapshot_as_of_date: string | null;
   trailing_drip_yield_pct: number | null;
   delta_value_gbp_since_prev_snapshot: number | null;
   delta_quantity_since_prev_snapshot: number | null;

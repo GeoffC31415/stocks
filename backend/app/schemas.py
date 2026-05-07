@@ -112,6 +112,7 @@ class InstrumentOut(BaseModel):
     latest_quote_price_gbp: float | None = None
     latest_quote_as_of_date: dt.date | None = None
     latest_quote_fetched_at: dt.datetime | None = None
+    snapshot_as_of_date: dt.date | None = None
     trailing_drip_yield_pct: float | None = None
     delta_value_gbp_since_prev_snapshot: float | None = None
     delta_quantity_since_prev_snapshot: float | None = None

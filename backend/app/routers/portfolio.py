@@ -18,7 +18,9 @@ router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
 
 def _to_instrument_out(row: dict) -> InstrumentOut:
-    return build_instrument_out(row["instrument"], row["snapshot"])
+    return build_instrument_out(
+        row["instrument"], row["snapshot"], snapshot_as_of_date=row.get("snapshot_as_of_date"),
+    )
 
 
 @router.get("/summary", response_model=PortfolioSummary)

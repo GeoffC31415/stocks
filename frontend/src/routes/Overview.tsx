@@ -96,6 +96,15 @@ export function Overview() {
           ((instrument.latest_value_gbp ?? 0) / nonCashTotal) * 100 > 20,
       }));
     const withPct = nonCash.filter((instrument) => instrument.latest_pct_change != null);
+    // Compute the most recent snapshot date for the filtered account
+    let latestSnapshotDate: string | null = null;
+    for (const inst of filteredInstruments) {
+      if (inst.snapshot_as_of_date) {
+        if (!latestSnapshotDate || inst.snapshot_as_of_date > latestSnapshotDate) {
+          latestSnapshotDate = inst.snapshot_as_of_date;
+        }
+      }
+    }
     return {
       ...rawSummary,
       total_value_gbp: totalValue,
@@ -108,8 +117,22 @@ export function Overview() {
       best_pct: [...withPct]
         .sort((a, b) => (b.latest_pct_change ?? 0) - (a.latest_pct_change ?? 0))
         .slice(0, 8),
+      latest_snapshot_date: latestSnapshotDate,
     };
   }, [accountFilter, filteredInstruments, rawSummary]);
+
+  // For the "all" view, compute the snapshot date range from all instruments
+  const snapshotDateRange = useMemo(() => {
+    const instruments = instrumentsQ.data ?? [];
+    let earliest: string | null = null;
+    let latest: string | null = null;
+    for (const inst of instruments) {
+      if (!inst.snapshot_as_of_date) continue;
+      if (!earliest || inst.snapshot_as_of_date < earliest) earliest = inst.snapshot_as_of_date;
+      if (!latest || inst.snapshot_as_of_date > latest) latest = inst.snapshot_as_of_date;
+    }
+    return { earliest, latest };
+  }, [instrumentsQ.data]);
   const analytics = analyticsQ.data;
   const hasOrders = (analytics?.total_orders ?? 0) > 0;
 
@@ -243,7 +266,11 @@ export function Overview() {
         caption={hasOrders ? "vs. 12 months ago" : undefined}
       />
 
-      <SnapshotStalenessChip asOfDate={summary.as_of_date} />
+      <SnapshotStalenessChip
+        asOfDate={summary.latest_snapshot_date ?? summary.as_of_date}
+        earliestAsOfDate={accountFilter === "all" ? snapshotDateRange.earliest : null}
+        latestAsOfDate={accountFilter === "all" ? snapshotDateRange.latest : null}
+      />
 
       <WhatChangedCard diff={importDiffQ.data ?? null} />
 
@@ -360,10 +387,20 @@ export function Overview() {
   );
 }
 
-function SnapshotStalenessChip({ asOfDate }: { asOfDate: string | null }) {
-  if (!asOfDate) return null;
+function SnapshotStalenessChip({
+  asOfDate,
+  earliestAsOfDate,
+  latestAsOfDate,
+}: {
+  asOfDate: string | null;
+  earliestAsOfDate: string | null;
+  latestAsOfDate: string | null;
+}) {
+  const showRange = earliestAsOfDate && latestAsOfDate;
+  const displayDate = showRange ? latestAsOfDate : asOfDate;
+  if (!displayDate) return null;
 
-  const parts = asOfDate.split("-").map(Number);
+  const parts = displayDate.split("-").map(Number);
   if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return null;
   const [y, m, d] = parts;
   const snapshot = new Date(y, m - 1, d);
@@ -390,11 +427,23 @@ function SnapshotStalenessChip({ asOfDate }: { asOfDate: string | null }) {
       className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] ${toneClass}`}
     >
       <CalendarClock size={12} />
-      <span className="tabular">
-        Snapshot from {formatSnapshotDateIso(asOfDate)}
-      </span>
-      <span className="text-slate-500">·</span>
-      <span className="tabular font-medium">{ageLabel}</span>
+      {showRange ? (
+        <>
+          <span className="tabular">
+            Snapshot {formatSnapshotDateIso(earliestAsOfDate)} → {formatSnapshotDateIso(latestAsOfDate)}
+          </span>
+          <span className="text-slate-500">·</span>
+          <span className="tabular font-medium">{ageLabel}</span>
+        </>
+      ) : (
+        <>
+          <span className="tabular">
+            Snapshot from {formatSnapshotDateIso(displayDate)}
+          </span>
+          <span className="text-slate-500">·</span>
+          <span className="tabular font-medium">{ageLabel}</span>
+        </>
+      )}
     </div>
   );
 }

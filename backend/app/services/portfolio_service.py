@@ -158,6 +158,7 @@ def build_instrument_out(
     trailing_drip_yield_pct: float | None = None,
     previous_snapshot: HoldingSnapshot | None = None,
     metrics: dict[str, float | int | None] | None = None,
+    snapshot_as_of_date: dt.date | None = None,
 ) -> InstrumentOut:
     """Build a single InstrumentOut from its model parts.
 
@@ -189,6 +190,7 @@ def build_instrument_out(
         latest_quote_price_gbp=quote.price_gbp if quote is not None else None,
         latest_quote_as_of_date=quote.as_of_date if quote is not None else None,
         latest_quote_fetched_at=quote.fetched_at if quote is not None else None,
+        snapshot_as_of_date=snapshot_as_of_date,
         trailing_drip_yield_pct=trailing_drip_yield_pct,
         delta_value_gbp_since_prev_snapshot=_delta(value_gbp, prev_value),
         delta_quantity_since_prev_snapshot=_delta(quantity, prev_quantity),
@@ -225,6 +227,7 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
     batch_ids = {snapshot.import_batch_id for snapshot in snaps}
     batch_result = await session.execute(select(ImportBatch).where(ImportBatch.id.in_(batch_ids)))
     batches = list(batch_result.scalars().all())
+    batch_by_id = {b.id: b for b in batches}
     latest_batch = max(batches, key=lambda batch: batch.id) if batches else None
     latest_as_of = max((batch.as_of_date for batch in batches), default=None)
 
@@ -247,6 +250,7 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
                 "instrument": inst,
                 "snapshot": s,
                 "pnl_gbp": pnl,
+                "snapshot_as_of_date": batch_by_id.get(s.import_batch_id).as_of_date if s.import_batch_id in batch_by_id else None,
             }
         )
 
