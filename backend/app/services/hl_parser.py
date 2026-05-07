@@ -87,6 +87,11 @@ def parse_hl_holdings_csv_bytes(data: bytes) -> tuple[list[ParsedHoldingRow], dt
     if not required.issubset(col):
         return [], _holding_as_of(rows)
 
+    client_name = _metadata_value(rows, "Client Name")
+    account_label = HL_ACCOUNT_NAME
+    if client_name:
+        account_label = f"HL Fund & Share Account ({client_name})"
+
     parsed_rows: list[ParsedHoldingRow] = []
     for row in rows[header_idx + 1 :]:
         code = _clean(row[col["code"]]) if col["code"] < len(row) else ""
@@ -98,7 +103,7 @@ def parse_hl_holdings_csv_bytes(data: bytes) -> tuple[list[ParsedHoldingRow], dt
 
         parsed_rows.append(
             ParsedHoldingRow(
-                account_name=HL_ACCOUNT_NAME,
+                account_name=account_label,
                 investment=stock,
                 identifier=code,
                 quantity=_to_float(row[col["units held"]]) if col["units held"] < len(row) else None,
@@ -163,6 +168,11 @@ def parse_hl_activity_csv_bytes(
     if not required.issubset(col):
         return []
 
+    client_name = _metadata_value(rows, "Client Name")
+    account_label = HL_ACCOUNT_NAME
+    if client_name:
+        account_label = f"HL Fund & Share Account ({client_name})"
+
     parsed_rows: list[ParsedOrderRow] = []
     for row in rows[header_idx + 1 :]:
         reference = _clean(row[col["reference"]]) if col["reference"] < len(row) else ""
@@ -190,7 +200,7 @@ def parse_hl_activity_csv_bytes(
                 security_name=security_name,
                 order_date=order_date,
                 order_status="Completed",
-                account_name=HL_ACCOUNT_NAME,
+                account_name=account_label,
                 side=side,
                 quantity=quantity,
                 cost_proceeds_gbp=cost_proceeds_gbp,
