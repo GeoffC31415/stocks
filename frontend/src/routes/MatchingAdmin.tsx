@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { api, MatchSummary, UnmatchedGroup, CandidateDetail, ReconciliationRow, AccountAlias, InstrumentAlias, BackfillResult, Order } from "../lib/api";
+import { api, MatchSummary, UnmatchedGroup, CandidateDetail, ReconciliationRow, AccountAlias, InstrumentAlias, BackfillResult, Order, Instrument } from "../lib/api";
 import { Plus } from "lucide-react";
 import { toGbp, formatOrderDate } from "../lib/formatters";
 import {
@@ -773,12 +773,26 @@ function AuditTab() {
 
 function MatchedOrdersTab() {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [instruments, setInstruments] = useState<Instrument[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [resolving, setResolving] = useState<number | null>(null);
+  const [unmatching, setUnmatching] = useState<number | null>(null);
+  const [inlineInstrument, setInlineInstrument] = useState<Record<number, number | null>>({});
 
   useEffect(() => {
-    api.getOrders(1000).then(setOrders).finally(() => setLoading(false));
+    Promise.all([
+      api.getOrders(1000),
+      api.getInstruments(),
+    ]).then(([orders, instruments]) => {
+      setOrders(orders);
+      setInstruments(instruments);
+      // Initialize inline state from current matches
+      const initial: Record<number, number | null> = {};
+      orders.forEach((o) => { initial[o.id] = o.instrument_id ?? null; });
+      setInlineInstrument(initial);
+    }).finally(() => setLoading(false));
   }, []);
 
   const filtered = orders.filter((o) => {
@@ -802,6 +816,38 @@ function MatchedOrdersTab() {
         {status || "—"}
       </span>
     );
+  };
+
+  const handleResolve = async (orderId: number) => {
+    const instrumentId = inlineInstrument[orderId] ?? null;
+    setResolving(orderId);
+    try {
+      await api.resolveOrder(orderId, { instrument_id: instrumentId || undefined, reason: "Inline change from Matching Admin" });
+      setOrders((prev) => prev.map((o) =>
+        o.id === orderId ? { ...o, instrument_id: instrumentId } : o
+      ));
+    } catch (e) {
+      console.error("Failed to resolve order", e);
+      alert("Failed: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setResolving(null);
+    }
+  };
+
+  const handleUnmatch = async (orderId: number) => {
+    setUnmatching(orderId);
+    try {
+      await api.unmatchOrder(orderId);
+      setOrders((prev) => prev.map((o) =>
+        o.id === orderId ? { ...o, instrument_id: null, match_status: "unmatched" } : o
+      ));
+      setInlineInstrument((prev) => ({ ...prev, [orderId]: null }));
+    } catch (e) {
+      console.error("Failed to unmatch order", e);
+      alert("Failed: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setUnmatching(null);
+    }
   };
 
   if (loading) return <p className="text-sm text-slate-500">Loading orders...</p>;
@@ -846,7 +892,9 @@ function MatchedOrdersTab() {
               <th className="pb-2 pr-4 font-medium">Side</th>
               <th className="pb-2 pr-4 font-medium text-right">Qty</th>
               <th className="pb-2 pr-4 font-medium text-right">Cost/Proceeds</th>
+              <th className="pb-2 pr-4 font-medium">Matched To</th>
               <th className="pb-2 pr-4 font-medium">Status</th>
+              <th className="pb-2 pr-4 font-medium">Change Match</th>
               <th className="pb-2 pr-4 font-medium">Method</th>
               <th className="pb-2 font-medium text-right">Confidence</th>
             </tr>
@@ -855,7 +903,7 @@ function MatchedOrdersTab() {
             {filtered.map((o) => (
               <tr key={o.id} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
                 <td className="py-2 pr-4 text-slate-400">{formatOrderDate(o.order_date)}</td>
-                <td className="py-2 pr-4 text-slate-200 max-w-[200px] truncate" title={o.security_name}>
+                <td className="py-2 pr-4 text-slate-200 max-w-[180px] truncate" title={o.security_name}>
                   {o.security_name}
                 </td>
                 <td className="py-2 pr-4 text-slate-400">{o.account_name}</td>
@@ -864,7 +912,48 @@ function MatchedOrdersTab() {
                 </td>
                 <td className="py-2 pr-4 text-right text-slate-300">{o.quantity ?? "—"}</td>
                 <td className="py-2 pr-4 text-right text-slate-300">{toGbp(o.cost_proceeds_gbp)}</td>
+                <td className="py-2 pr-4">
+                  {o.instrument ? (
+                    <span className="text-slate-300" title={`${o.instrument.identifier} · ${o.instrument.security_name}`}>
+                      {o.instrument.security_name}
+                    </span>
+                  ) : (
+                    <span className="text-slate-600">—</span>
+                  )}
+                </td>
                 <td className="py-2 pr-4">{statusBadge(o.match_status)}</td>
+                <td className="py-2 pr-4">
+                  <div className="flex items-center gap-1">
+                    <select
+                      value={inlineInstrument[o.id] ?? ""}
+                      onChange={(e) => setInlineInstrument((prev) => ({ ...prev, [o.id]: e.target.value ? Number(e.target.value) : null }))}
+                      className="text-xs bg-slate-900 border border-white/10 rounded px-1 py-0.5 text-slate-300 max-w-[140px] truncate"
+                    >
+                      <option value="">(unmatched)</option>
+                      {instruments.map((inst) => (
+                        <option key={inst.id} value={inst.id}>
+                          {inst.security_name} ({inst.identifier})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={() => handleResolve(o.id)}
+                      disabled={resolving === o.id}
+                      className="p-1 rounded hover:bg-emerald-600/20 text-emerald-400 hover:text-emerald-300 disabled:opacity-40"
+                      title="Apply"
+                    >
+                      <CheckCircle2 size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleUnmatch(o.id)}
+                      disabled={unmatching === o.id}
+                      className="p-1 rounded hover:bg-red-600/20 text-red-400 hover:text-red-300 disabled:opacity-40"
+                      title="Unmatch"
+                    >
+                      <XCircle size={14} />
+                    </button>
+                  </div>
+                </td>
                 <td className="py-2 pr-4 text-slate-400">{o.match_method || "—"}</td>
                 <td className="py-2 text-right">
                   {o.match_confidence != null

@@ -190,12 +190,20 @@ class OrderImportBatchOut(BaseModel):
     row_count: int
 
 
+class OrderInstrumentRef(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    security_name: str
+    identifier: str
+
+
 class OrderOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     security_name: str
     instrument_id: int | None = None
+    instrument: OrderInstrumentRef | None = None
     order_date: dt.datetime
     order_status: str
     account_name: str

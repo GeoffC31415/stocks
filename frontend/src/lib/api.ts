@@ -138,10 +138,17 @@ export type InstrumentHistoryPoint = {
   pct_change: number | null;
 };
 
+export type OrderInstrumentRef = {
+  id: number;
+  security_name: string;
+  identifier: string;
+};
+
 export type Order = {
   id: number;
   security_name: string;
   instrument_id: number | null;
+  instrument: OrderInstrumentRef | null;
   order_date: string;
   order_status: string;
   account_name: string;

@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.database import get_session
 from app.models import Order
@@ -11,6 +12,7 @@ from app.schemas import (
     EstimatedTimeseriesPoint,
     OrderAnalytics,
     OrderImportBatchOut,
+    OrderInstrumentRef,
     OrderOut,
     PositionSummary,
     UnlinkedOrdersResponse,
@@ -204,7 +206,7 @@ async def list_orders(
     limit: int = 200,
     session: AsyncSession = Depends(get_session),
 ) -> list[OrderOut]:
-    q = select(Order).order_by(Order.order_date.desc()).limit(limit)
+    q = select(Order).options(joinedload(Order.instrument)).order_by(Order.order_date.desc()).limit(limit)
     result = await session.execute(q)
     orders = list(result.scalars().all())
 
@@ -224,6 +226,11 @@ async def list_orders(
                 id=o.id,
                 security_name=o.security_name,
                 instrument_id=o.instrument_id,
+                instrument=OrderInstrumentRef(
+                    id=o.instrument.id,
+                    security_name=o.instrument.security_name,
+                    identifier=o.instrument.identifier,
+                ) if o.instrument else None,
                 order_date=o.order_date,
                 order_status=o.order_status,
                 account_name=o.account_name,
