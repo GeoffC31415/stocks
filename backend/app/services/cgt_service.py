@@ -12,7 +12,7 @@ import datetime as dt
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Instrument, Order
@@ -309,7 +309,7 @@ async def get_instrument_cgt(
     for inst in instruments:
         oq = select(Order).where(
             Order.instrument_id == inst.id,
-            Order.side.in_(["buy", "sell"]),
+            func.lower(Order.side).in_(["buy", "sell"]),
         ).order_by(Order.order_date)
         orders_result = await session.execute(oq)
         orders = list(orders_result.scalars().all())
