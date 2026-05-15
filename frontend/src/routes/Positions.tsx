@@ -43,15 +43,7 @@ export function Positions() {
       ),
     [instrumentsQ.data],
   );
-  const positions = useMemo(() => {
-    const rows = positionsQ.data ?? [];
-    if (accountFilter === "all") return rows;
-    return rows.filter(
-      (position) =>
-        position.instrument_id != null &&
-        instrumentAccountById.get(position.instrument_id) === accountFilter,
-    );
-  }, [accountFilter, instrumentAccountById, positionsQ.data]);
+  const positions = positionsQ.data ?? [];
 
   const filteredGroupPerformance = useMemo(() => {
     const groups = groupPerfQ.data ?? [];

@@ -441,7 +441,11 @@ const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
 
 export const api = {
   getSummary: () => requestJson<PortfolioSummary>("/api/portfolio/summary"),
-  getTimeseries: () => requestJson<Array<{ as_of_date: string; total_value_gbp: number; total_book_cost_gbp: number }>>("/api/portfolio/timeseries"),
+  getTimeseries: (accountName?: string | null) => {
+    const params = new URLSearchParams();
+    if (accountName) params.set("account_name", accountName);
+    return requestJson<Array<{ as_of_date: string; total_value_gbp: number; total_book_cost_gbp: number }>>(`/api/portfolio/timeseries?${params.toString()}`);
+  },
   getInstruments: () => requestJson<Instrument[]>("/api/instruments"),
   getImports: () => requestJson<ImportBatch[]>("/api/imports"),
   getImport: (batchId: number) => requestJson<ImportBatch>(`/api/imports/${batchId}`),
@@ -532,8 +536,12 @@ export const api = {
       body: formData
     });
   },
-  getOrderAnalytics: (dripThreshold: number) =>
-    requestJson<OrderAnalytics>(`/api/orders/analytics?drip_threshold=${dripThreshold}`),
+  getOrderAnalytics: (dripThreshold: number, accountName?: string | null) => {
+    const params = new URLSearchParams();
+    params.set("drip_threshold", String(dripThreshold));
+    if (accountName) params.set("account_name", accountName);
+    return requestJson<OrderAnalytics>(`/api/orders/analytics?${params.toString()}`);
+  },
   getOrders: (dripThreshold: number) =>
     requestJson<Order[]>(`/api/orders?drip_threshold=${dripThreshold}&limit=500`),
   getUnlinkedOrders: (dripThreshold: number) =>
@@ -542,12 +550,19 @@ export const api = {
     ),
   getInstrumentOrders: (instrumentId: number, dripThreshold: number) =>
     requestJson<Order[]>(`/api/instruments/${instrumentId}/orders?drip_threshold=${dripThreshold}`),
-  getCashflowTimeseries: (dripThreshold: number) =>
-    requestJson<CashflowPoint[]>(`/api/orders/cashflow-timeseries?drip_threshold=${dripThreshold}`),
+  getCashflowTimeseries: (dripThreshold: number, accountName?: string | null) => {
+    const params = new URLSearchParams();
+    params.set("drip_threshold", String(dripThreshold));
+    if (accountName) params.set("account_name", accountName);
+    return requestJson<CashflowPoint[]>(`/api/orders/cashflow-timeseries?${params.toString()}`);
+  },
   getOrderPositions: (dripThreshold: number) =>
     requestJson<PositionSummary[]>(`/api/orders/positions?drip_threshold=${dripThreshold}`),
-  getEstimatedTimeseries: () =>
-    requestJson<EstimatedTimeseriesPoint[]>("/api/orders/estimated-timeseries"),
+  getEstimatedTimeseries: (accountName?: string | null) => {
+    const params = new URLSearchParams();
+    if (accountName) params.set("account_name", accountName);
+    return requestJson<EstimatedTimeseriesPoint[]>(`/api/orders/estimated-timeseries?${params.toString()}`);
+  },
   getBenchmarks: (symbols: string[], start?: string, baseValue?: number) => {
     const params = new URLSearchParams();
     for (const symbol of symbols) params.append("symbols", symbol);

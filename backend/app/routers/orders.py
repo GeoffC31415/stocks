@@ -110,18 +110,20 @@ async def import_hl_orders(
 @router.get("/analytics", response_model=OrderAnalytics)
 async def order_analytics(
     drip_threshold: float = _DRIP_DEFAULT,
+    account_name: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> OrderAnalytics:
-    data = await get_order_analytics(session, drip_threshold_gbp=drip_threshold)
+    data = await get_order_analytics(session, drip_threshold_gbp=drip_threshold, account_name=account_name)
     return OrderAnalytics(**data)
 
 
 @router.get("/cashflow-timeseries", response_model=list[CashflowPoint])
 async def cashflow_timeseries(
     drip_threshold: float = _DRIP_DEFAULT,
+    account_name: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[CashflowPoint]:
-    data = await get_cashflow_timeseries(session, drip_threshold_gbp=drip_threshold)
+    data = await get_cashflow_timeseries(session, drip_threshold_gbp=drip_threshold, account_name=account_name)
     return [CashflowPoint(**row) for row in data]
 
 
@@ -136,9 +138,10 @@ async def order_positions(
 
 @router.get("/estimated-timeseries", response_model=list[EstimatedTimeseriesPoint])
 async def estimated_timeseries(
+    account_name: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[EstimatedTimeseriesPoint]:
-    data = await get_estimated_portfolio_timeseries(session)
+    data = await get_estimated_portfolio_timeseries(session, account_name=account_name)
     return [EstimatedTimeseriesPoint(**row) for row in data]
 
 

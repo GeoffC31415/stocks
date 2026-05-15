@@ -383,8 +383,14 @@ async def instrument_history(
     return out
 
 
-async def portfolio_value_timeseries(session: AsyncSession) -> list[dict]:
-    """Portfolio value after each import, carrying forward untouched account snapshots."""
+async def portfolio_value_timeseries(
+    session: AsyncSession, *, account_name: str | None = None
+) -> list[dict]:
+    """Portfolio value after each import, carrying forward untouched account snapshots.
+
+    When *account_name* is provided, only include snapshots from instruments
+    belonging to that account.
+    """
     batches_result = await session.execute(
         select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
     )
@@ -392,12 +398,15 @@ async def portfolio_value_timeseries(session: AsyncSession) -> list[dict]:
     if not batches:
         return []
 
-    snapshots_result = await session.execute(
+    snapshots_query = (
         select(HoldingSnapshot)
         .join(Instrument)
         .options(selectinload(HoldingSnapshot.instrument))
         .order_by(HoldingSnapshot.import_batch_id)
     )
+    if account_name:
+        snapshots_query = snapshots_query.where(Instrument.account_name == account_name)
+    snapshots_result = await session.execute(snapshots_query)
     snapshots_by_batch: dict[int, list[HoldingSnapshot]] = defaultdict(list)
     for snapshot in snapshots_result.scalars().all():
         snapshots_by_batch[snapshot.import_batch_id].append(snapshot)

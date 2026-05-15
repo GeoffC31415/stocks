@@ -17,8 +17,8 @@ export function Overview() {
   const summaryQ = useQuery({ queryKey: ["summary"], queryFn: api.getSummary });
   const instrumentsQ = useQuery({ queryKey: ["instruments"], queryFn: api.getInstruments });
   const timeseriesQ = useQuery({
-    queryKey: ["timeseries"],
-    queryFn: api.getTimeseries,
+    queryKey: ["timeseries", accountFilter],
+    queryFn: () => api.getTimeseries(accountFilter === "all" ? undefined : accountFilter),
   });
   const analyticsQ = useQuery({
     queryKey: ["order-analytics", dripThreshold],
@@ -29,8 +29,8 @@ export function Overview() {
     queryFn: () => api.getCashflowTimeseries(dripThreshold),
   });
   const estimatedQ = useQuery({
-    queryKey: ["estimated-timeseries"],
-    queryFn: api.getEstimatedTimeseries,
+    queryKey: ["estimated-timeseries", accountFilter],
+    queryFn: () => api.getEstimatedTimeseries(accountFilter === "all" ? undefined : accountFilter),
     enabled: (analyticsQ.data?.total_orders ?? 0) > 0,
   });
   const importDiffQ = useQuery({

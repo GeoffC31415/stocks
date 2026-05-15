@@ -42,8 +42,11 @@ async def summary(session: AsyncSession = Depends(get_session)) -> PortfolioSumm
 
 
 @router.get("/timeseries")
-async def timeseries(session: AsyncSession = Depends(get_session)) -> list[dict]:
-    return await portfolio_value_timeseries(session)
+async def timeseries(
+    account_name: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    return await portfolio_value_timeseries(session, account_name=account_name)
 
 
 @router.get("/benchmarks", response_model=list[BenchmarkPoint])

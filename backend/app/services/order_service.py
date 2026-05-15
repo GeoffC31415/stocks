@@ -231,8 +231,12 @@ async def get_order_analytics(
     session: AsyncSession,
     *,
     drip_threshold_gbp: float = 1000.0,
+    account_name: str | None = None,
 ) -> dict:
-    r = await session.execute(select(Order).order_by(Order.order_date))
+    q = select(Order).order_by(Order.order_date)
+    if account_name:
+        q = q.where(Order.account_name == account_name)
+    r = await session.execute(q)
     orders = list(r.scalars().all())
 
     if not orders:
@@ -303,9 +307,13 @@ async def get_cashflow_timeseries(
     session: AsyncSession,
     *,
     drip_threshold_gbp: float = 1000.0,
+    account_name: str | None = None,
 ) -> list[dict]:
     """Monthly cumulative cash-flow breakdown from order history."""
-    r = await session.execute(select(Order).order_by(Order.order_date))
+    q = select(Order).order_by(Order.order_date)
+    if account_name:
+        q = q.where(Order.account_name == account_name)
+    r = await session.execute(q)
     orders = list(r.scalars().all())
     if not orders:
         return []
@@ -350,18 +358,25 @@ async def get_cashflow_timeseries(
 
 async def get_estimated_portfolio_timeseries(
     session: AsyncSession,
+    *,
+    account_name: str | None = None,
 ) -> list[dict]:
     """
     For each month in the order history, estimate portfolio value by applying
     current snapshot prices to the running share quantities from orders.
 
     Uses the instrument_id FK on orders for reliable price lookup.
+
+    When *account_name* is provided, only use prices from instruments
+    belonging to that account.
     """
     from app.services.portfolio_service import get_current_snapshots
 
     snapshots = await get_current_snapshots(session)
     price_per_instrument: dict[int, float] = {}
     for snapshot in snapshots:
+        if account_name and snapshot.instrument.account_name != account_name:
+            continue
         if (
             not snapshot.instrument.is_cash
             and snapshot.quantity
