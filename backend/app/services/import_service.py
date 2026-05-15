@@ -2,15 +2,32 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+from dataclasses import replace
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import HoldingSnapshot, ImportBatch, Instrument
+from app.models import AccountAlias, HoldingSnapshot, ImportBatch, Instrument
 from app.services.barclays_parser import ParsedHoldingRow, parse_barclays_xls_bytes
 from app.services.hl_parser import parse_hl_holdings_csv_bytes
+
+
+async def resolve_account_name(
+    session: AsyncSession,
+    source_account_name: str,
+) -> str:
+    """Map a source account name to its canonical name via AccountAlias."""
+    stmt = select(AccountAlias).where(
+        AccountAlias.source_account_name == source_account_name,
+    )
+    alias = (await session.execute(stmt)).scalar_one_or_none()
+    if alias is not None:
+        return alias.canonical_account_name
+    return source_account_name
+
+
 from app.services.portfolio_service import get_latest_batch_for_account
 
 
@@ -148,15 +165,27 @@ async def get_or_create_instrument(
         inst.security_name = row.investment
         inst.is_cash = row.is_cash
         return inst
-    inst = Instrument(
+    # Use INSERT OR REPLACE to handle the rare case where a duplicate
+    # already exists (e.g. from an earlier bug that bypassed the constraint).
+    from sqlalchemy.dialects.sqlite import insert
+
+    insert_stmt = insert(Instrument).values(
         account_name=row.account_name,
         identifier=row.identifier,
         security_name=row.investment,
         is_cash=row.is_cash,
         closed_at=None,
     )
-    session.add(inst)
+    insert_stmt = insert_stmt.on_conflict_do_update(
+        index_elements=["account_name", "identifier"],
+        set_={
+            "security_name": insert_stmt.excluded.security_name,
+            "is_cash": insert_stmt.excluded.is_cash,
+        },
+    )
+    await session.execute(insert_stmt)
     await session.flush()
+    inst = (await session.execute(stmt)).scalar_one()
     return inst
 
 
@@ -230,6 +259,13 @@ async def import_holding_snapshot(
         ).scalar_one_or_none()
         if dup is not None:
             raise DuplicateImportError(dup.id)
+
+    # Resolve account names through aliases so imports always land on the
+    # canonical account and never create duplicate accounts.
+    parsed_rows = [
+        replace(row, account_name=await resolve_account_name(session, row.account_name))
+        for row in parsed_rows
+    ]
 
     batch_accounts = {row.account_name for row in parsed_rows}
     previous_batches: dict[int, ImportBatch] = {}
