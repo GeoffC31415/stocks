@@ -15,6 +15,7 @@ from app.services.cgt_service import (
     calculate_cgt_for_instrument,
     get_cgt_summary,
     get_instrument_cgt,
+    is_isa_account,
     _group_by_tax_year,
     _tax_year_end,
 )
@@ -381,3 +382,136 @@ class TestAsyncAPI:
         result = await get_cgt_summary(FakeSession())
         assert result["instruments"] == []
         assert result["tax_year_totals"] == []
+
+
+class TestIsaExemption:
+    """Test ISA account detection and exemption."""
+
+    def test_isa_account_detection(self) -> None:
+        """ISA in account name detected as exempt."""
+        assert is_isa_account("Barclays ISA") is True
+        assert is_isa_account("Hargreaves Lansdown ISA") is True
+        assert is_isa_account("ISA account") is True
+
+    def test_non_isa_accounts(self) -> None:
+        """Non-ISA accounts are not exempt."""
+        assert is_isa_account("Barclays Stockbrokers") is False
+        assert is_isa_account("Hargreaves Lansdown SIPP") is False
+        assert is_isa_account("Cash Account") is False
+        assert is_isa_account("Vanguard Investor Account") is False
+
+    def test_case_insensitive(self) -> None:
+        """ISA detection is case-insensitive."""
+        assert is_isa_account("BARCLAYS ISA") is True
+        assert is_isa_account("hargreaves lansdown isa") is True
+
+    @pytest.mark.asyncio
+    async def test_instrument_is_exempt_flag(self) -> None:
+        """ISA instruments have is_exempt=True in response."""
+        mock_inst = Instrument(
+            id=1,
+            security_name="TestStock",
+            identifier="TEST1",
+            account_name="Barclays ISA",
+            is_cash=False,
+        )
+        mock_order_buy = Order(
+            id=1,
+            security_name="TestStock",
+            order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            side="Buy",
+            quantity=100,
+            cost_proceeds_gbp=1000,
+            instrument_id=1,
+        )
+        mock_order_sell = Order(
+            id=2,
+            security_name="TestStock",
+            order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC),
+            side="Sell",
+            quantity=50,
+            cost_proceeds_gbp=600,
+            instrument_id=1,
+        )
+
+        call_count = 0
+        class FakeResult:
+            def scalars(self):
+                nonlocal call_count
+                call_count += 1
+                r = MagicMock()
+                if call_count == 1:
+                    r.all.return_value = [mock_inst]
+                else:
+                    r.all.return_value = [mock_order_buy, mock_order_sell]
+                return r
+
+        class FakeSession:
+            async def execute(self, *args, **kwargs):
+                return FakeResult()
+
+        result = await get_instrument_cgt(FakeSession())
+        assert len(result) == 1
+        assert result[0]["is_exempt"] is True
+
+    @pytest.mark.asyncio
+    async def test_cgt_summary_separates_exempt(self) -> None:
+        """CGT summary separates taxable and exempt amounts."""
+        mock_inst_isa = Instrument(
+            id=1,
+            security_name="ISA Stock",
+            identifier="ISA1",
+            account_name="Barclays ISA",
+            is_cash=False,
+        )
+        mock_inst_non_isa = Instrument(
+            id=2,
+            security_name="Broker Stock",
+            identifier="BRK1",
+            account_name="Barclays Stockbrokers",
+            is_cash=False,
+        )
+
+        mock_buy_isa = Order(id=1, security_name="ISA Stock", order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC), side="Buy", quantity=100, cost_proceeds_gbp=1000, instrument_id=1)
+        mock_sell_isa = Order(id=2, security_name="ISA Stock", order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC), side="Sell", quantity=50, cost_proceeds_gbp=600, instrument_id=1)
+
+        mock_buy_non = Order(id=3, security_name="Broker Stock", order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC), side="Buy", quantity=100, cost_proceeds_gbp=1000, instrument_id=2)
+        mock_sell_non = Order(id=4, security_name="Broker Stock", order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC), side="Sell", quantity=50, cost_proceeds_gbp=800, instrument_id=2)
+
+        call_count = 0
+        class FakeResult:
+            def scalars(self):
+                nonlocal call_count
+                call_count += 1
+                r = MagicMock()
+                if call_count == 1:
+                    r.all.return_value = [mock_inst_isa, mock_inst_non_isa]
+                else:
+                    if call_count == 2:
+                        r.all.return_value = [mock_buy_isa, mock_sell_isa]
+                    else:
+                        r.all.return_value = [mock_buy_non, mock_sell_non]
+                return r
+
+        class FakeSession:
+            async def execute(self, *args, **kwargs):
+                return FakeResult()
+
+        result = await get_cgt_summary(FakeSession())
+
+        # Should have 2 tax year summaries
+        assert len(result["tax_year_totals"]) > 0
+        ty = result["tax_year_totals"][0]
+
+        # Taxable amounts from non-ISA instrument
+        assert ty["taxable_gain"] == 300.0  # 800 - (1000/100)*50
+        assert ty["taxable_loss"] == 0.0
+        assert ty["gain_count"] == 1
+
+        # Exempt amounts from ISA instrument
+        assert ty["exempt_gain"] == 100.0  # 600 - (1000/100)*50
+        assert ty["exempt_loss"] == 0.0
+        assert ty["exempt_count"] == 1
+
+        # Total instruments includes both
+        assert ty["instrument_count"] == 2

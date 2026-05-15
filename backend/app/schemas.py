@@ -546,6 +546,7 @@ class CGTInstrumentSummary(BaseModel):
     security_name: str
     identifier: str
     account_name: str
+    is_exempt: bool = False
     total_proceeds_gbp: float
     total_cost_gbp: float
     total_gain_gbp: float
@@ -557,13 +558,19 @@ class CGTInstrumentSummary(BaseModel):
 
 class CGTTaxYearTotals(BaseModel):
     tax_year: str
-    total_proceeds: float
-    total_cost: float
-    total_gain: float
-    total_loss: float
+    # Taxable (non-ISA) amounts
+    taxable_proceeds: float
+    taxable_cost: float
+    taxable_gain: float
+    taxable_loss: float
+    exempt_proceeds: float
+    exempt_cost: float
+    exempt_gain: float
+    exempt_loss: float
     gain_count: int
     loss_count: int
     instrument_count: int
+    exempt_count: int = 0
 
 
 class CGTSummaryResponse(BaseModel):

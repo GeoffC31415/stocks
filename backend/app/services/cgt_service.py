@@ -82,6 +82,11 @@ def _tax_year_end(order_date: dt.datetime) -> int:
     return end_year
 
 
+def is_isa_account(account_name: str) -> bool:
+    """Check if an account name indicates an ISA wrapper (tax-exempt)."""
+    return "isa" in account_name.lower()
+
+
 def calculate_cgt_for_instrument(
     orders: list[Order],
 ) -> list[SaleDetail]:
@@ -332,6 +337,7 @@ async def get_instrument_cgt(
                 "security_name": inst.security_name,
                 "identifier": inst.identifier,
                 "account_name": inst.account_name,
+                "is_exempt": is_isa_account(inst.account_name),
                 "total_proceeds_gbp": round(total_proceeds, 2),
                 "total_cost_gbp": round(total_cost, 2),
                 "total_gain_gbp": round(total_gain, 2),
@@ -389,8 +395,8 @@ async def get_cgt_summary(
 ) -> dict:
     """Aggregated CGT summary across all instruments, grouped by tax year.
 
-    Returns the same structure as get_instrument_cgt but flattened across
-    instruments with a tax_year_totals section.
+    ISA accounts are flagged as exempt and excluded from taxable totals.
+    Returns taxable and exempt totals separately per tax year.
     """
     instruments_data = await get_instrument_cgt(session, account_name=account_name)
     if not instruments_data:
@@ -404,20 +410,32 @@ async def get_cgt_summary(
             if key not in ty_totals:
                 ty_totals[key] = {
                     "tax_year": key,
-                    "total_proceeds": 0.0,
-                    "total_cost": 0.0,
-                    "total_gain": 0.0,
-                    "total_loss": 0.0,
+                    "taxable_proceeds": 0.0,
+                    "taxable_cost": 0.0,
+                    "taxable_gain": 0.0,
+                    "taxable_loss": 0.0,
+                    "exempt_proceeds": 0.0,
+                    "exempt_cost": 0.0,
+                    "exempt_gain": 0.0,
+                    "exempt_loss": 0.0,
                     "gain_count": 0,
                     "loss_count": 0,
                     "instrument_count": 0,
+                    "exempt_count": 0,
                 }
-            ty_totals[key]["total_proceeds"] += ty["total_proceeds"]
-            ty_totals[key]["total_cost"] += ty["total_cost"]
-            ty_totals[key]["total_gain"] += ty["total_gain"]
-            ty_totals[key]["total_loss"] += ty["total_loss"]
-            ty_totals[key]["gain_count"] += ty["gain_count"]
-            ty_totals[key]["loss_count"] += ty["loss_count"]
+            if inst["is_exempt"]:
+                ty_totals[key]["exempt_proceeds"] += ty["total_proceeds"]
+                ty_totals[key]["exempt_cost"] += ty["total_cost"]
+                ty_totals[key]["exempt_gain"] += ty["total_gain"]
+                ty_totals[key]["exempt_loss"] += ty["total_loss"]
+                ty_totals[key]["exempt_count"] += 1
+            else:
+                ty_totals[key]["taxable_proceeds"] += ty["total_proceeds"]
+                ty_totals[key]["taxable_cost"] += ty["total_cost"]
+                ty_totals[key]["taxable_gain"] += ty["total_gain"]
+                ty_totals[key]["taxable_loss"] += ty["total_loss"]
+                ty_totals[key]["gain_count"] += ty["gain_count"]
+                ty_totals[key]["loss_count"] += ty["loss_count"]
             ty_totals[key]["instrument_count"] += 1
 
     return {

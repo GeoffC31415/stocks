@@ -464,6 +464,7 @@ export type CGTInstrumentSummary = {
   security_name: string;
   identifier: string;
   account_name: string;
+  is_exempt: boolean;
   total_proceeds_gbp: number;
   total_cost_gbp: number;
   total_gain_gbp: number;
@@ -475,13 +476,20 @@ export type CGTInstrumentSummary = {
 
 export type CGTTaxYearTotals = {
   tax_year: string;
-  total_proceeds: number;
-  total_cost: number;
-  total_gain: number;
-  total_loss: number;
+  // Taxable (non-ISA) amounts
+  taxable_proceeds: number;
+  taxable_cost: number;
+  taxable_gain: number;
+  taxable_loss: number;
+  // ISA-exempt amounts
+  exempt_proceeds: number;
+  exempt_cost: number;
+  exempt_gain: number;
+  exempt_loss: number;
   gain_count: number;
   loss_count: number;
   instrument_count: number;
+  exempt_count: number;
 };
 
 export type CGTSummaryResponse = {
