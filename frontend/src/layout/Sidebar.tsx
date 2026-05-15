@@ -9,6 +9,7 @@ import {
   BarChart3,
   GitCompareArrows,
   Link,
+  Scale,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -27,6 +28,7 @@ const NAV: NavItem[] = [
   { to: "/groups", label: "Groups", icon: Layers },
   { to: "/diff", label: "Diff", icon: GitCompareArrows },
   { to: "/matching", label: "Matching", icon: Link },
+  { to: "/cgt", label: "CGT", icon: Scale },
 ];
 
 export function Sidebar() {
@@ -91,7 +93,7 @@ export function Sidebar() {
       </nav>
 
       <div className="px-5 py-4 text-[10px] text-slate-600">
-        Portfolio Tracker · DRIP analysis
+        Portfolio Tracker · CGT analysis
       </div>
     </aside>
   );

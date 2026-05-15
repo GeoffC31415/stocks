@@ -503,3 +503,70 @@ class CreateHistoricalInstrumentBody(BaseModel):
     closed: bool = True  # historical instruments are closed by default
     reason: str | None = None
 
+
+# ---------------------------------------------------------------------------
+# CGT schemas
+# ---------------------------------------------------------------------------
+
+class CGTMismatchEntry(BaseModel):
+    source: str  # "same_day", "b&f", "pool"
+    order_id: int | None = None
+    order_date: str | None = None
+    security_name: str | None = None
+    quantity: float = 0.0
+    cost: float = 0.0
+    proceeds: float = 0.0
+
+
+class CGTSaleDetail(BaseModel):
+    order_id: int
+    order_date: str
+    quantity: float
+    proceeds_gbp: float
+    total_cost: float
+    realised_gain: float
+    matches: list[CGTMismatchEntry] = Field(default_factory=list)
+    pool_quantity_before: float = 0.0
+    pool_cost_before: float = 0.0
+
+
+class CGTTaxYearSummary(BaseModel):
+    tax_year: str  # e.g. "2023-24"
+    year_end: int
+    total_proceeds: float
+    total_cost: float
+    total_gain: float
+    total_loss: float
+    gain_count: int
+    loss_count: int
+
+
+class CGTInstrumentSummary(BaseModel):
+    instrument_id: int
+    security_name: str
+    identifier: str
+    account_name: str
+    total_proceeds_gbp: float
+    total_cost_gbp: float
+    total_gain_gbp: float
+    total_loss_gbp: float
+    net_gain_gbp: float
+    tax_year_summaries: list[CGTTaxYearSummary] = Field(default_factory=list)
+    sales: list[CGTSaleDetail] = Field(default_factory=list)
+
+
+class CGTTaxYearTotals(BaseModel):
+    tax_year: str
+    total_proceeds: float
+    total_cost: float
+    total_gain: float
+    total_loss: float
+    gain_count: int
+    loss_count: int
+    instrument_count: int
+
+
+class CGTSummaryResponse(BaseModel):
+    instruments: list[CGTInstrumentSummary] = Field(default_factory=list)
+    tax_year_totals: list[CGTTaxYearTotals] = Field(default_factory=list)
+

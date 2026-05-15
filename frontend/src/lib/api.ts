@@ -422,6 +422,73 @@ export const formatSnapshotDateIso = (isoDate: string): string => {
   }).format(new Date(y, mo - 1, day));
 };
 
+// ---------------------------------------------------------------------------
+// CGT types
+// ---------------------------------------------------------------------------
+
+export type CGTMismatchEntry = {
+  source: string;
+  order_id?: number | null;
+  order_date?: string | null;
+  security_name?: string | null;
+  quantity: number;
+  cost: number;
+  proceeds: number;
+};
+
+export type CGTSaleDetail = {
+  order_id: number;
+  order_date: string;
+  quantity: number;
+  proceeds_gbp: number;
+  total_cost: number;
+  realised_gain: number;
+  matches: CGTMismatchEntry[];
+  pool_quantity_before: number;
+  pool_cost_before: number;
+};
+
+export type CGTTaxYearSummary = {
+  tax_year: string;
+  year_end: number;
+  total_proceeds: number;
+  total_cost: number;
+  total_gain: number;
+  total_loss: number;
+  gain_count: number;
+  loss_count: number;
+};
+
+export type CGTInstrumentSummary = {
+  instrument_id: number;
+  security_name: string;
+  identifier: string;
+  account_name: string;
+  total_proceeds_gbp: number;
+  total_cost_gbp: number;
+  total_gain_gbp: number;
+  total_loss_gbp: number;
+  net_gain_gbp: number;
+  tax_year_summaries: CGTTaxYearSummary[];
+  sales: CGTSaleDetail[];
+};
+
+export type CGTTaxYearTotals = {
+  tax_year: string;
+  total_proceeds: number;
+  total_cost: number;
+  total_gain: number;
+  total_loss: number;
+  gain_count: number;
+  loss_count: number;
+  instrument_count: number;
+};
+
+export type CGTSummaryResponse = {
+  instruments: CGTInstrumentSummary[];
+  tax_year_totals: CGTTaxYearTotals[];
+};
+
 const toError = async (response: Response): Promise<string> => {
   try {
     const data = await response.json();
@@ -654,5 +721,12 @@ export const api = {
     if (instrumentId != null) params.set("instrument_id", String(instrumentId));
     if (limit != null) params.set("limit", String(limit));
     return requestJson<OrderMatchAudit[]>(`/api/matching/audit?${params.toString()}`);
+  },
+
+  // CGT
+  getCgtSummary: (accountName?: string | null) => {
+    const params = new URLSearchParams();
+    if (accountName) params.set("account_name", accountName);
+    return requestJson<CGTSummaryResponse>(`/api/cgt/summary?${params.toString()}`);
   },
 };
