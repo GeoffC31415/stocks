@@ -526,10 +526,11 @@ export const api = {
   getImport: (batchId: number) => requestJson<ImportBatch>(`/api/imports/${batchId}`),
   getImportDiff: (batchId: number) =>
     requestJson<ImportDiffSummary>(`/api/imports/${batchId}/diff`),
-  compareImports: (fromBatchId: number, toBatchId: number) =>
-    requestJson<SnapshotDiffResponse>(
-      `/api/imports/diff?from=${fromBatchId}&to=${toBatchId}`,
-    ),
+  compareImports: (fromBatchId: number, toBatchId: number, accountName?: string | null) => {
+    const params = new URLSearchParams({ from: String(fromBatchId), to: String(toBatchId) });
+    if (accountName) params.set("account_name", accountName);
+    return requestJson<SnapshotDiffResponse>(`/api/imports/diff?${params.toString()}`);
+  },
   getGroups: () => requestJson<Group[]>("/api/groups"),
   getInstrumentHistory: (instrumentId: number) =>
     requestJson<InstrumentHistoryPoint[]>(`/api/instruments/${instrumentId}/history`),

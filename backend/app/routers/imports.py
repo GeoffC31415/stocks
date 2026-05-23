@@ -111,12 +111,14 @@ async def list_imports(session: AsyncSession = Depends(get_session)) -> list[Imp
 async def compare_imports(
     from_id: int = Query(alias="from"),
     to_id: int = Query(alias="to"),
+    account_name: str | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
 ) -> SnapshotDiffResponse:
     data = await compare_import_batches(
         session,
         from_batch_id=from_id,
         to_batch_id=to_id,
+        account_name=account_name,
     )
     if data is None:
         raise HTTPException(status_code=404, detail="Import batch not found.")

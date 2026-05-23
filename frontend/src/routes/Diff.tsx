@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowDownUp, Loader2 } from "lucide-react";
 import { api, formatSnapshotDateIso, type SnapshotDiffRow } from "../lib/api";
+import { usePreferences } from "../state/usePreferences";
 import { pct, toGbp } from "../lib/formatters";
 
 type SortKey = "value" | "weight" | "quantity" | "name";
@@ -12,6 +13,8 @@ const numberOrZero = (value: number | null | undefined) => value ?? 0;
 export function Diff() {
   const [params, setParams] = useSearchParams();
   const [sort, setSort] = useState<SortKey>("value");
+  const { accountFilter } = usePreferences();
+  const accountName = accountFilter === "all" ? undefined : accountFilter;
 
   const importsQ = useQuery({ queryKey: ["imports"], queryFn: api.getImports });
   const imports = importsQ.data ?? [];
@@ -22,8 +25,8 @@ export function Diff() {
   const toBatchId = Number(params.get("to") ?? latest?.id ?? 0);
 
   const diffQ = useQuery({
-    queryKey: ["imports-diff", fromBatchId, toBatchId],
-    queryFn: () => api.compareImports(fromBatchId, toBatchId),
+    queryKey: ["imports-diff", fromBatchId, toBatchId, accountName],
+    queryFn: () => api.compareImports(fromBatchId, toBatchId, accountName),
     enabled: fromBatchId > 0 && toBatchId > 0,
   });
 
@@ -55,7 +58,7 @@ export function Diff() {
             Snapshot diff
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Compare quantities, values, prices and portfolio weights between two imports.
+            Compare {accountName ?? "whole-portfolio"} quantities, values, prices and weights after two imports.
           </p>
         </div>
         <Link to="/import" className="chip chip-muted">
@@ -71,7 +74,7 @@ export function Diff() {
         >
           {imports.map((batch) => (
             <option key={batch.id} value={batch.id}>
-              From {formatSnapshotDateIso(batch.as_of_date)} #{batch.id}
+              From {formatSnapshotDateIso(batch.as_of_date)} #{batch.id}{batch.filename ? ` · ${batch.filename}` : ""}
             </option>
           ))}
         </select>
@@ -83,7 +86,7 @@ export function Diff() {
         >
           {imports.map((batch) => (
             <option key={batch.id} value={batch.id}>
-              To {formatSnapshotDateIso(batch.as_of_date)} #{batch.id}
+              To {formatSnapshotDateIso(batch.as_of_date)} #{batch.id}{batch.filename ? ` · ${batch.filename}` : ""}
             </option>
           ))}
         </select>
@@ -107,7 +110,9 @@ export function Diff() {
           </div>
         ) : rows.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-500">
-            Choose two imports to compare.
+            {accountName
+              ? `No ${accountName} holdings found for this comparison.`
+              : "Choose two imports to compare."}
           </div>
         ) : (
           <div className="max-h-[640px] overflow-auto">
@@ -147,6 +152,7 @@ function DiffTableRow({ row }: { row: SnapshotDiffRow }) {
       <td className="px-4 py-2.5">
         <div className="font-medium text-white">{row.identifier}</div>
         <div className="truncate text-xs text-slate-500">{row.security_name}</div>
+        <div className="truncate text-[11px] text-slate-600">{row.account_name}</div>
       </td>
       <td className="px-4 py-2.5">
         <span className="chip chip-muted capitalize">{row.status}</span>

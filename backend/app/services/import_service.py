@@ -46,6 +46,54 @@ async def _snapshots_for_batch(session: AsyncSession, batch_id: int) -> list[Hol
     return list(q.scalars().all())
 
 
+async def _portfolio_snapshots_after_batch(
+    session: AsyncSession,
+    batch_id: int,
+    account_name: str | None = None,
+) -> list[HoldingSnapshot]:
+    """Portfolio state immediately after an import batch.
+
+    A portfolio import batch usually contains a single account/file. To compare
+    whole-portfolio snapshots, replay imports up to the selected batch and carry
+    forward the latest snapshot for accounts that were not touched by that file.
+    """
+    batches_result = await session.execute(
+        select(ImportBatch)
+        .where(ImportBatch.id <= batch_id)
+        .order_by(ImportBatch.id)
+    )
+    batches = list(batches_result.scalars().all())
+    if not batches:
+        return []
+
+    snapshots_query = (
+        select(HoldingSnapshot)
+        .join(Instrument)
+        .where(HoldingSnapshot.import_batch_id <= batch_id)
+        .options(selectinload(HoldingSnapshot.instrument))
+        .order_by(HoldingSnapshot.import_batch_id)
+    )
+    if account_name:
+        snapshots_query = snapshots_query.where(Instrument.account_name == account_name)
+
+    snapshots_result = await session.execute(snapshots_query)
+    snapshots_by_batch: dict[int, list[HoldingSnapshot]] = {}
+    for snapshot in snapshots_result.scalars().all():
+        snapshots_by_batch.setdefault(snapshot.import_batch_id, []).append(snapshot)
+
+    current_by_instrument: dict[int, HoldingSnapshot] = {}
+    for batch in batches:
+        for snapshot in snapshots_by_batch.get(batch.id, []):
+            current_by_instrument[snapshot.instrument_id] = snapshot
+
+        for closed in (batch.diff_summary or {}).get("closed", []):
+            instrument_id = closed.get("instrument_id")
+            if instrument_id is not None:
+                current_by_instrument.pop(int(instrument_id), None)
+
+    return list(current_by_instrument.values())
+
+
 async def get_import_batch(session: AsyncSession, batch_id: int) -> ImportBatch | None:
     return await session.get(ImportBatch, batch_id)
 
@@ -86,14 +134,15 @@ async def compare_import_batches(
     *,
     from_batch_id: int,
     to_batch_id: int,
+    account_name: str | None = None,
 ) -> dict[str, Any] | None:
     from_batch = await get_import_batch(session, from_batch_id)
     to_batch = await get_import_batch(session, to_batch_id)
     if from_batch is None or to_batch is None:
         return None
 
-    from_snapshots = await _snapshots_for_batch(session, from_batch_id)
-    to_snapshots = await _snapshots_for_batch(session, to_batch_id)
+    from_snapshots = await _portfolio_snapshots_after_batch(session, from_batch_id, account_name)
+    to_snapshots = await _portfolio_snapshots_after_batch(session, to_batch_id, account_name)
     from_by_instrument = {s.instrument_id: s for s in from_snapshots}
     to_by_instrument = {s.instrument_id: s for s in to_snapshots}
     total_from = sum(s.value_gbp or 0.0 for s in from_snapshots)
