@@ -54,6 +54,7 @@ export function OrderHistorySection({
   dripThreshold: number;
 }) {
   const [filter, setFilter] = useState<OrderFilter>("all");
+  const [nameFilter, setNameFilter] = useState("");
 
   const counts = useMemo(() => {
     let buy = 0;
@@ -68,15 +69,22 @@ export function OrderHistorySection({
   }, [orders]);
 
   const filtered = useMemo(() => {
-    if (filter === "drip") return orders.filter((o) => o.is_drip);
+    let result = orders;
+    if (filter === "drip") result = result.filter((o) => o.is_drip);
     if (filter === "buy")
-      return orders.filter(
+      result = result.filter(
         (o) => o.side.toLowerCase() === "buy" && !o.is_drip,
       );
     if (filter === "sell")
-      return orders.filter((o) => o.side.toLowerCase() === "sell");
-    return orders;
-  }, [orders, filter]);
+      result = result.filter((o) => o.side.toLowerCase() === "sell");
+    if (nameFilter.trim()) {
+      const q = nameFilter.trim().toLowerCase();
+      result = result.filter((o) =>
+        o.security_name.toLowerCase().includes(q),
+      );
+    }
+    return result;
+  }, [orders, filter, nameFilter]);
 
   const segments: Segment<OrderFilter>[] = [
     { key: "all", label: "All", count: counts.all },
@@ -97,12 +105,21 @@ export function OrderHistorySection({
   return (
     <div className="grid gap-4 lg:grid-cols-5">
       <div className="glass rounded-2xl p-5 lg:col-span-3">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-white">Order log</h3>
-            <p className="text-xs text-slate-500">
-              Latest 100 shown · filter to refine.
-            </p>
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-1 items-center gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-white">Order log</h3>
+              <p className="text-xs text-slate-500">
+                Latest 100 shown · filter to refine.
+              </p>
+            </div>
+            <input
+              type="text"
+              placeholder="Filter by name…"
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              className="ml-auto w-40 rounded-lg border border-white/[0.08] bg-aurora-base/60 px-2.5 py-1 text-[11px] text-white placeholder:text-slate-500 outline-none transition-colors focus:border-white/[0.16] sm:w-48"
+            />
           </div>
           <SegmentedControl
             layoutId="order-filter"
@@ -119,7 +136,7 @@ export function OrderHistorySection({
           ))}
           {filtered.length === 0 && (
             <p className="py-6 text-center text-sm text-slate-500">
-              No orders match this filter.
+              No orders match your filters.
             </p>
           )}
         </div>
