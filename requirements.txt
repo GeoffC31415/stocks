@@ -9,3 +9,4 @@ xlrd==1.2.0
 python-calamine>=0.6.0
 pytest>=8.3.0
 pytest-asyncio
+alembic>=1.13.0
