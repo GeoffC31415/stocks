@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
 from app.routers.cgt import router as cgt_router
+from app.routers.fetch import router as fetch_router
 from app.routers.groups import router as groups_router
 from app.routers.imports import router as imports_router
 from app.routers.instruments import router as instruments_router
@@ -37,6 +38,7 @@ app.add_middleware(
 )
 
 app.include_router(cgt_router)
+app.include_router(fetch_router)
 app.include_router(imports_router)
 app.include_router(orders_router)
 app.include_router(portfolio_router)

@@ -62,6 +62,46 @@ export function ImportPanel() {
     },
   });
 
+  // Fetch state
+  const [fetchStatus, setFetchStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [fetchMessage, setFetchMessage] = useState("");
+  const [fetchReportPath, setFetchReportPath] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  const fetchMutation = useMutation({
+    mutationFn: api.fetchBarclays,
+    onSuccess: (data) => {
+      setFetchStatus("loading");
+      setFetchMessage(data.message);
+    },
+    onError: (error: any) => {
+      setFetchStatus("error");
+      setFetchError(error.message || "Fetch failed");
+    },
+  });
+
+  // Poll fetch status
+  const { data: statusData, refetch: refetchStatus } = useQuery({
+    queryKey: ["fetchStatus"],
+    queryFn: api.getFetchStatus,
+    enabled: fetchStatus === "loading",
+    refetchInterval: fetchStatus === "loading" ? 3000 : false,
+    refetchIntervalInBackground: false,
+  });
+
+  useEffect(() => {
+    if (statusData?.status === "success") {
+      setFetchStatus("success");
+      setFetchMessage(statusData.message);
+      setFetchReportPath(statusData.report_path);
+      queryClient.invalidateQueries({ queryKey: ["imports"] });
+    } else if (statusData?.status === "failed") {
+      setFetchStatus("error");
+      setFetchMessage(statusData.message);
+      setFetchError(statusData.error);
+    }
+  }, [statusData, queryClient]);
+
   const segments: Segment<Tab>[] = [
     { key: "portfolio", label: "Portfolio snapshot" },
     { key: "orders", label: "Order history" },
@@ -162,6 +202,42 @@ export function ImportPanel() {
               )}
             </div>
           )}
+
+          <div className="pt-4 border-t border-white/[0.06]">
+            <p className="text-xs text-slate-500 mb-2">Or fetch automatically from Barclays Smart Investor:</p>
+            <button
+              type="button"
+              onClick={() => fetchMutation.mutate()}
+              disabled={fetchStatus === "loading" || fetchMutation.isPending}
+              className="btn-primary w-full flex items-center justify-center gap-2"
+            >
+              {fetchStatus === "loading" || fetchMutation.isPending ? (
+                <>
+                  <span className="animate-spin">⟳</span>
+                  Fetching from Barclays…
+                </>
+              ) : fetchStatus === "success" ? (
+                <>
+                  <CheckCircle2 size={16} className="text-pos" />
+                  Fetch Complete
+                </>
+              ) : (
+                <>
+                  <Download size={16} />
+                  Fetch Barclays Snapshot
+                </>
+              )}
+            </button>
+            {fetchStatus === "loading" && (
+              <p className="text-xs text-slate-400 mt-1">{fetchMessage}</p>
+            )}
+            {fetchStatus === "success" && fetchReportPath && (
+              <p className="text-xs text-pos mt-1">Report saved: {fetchReportPath.split("/").pop()}</p>
+            )}
+            {fetchStatus === "error" && (
+              <p className="text-xs text-neg mt-1">{fetchError || fetchMessage}</p>
+            )}
+          </div>
         </div>
       ) : (
         <div className="mt-5 space-y-3">

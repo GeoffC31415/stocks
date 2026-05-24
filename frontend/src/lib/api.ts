@@ -738,4 +738,15 @@ export const api = {
     if (accountName) params.set("account_name", accountName);
     return requestJson<CGTSummaryResponse>(`/api/cgt/summary?${params.toString()}`);
   },
+
+  // Fetch (Barclays Smart Investor)
+  fetchBarclays: () =>
+    requestJson<{ status: string; message: string }>(
+      "/api/fetch/barclays",
+      { method: "POST" },
+    ),
+  getFetchStatus: () =>
+    requestJson<{ status: string; message: string; report_path: string | null; error: string | null }>(
+      "/api/fetch/status",
+    ),
 };
