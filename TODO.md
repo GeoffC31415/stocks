@@ -4,7 +4,7 @@
 
 - [x] **File:** `backend/tests/test_order_service.py`, line 61
 - [x] **Problem:** Test expects CAGR `10.0` but correct result is `4.9`. With only the £1000 initial investment (the £50 buy is below the £100 DRIP threshold and ignored), growing to £1100 in 1 year, the Modified Dietz return is ~4.9% on weighted capital.
-- [ ] **Fix:** Change `assert round(result, 1) == 10.0` to `assert round(result, 1) == 4.9`
+- [x] **Fix:** Change `assert round(result, 1) == 10.0` to `assert round(result, 1) == 4.9`
 
 ---
 
