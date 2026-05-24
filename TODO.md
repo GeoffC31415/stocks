@@ -38,6 +38,6 @@
 
 ## 7. Clean up dead/legacy code in `instrument_matcher.py`
 
-- [ ] **File:** `backend/app/services/instrument_matcher.py`
+- [x] **File:** `backend/app/services/instrument_matcher.py`
 - [ ] **Problem:** The module now delegates to `services/matching/resolver.py` but keeps the legacy `_NOISE` set, `_normalise`, `_meaningful_tokens`, and `match_order_to_instrument` functions for backward compatibility. These are no longer called from anywhere in the codebase.
 - [ ] **Fix:** Remove the legacy functions and keep only the `link_orders_to_instruments` wrapper that delegates to the matching engine. Or, if there's a risk of external callers, mark them `@deprecated` with a `warnings.warn` and a migration note.
