@@ -18,7 +18,7 @@
 
 ## 4. Clean up `portfolio.db` from git tracking
 
-- [ ] **File:** `portfolio.db` (458 KB), `portfolio.db.bak` (458 KB)
+- [x] **File:** `portfolio.db` (458 KB), `portfolio.db.bak` (458 KB)
 - [ ] **Problem:** Both files are tracked in git despite being listed in `.gitignore`. This bloats the repository.
 - [ ] **Fix:**
   ```bash
