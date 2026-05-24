@@ -32,7 +32,7 @@
 
 ## 3. Add `.env.example` file
 
-- [ ] **File:** `.env.example` (new, in repo root)
+- [x] **File:** `.env.example` (new, in repo root)
 - [ ] **Problem:** The config uses `PORTFOLIO_DATABASE_URL` env var but there's no `.env.example` documenting what's available. This makes onboarding, deployment, and local configuration guesswork.
 - [ ] **Fix:**
   1. Create `.env.example` with all `PORTFOLIO_*` env vars documented:
