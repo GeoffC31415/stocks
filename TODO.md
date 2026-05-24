@@ -20,7 +20,7 @@
 
 - [x] **File:** `backend/.ruff.toml` (new)
 - [x] **Problem:** No linter or type checker configured. `order_service.py` is 865 lines with no type safety guarantees. Code quality will drift and bugs will go undetected until runtime.
-- [ ] **Fix:**
+- [x] **Fix:**
   1. Add `ruff>=0.8.0` and `mypy>=1.11.0` to `requirements.txt` (dev deps)
   2. Create `backend/.ruff.toml` with sensible defaults (E/W/F/pycodestyle/pylint rules, line length 100)
   3. Add `mypy.ini` or pyproject.toml section with strict settings (disallow untyped defs, disallow any generics, etc.)
