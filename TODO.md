@@ -1,50 +1,62 @@
-# TODO
+# High Priority Improvements
 
-## 1. Fix failing test: `test_modified_dietz_annualised_ignores_drip_cashflows`
+## 1. Add Alembic migrations
 
-- [x] **File:** `backend/tests/test_order_service.py`, line 61
-- [x] **Problem:** Test expects CAGR `10.0` but correct result is `4.9`. With only the £1000 initial investment (the £50 buy is below the £100 DRIP threshold and ignored), growing to £1100 in 1 year, the Modified Dietz return is ~4.9% on weighted capital.
-- [x] **Fix:** Change `assert round(result, 1) == 10.0` to `assert round(result, 1) == 4.9`
-
----
-
-## 1b. Add Alembic migrations (problem verification)
-
-- [x] **Problem:** The project uses `Base.metadata.create_all` + inline SQL migrations in `database.py`. This approach is fragile — it won't handle schema drops, column type changes, or work reliably when multiple instances share the DB. Schema changes are undocumented and ad-hoc.
-- [x] **Status:** Resolved in commit b43b1dd. alembic replaces all inline migrations with proper upgrade/downgrade functions.
-
----
-
-## 2. Fix failing tests: missing HL parser fixture files
-
-- [x] **File:** `backend/tests/test_hl_parser.py`, lines 17, 31
-- [x] **Problem:** Tests reference `data/HL-Summary.csv` and `data/hl-portfolio-summary.csv` which don't exist. The `data/` directory is gitignored but test fixtures need to be present for tests to pass.
-- [x] **Fix:** Add minimal fixture CSV files to `data/` so the tests are deterministic.
-
----
-
-## 4. Clean up `portfolio.db` from git tracking
-
-- [x] **File:** `portfolio.db` (458 KB), `portfolio.db.bak` (458 KB)
-- [x] **Problem:** Both files are tracked in git despite being listed in `.gitignore`. This bloats the repository.
+- [ ] **File:** `backend/alembic/` (new)
+- [ ] **Problem:** The project uses `Base.metadata.create_all` + inline SQL migrations in `database.py`. This approach is fragile — it won't handle schema drops, column type changes, or work reliably when multiple instances share the DB. Schema changes are undocumented and ad-hoc.
 - [x] **Fix:**
-  ```bash
-  git rm --cached portfolio.db portfolio.db.bak
-  git commit -m "chore: remove portfolio.db from git tracking"
-  ```
+  1. `pip install alembic` and add to `requirements.txt`
+  2. `alembic init backend/alembic`
+  3. Configure `alembic.ini` with the async SQLite URL
+  4. Set `alembic.env.py` to use the existing SQLAlchemy engine and `Base.metadata`
+  5. Generate initial migration: `alembic revision --autogenerate -m "initial schema"`
+  6. Convert inline migrations in `database.py` (`_migrate_order_dedupe`, `_migrate_match_metadata`, `_migrate_portfolio_metadata`) into proper Alembic upgrade/downgrade functions
+  7. Replace `init_db()` calls to `alembic command upgrade head`
+  8. Ensure `alembic/versions/` is tracked in git
 
 ---
 
-## 5. Move `import re` to top of `database.py`
+## 2. Add Python linting and type checking
 
-- [x] **File:** `backend/app/database.py`, line ~110
-- [x] **Problem:** `import re` is placed inside the `_migrate_match_metadata` function body, which is unconventional and can confuse linters/readers.
-- [x] **Fix:** Move `import re` to the existing top-level imports in `database.py` and remove the inline import.
+- [ ] **File:** `backend/.ruff.toml` (new)
+- [ ] **Problem:** No linter or type checker configured. `order_service.py` is 865 lines with no type safety guarantees. Code quality will drift and bugs will go undetected until runtime.
+- [ ] **Fix:**
+  1. Add `ruff>=0.8.0` and `mypy>=1.11.0` to `requirements.txt` (dev deps)
+  2. Create `backend/.ruff.toml` with sensible defaults (E/W/F/pycodestyle/pylint rules, line length 100)
+  3. Add `mypy.ini` or pyproject.toml section with strict settings (disallow untyped defs, disallow any generics, etc.)
+  4. Run `ruff check backend/ --fix` and `ruff format backend/`
+  5. Run `mypy backend/` and fix type errors (focus on service layer first)
+  6. Add scripts to `requirements.txt` or a `Makefile`: `"lint": "ruff check backend/ && ruff format --check backend/"`, `"typecheck": "mypy backend/"`
 
 ---
 
-## 7. Clean up dead/legacy code in `instrument_matcher.py`
+## 3. Add `.env.example` file
 
-- [x] **File:** `backend/app/services/instrument_matcher.py`
-- [x] **Problem:** The module now delegates to `services/matching/resolver.py` but keeps the legacy `_NOISE` set, `_normalise`, `_meaningful_tokens`, and `match_order_to_instrument` functions for backward compatibility. These are no longer called from anywhere in the codebase.
-- [x] **Fix:** Remove the legacy functions and keep only the `link_orders_to_instruments` wrapper that delegates to the matching engine. Or, if there's a risk of external callers, mark them `@deprecated` with a `warnings.warn` and a migration note.
+- [ ] **File:** `.env.example` (new, in repo root)
+- [ ] **Problem:** The config uses `PORTFOLIO_DATABASE_URL` env var but there's no `.env.example` documenting what's available. This makes onboarding, deployment, and local configuration guesswork.
+- [ ] **Fix:**
+  1. Create `.env.example` with all `PORTFOLIO_*` env vars documented:
+     ```
+     # Database URL (defaults to sqlite+aiosqlite:///./portfolio.db)
+     PORTFOLIO_DATABASE_URL=sqlite+aiosqlite:///./portfolio.db
+
+     # (Add any other settings as they are added to config.py)
+     ```
+  2. Add `.env` to `.gitignore` (it should never be committed)
+  3. Update README.md to reference `.env.example` in the Quick Start section
+
+---
+
+## 4. Fix CGT frontend integration
+
+- [ ] **File:** `frontend/src/layout/Sidebar.tsx`, `frontend/src/routes/CGT.tsx`
+- [ ] **Problem:** The CGT service (`cgt_service.py`, 444 lines), router (`cgt.py`), and frontend types (`CGTSummaryResponse`, `CGTTaxYearSummary`, etc.) are all built, but the CGT route doesn't appear to be linked from the sidebar navigation. Users can't access the UK Capital Gains Tax view that's been implemented.
+- [ ] **Fix:**
+  1. Review `Sidebar.tsx` — add a "CGT" nav item linking to the `/cgt` route
+  2. Review `CGT.tsx` — verify it uses the `api.getCgtSummary()` call and renders tax year summaries, instrument summaries, and gain/loss breakdowns
+  3. If `CGT.tsx` is empty or stubbed out, implement the view using the existing types and API:
+     - Tax year summary table (proceeds, cost, gain, loss per year)
+     - Per-instrument breakdown with section 104 pool status
+     - Same-day / 30-day / pool matching detail
+  4. Add the route to `App.tsx` if not already registered
+  5. Add a test or manual verification that the CGT endpoint returns valid data
