@@ -1,0 +1,7 @@
+{
+  "name": "stocks",
+  "private": true,
+  "scripts": {
+    "typecheck": "echo \"No TypeScript in this project.\""
+  }
+}

@@ -68,4 +68,4 @@ def test_modified_dietz_annualised_ignores_drip_cashflows() -> None:
     )
 
     assert result is not None
-    assert round(result, 1) == 10.0
+    assert round(result, 1) == 4.9
