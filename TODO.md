@@ -20,7 +20,7 @@
 
 - [x] **File:** `portfolio.db` (458 KB), `portfolio.db.bak` (458 KB)
 - [x] **Problem:** Both files are tracked in git despite being listed in `.gitignore`. This bloats the repository.
-- [ ] **Fix:**
+- [x] **Fix:**
   ```bash
   git rm --cached portfolio.db portfolio.db.bak
   git commit -m "chore: remove portfolio.db from git tracking"
