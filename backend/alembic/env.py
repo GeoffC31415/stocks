@@ -3,10 +3,8 @@ from logging.config import fileConfig
 from pathlib import Path
 
 from sqlalchemy import StaticPool, create_engine, event
-from sqlalchemy.orm import Session
 
 from alembic import context
-from alembic.operations import Operations
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

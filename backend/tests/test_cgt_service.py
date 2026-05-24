@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 import datetime as dt
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.models import Instrument, Order
 from app.services.cgt_service import (
-    Pool,
     SaleDetail,
-    SaleMatch,
+    _group_by_tax_year,
+    _tax_year_end,
     calculate_cgt_for_instrument,
     get_cgt_summary,
     get_instrument_cgt,
     is_isa_account,
-    _group_by_tax_year,
-    _tax_year_end,
 )
 
 
@@ -75,8 +73,20 @@ class TestSameDayRule:
     def test_basic_same_day(self) -> None:
         """Buy and sell on the same day should match via same-day rule."""
         orders = [
-            _order(id=1, order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC), side="Buy", quantity=100, cost_proceeds_gbp=1000),
-            _order(id=2, order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC), side="Sell", quantity=50, cost_proceeds_gbp=600),
+            _order(
+                id=1,
+                order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=100,
+                cost_proceeds_gbp=1000,
+            ),
+            _order(
+                id=2,
+                order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+                side="Sell",
+                quantity=50,
+                cost_proceeds_gbp=600,
+            ),
         ]
         sales = calculate_cgt_for_instrument(orders)
 
@@ -90,8 +100,20 @@ class TestSameDayRule:
     def test_same_day_partial(self) -> None:
         """Sell larger than same-day buy only matches up to buy qty."""
         orders = [
-            _order(id=1, order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC), side="Buy", quantity=50, cost_proceeds_gbp=500),
-            _order(id=2, order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC), side="Sell", quantity=100, cost_proceeds_gbp=1000),
+            _order(
+                id=1,
+                order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=50,
+                cost_proceeds_gbp=500,
+            ),
+            _order(
+                id=2,
+                order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+                side="Sell",
+                quantity=100,
+                cost_proceeds_gbp=1000,
+            ),
         ]
         sales = calculate_cgt_for_instrument(orders)
 
@@ -107,8 +129,20 @@ class TestBedAndBreakfastRule:
     def test_bf_within_30_days(self) -> None:
         """Buy within 30 days after a sell should match that sell."""
         orders = [
-            _order(id=1, order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC), side="Sell", quantity=50, cost_proceeds_gbp=600),
-            _order(id=2, order_date=dt.datetime(2024, 3, 15, tzinfo=dt.UTC), side="Buy", quantity=50, cost_proceeds_gbp=500),
+            _order(
+                id=1,
+                order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+                side="Sell",
+                quantity=50,
+                cost_proceeds_gbp=600,
+            ),
+            _order(
+                id=2,
+                order_date=dt.datetime(2024, 3, 15, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=50,
+                cost_proceeds_gbp=500,
+            ),
         ]
         sales = calculate_cgt_for_instrument(orders)
 
@@ -121,8 +155,20 @@ class TestBedAndBreakfastRule:
     def test_bf_outside_30_days(self) -> None:
         """Buy after 30 days does not trigger B&F."""
         orders = [
-            _order(id=1, order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC), side="Sell", quantity=50, cost_proceeds_gbp=600),
-            _order(id=2, order_date=dt.datetime(2024, 4, 1, tzinfo=dt.UTC), side="Buy", quantity=50, cost_proceeds_gbp=500),
+            _order(
+                id=1,
+                order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+                side="Sell",
+                quantity=50,
+                cost_proceeds_gbp=600,
+            ),
+            _order(
+                id=2,
+                order_date=dt.datetime(2024, 4, 1, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=50,
+                cost_proceeds_gbp=500,
+            ),
         ]
         sales = calculate_cgt_for_instrument(orders)
 
@@ -137,9 +183,27 @@ class TestSection104Pool:
     def test_pool_sale(self) -> None:
         """Sale from pool uses average cost."""
         orders = [
-            _order(id=1, order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC), side="Buy", quantity=100, cost_proceeds_gbp=1000),
-            _order(id=2, order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC), side="Buy", quantity=100, cost_proceeds_gbp=1200),
-            _order(id=3, order_date=dt.datetime(2024, 9, 1, tzinfo=dt.UTC), side="Sell", quantity=100, cost_proceeds_gbp=1500),
+            _order(
+                id=1,
+                order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=100,
+                cost_proceeds_gbp=1000,
+            ),
+            _order(
+                id=2,
+                order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=100,
+                cost_proceeds_gbp=1200,
+            ),
+            _order(
+                id=3,
+                order_date=dt.datetime(2024, 9, 1, tzinfo=dt.UTC),
+                side="Sell",
+                quantity=100,
+                cost_proceeds_gbp=1500,
+            ),
         ]
         sales = calculate_cgt_for_instrument(orders)
 
@@ -154,10 +218,34 @@ class TestSection104Pool:
     def test_pool_consumes_remaining_after_same_day_bf(self) -> None:
         """Pool only covers quantity not matched by same-day or b&f."""
         orders = [
-            _order(id=1, order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC), side="Buy", quantity=100, cost_proceeds_gbp=1000),
-            _order(id=2, order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC), side="Sell", quantity=150, cost_proceeds_gbp=1800),
-            _order(id=3, order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC), side="Buy", quantity=100, cost_proceeds_gbp=1200),
-            _order(id=4, order_date=dt.datetime(2024, 3, 20, tzinfo=dt.UTC), side="Buy", quantity=100, cost_proceeds_gbp=1200),
+            _order(
+                id=1,
+                order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=100,
+                cost_proceeds_gbp=1000,
+            ),
+            _order(
+                id=2,
+                order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+                side="Sell",
+                quantity=150,
+                cost_proceeds_gbp=1800,
+            ),
+            _order(
+                id=3,
+                order_date=dt.datetime(2024, 3, 1, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=100,
+                cost_proceeds_gbp=1200,
+            ),
+            _order(
+                id=4,
+                order_date=dt.datetime(2024, 3, 20, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=100,
+                cost_proceeds_gbp=1200,
+            ),
         ]
         sales = calculate_cgt_for_instrument(orders)
 
@@ -252,15 +340,45 @@ class TestComplexScenarios:
         """Simulate a realistic portfolio with mixed matching rules."""
         orders = [
             # Jan 2023: Buy 500 shares (goes to pool)
-            _order(id=1, order_date=dt.datetime(2023, 1, 15, tzinfo=dt.UTC), side="Buy", quantity=500, cost_proceeds_gbp=5000),
+            _order(
+                id=1,
+                order_date=dt.datetime(2023, 1, 15, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=500,
+                cost_proceeds_gbp=5000,
+            ),
             # Jul 2023: Buy 200 shares (goes to pool)
-            _order(id=2, order_date=dt.datetime(2023, 7, 1, tzinfo=dt.UTC), side="Buy", quantity=200, cost_proceeds_gbp=2400),
+            _order(
+                id=2,
+                order_date=dt.datetime(2023, 7, 1, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=200,
+                cost_proceeds_gbp=2400,
+            ),
             # Jun 2024: Same-day buy
-            _order(id=3, order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC), side="Buy", quantity=50, cost_proceeds_gbp=600),
+            _order(
+                id=3,
+                order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=50,
+                cost_proceeds_gbp=600,
+            ),
             # Jun 2024: Sell 100 shares
-            _order(id=4, order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC), side="Sell", quantity=100, cost_proceeds_gbp=1300),
+            _order(
+                id=4,
+                order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC),
+                side="Sell",
+                quantity=100,
+                cost_proceeds_gbp=1300,
+            ),
             # Jun 2024: B&F buy (within 30 days of sell)
-            _order(id=5, order_date=dt.datetime(2024, 6, 20, tzinfo=dt.UTC), side="Buy", quantity=50, cost_proceeds_gbp=650),
+            _order(
+                id=5,
+                order_date=dt.datetime(2024, 6, 20, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=50,
+                cost_proceeds_gbp=650,
+            ),
         ]
         sales = calculate_cgt_for_instrument(orders)
 
@@ -280,9 +398,27 @@ class TestComplexScenarios:
     def test_multiple_sells_same_year(self) -> None:
         """Multiple sells in the same tax year aggregate correctly."""
         orders = [
-            _order(id=1, order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC), side="Buy", quantity=200, cost_proceeds_gbp=2000),
-            _order(id=2, order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC), side="Sell", quantity=50, cost_proceeds_gbp=600),
-            _order(id=3, order_date=dt.datetime(2024, 9, 1, tzinfo=dt.UTC), side="Sell", quantity=50, cost_proceeds_gbp=600),
+            _order(
+                id=1,
+                order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+                side="Buy",
+                quantity=200,
+                cost_proceeds_gbp=2000,
+            ),
+            _order(
+                id=2,
+                order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC),
+                side="Sell",
+                quantity=50,
+                cost_proceeds_gbp=600,
+            ),
+            _order(
+                id=3,
+                order_date=dt.datetime(2024, 9, 1, tzinfo=dt.UTC),
+                side="Sell",
+                quantity=50,
+                cost_proceeds_gbp=600,
+            ),
         ]
         sales = calculate_cgt_for_instrument(orders)
 
@@ -301,6 +437,7 @@ class TestAsyncAPI:
     @pytest.mark.asyncio
     async def test_get_instrument_cgt_empty(self) -> None:
         """Empty session returns empty list."""
+
         class FakeResult:
             def scalars(self):
                 r = MagicMock()
@@ -344,6 +481,7 @@ class TestAsyncAPI:
         )
 
         call_count = 0
+
         class FakeResult:
             def scalars(self):
                 nonlocal call_count
@@ -369,6 +507,7 @@ class TestAsyncAPI:
     @pytest.mark.asyncio
     async def test_get_cgt_summary_empty(self) -> None:
         """Empty instruments returns empty summary."""
+
         class FakeResult:
             def scalars(self):
                 r = MagicMock()
@@ -435,6 +574,7 @@ class TestIsaExemption:
         )
 
         call_count = 0
+
         class FakeResult:
             def scalars(self):
                 nonlocal call_count
@@ -472,13 +612,46 @@ class TestIsaExemption:
             is_cash=False,
         )
 
-        mock_buy_isa = Order(id=1, security_name="ISA Stock", order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC), side="Buy", quantity=100, cost_proceeds_gbp=1000, instrument_id=1)
-        mock_sell_isa = Order(id=2, security_name="ISA Stock", order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC), side="Sell", quantity=50, cost_proceeds_gbp=600, instrument_id=1)
+        mock_buy_isa = Order(
+            id=1,
+            security_name="ISA Stock",
+            order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            side="Buy",
+            quantity=100,
+            cost_proceeds_gbp=1000,
+            instrument_id=1,
+        )
+        mock_sell_isa = Order(
+            id=2,
+            security_name="ISA Stock",
+            order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC),
+            side="Sell",
+            quantity=50,
+            cost_proceeds_gbp=600,
+            instrument_id=1,
+        )
 
-        mock_buy_non = Order(id=3, security_name="Broker Stock", order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC), side="Buy", quantity=100, cost_proceeds_gbp=1000, instrument_id=2)
-        mock_sell_non = Order(id=4, security_name="Broker Stock", order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC), side="Sell", quantity=50, cost_proceeds_gbp=800, instrument_id=2)
+        mock_buy_non = Order(
+            id=3,
+            security_name="Broker Stock",
+            order_date=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
+            side="Buy",
+            quantity=100,
+            cost_proceeds_gbp=1000,
+            instrument_id=2,
+        )
+        mock_sell_non = Order(
+            id=4,
+            security_name="Broker Stock",
+            order_date=dt.datetime(2024, 6, 1, tzinfo=dt.UTC),
+            side="Sell",
+            quantity=50,
+            cost_proceeds_gbp=800,
+            instrument_id=2,
+        )
 
         call_count = 0
+
         class FakeResult:
             def scalars(self):
                 nonlocal call_count

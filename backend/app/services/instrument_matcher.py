@@ -5,6 +5,7 @@ Called once at import/backfill time so all queries can use FK joins.
 
 This module delegates to the new matching engine in services/matching/.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

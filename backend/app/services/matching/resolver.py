@@ -10,27 +10,26 @@ Orchestrates the matching flow:
 6. Persist match metadata
 7. Write audit event
 """
+
 from __future__ import annotations
 
-from collections.abc import Sequence
-
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Instrument, InstrumentAlias, Order
+from app.models import Order
+from app.services.matching.audit import write_audit
 from app.services.matching.candidates import (
-    resolve_canonical_account,
-    find_alias_match,
     build_candidates,
-)
-from app.services.matching.scoring import (
-    score_candidate,
-    classify_score,
-    determine_method,
-    CONFIDENCE_HIGH,
+    find_alias_match,
+    resolve_canonical_account,
 )
 from app.services.matching.normalisation import normalise_name
-from app.services.matching.audit import write_audit
+from app.services.matching.scoring import (
+    CONFIDENCE_HIGH,
+    classify_score,
+    determine_method,
+    score_candidate,
+)
 
 
 async def resolve_order(
@@ -84,7 +83,8 @@ async def resolve_order(
 
         if changed and not dry_run:
             await write_audit(
-                session, order,
+                session,
+                order,
                 new_instrument_id=alias_inst.id,
                 new_status="auto_high",
                 method="alias_exact",
@@ -114,9 +114,7 @@ async def resolve_order(
         }
 
     # Step 3: Build candidates
-    candidates = await build_candidates(
-        session, source, order_account, order_name, order_date
-    )
+    candidates = await build_candidates(session, source, order_account, order_name, order_date)
 
     if not candidates:
         return {
@@ -156,11 +154,13 @@ async def resolve_order(
     # Build evidence with alternatives
     alternatives = []
     for s, ev in scored[1:4]:  # Top 3 alternatives
-        alternatives.append({
-            "instrument_id": ev["instrument_id"],
-            "security_name": ev["instrument_name"],
-            "score": ev["final_score"],
-        })
+        alternatives.append(
+            {
+                "instrument_id": ev["instrument_id"],
+                "security_name": ev["instrument_name"],
+                "score": ev["final_score"],
+            }
+        )
 
     evidence = {
         "order": {
@@ -184,9 +184,11 @@ async def resolve_order(
 
     # Determine if we should link
     should_link = False
-    if best_status == "auto_high":
-        should_link = True
-    elif best_status == "auto_review" and best_score >= min_auto_confidence:
+    if (
+        best_status == "auto_high"
+        or best_status == "auto_review"
+        and best_score >= min_auto_confidence
+    ):
         should_link = True
 
     changed = False
@@ -196,7 +198,8 @@ async def resolve_order(
 
         if changed and not dry_run:
             await write_audit(
-                session, order,
+                session,
+                order,
                 new_instrument_id=new_inst_id,
                 new_status=best_status,
                 method=best_method,
@@ -213,10 +216,11 @@ async def resolve_order(
             order.matched_by = "system_resolver"
     elif best_status == "auto_review":
         # Store candidates in evidence but don't link
-        changed = (old_status != "auto_review")
+        changed = old_status != "auto_review"
         if changed and not dry_run:
             await write_audit(
-                session, order,
+                session,
+                order,
                 new_instrument_id=order.instrument_id,  # unchanged
                 new_status="auto_review",
                 method=best_method,
@@ -231,10 +235,11 @@ async def resolve_order(
             order.match_evidence = evidence
     else:
         # Unmatched
-        changed = (old_status != "unmatched")
+        changed = old_status != "unmatched"
         if changed and not dry_run:
             await write_audit(
-                session, order,
+                session,
+                order,
                 new_instrument_id=None,
                 new_status="unmatched",
                 method=None,
@@ -283,9 +288,7 @@ async def resolve_batch(
     elif mode == "review_only":
         q = select(Order).where(Order.match_status == "auto_review")
     elif mode == "all_non_manual":
-        q = select(Order).where(
-            Order.match_status.not_in(["manual", "ignored"])
-        )
+        q = select(Order).where(Order.match_status.not_in(["manual", "ignored"]))
     else:  # all
         q = select(Order)
 
@@ -300,7 +303,8 @@ async def resolve_batch(
 
     for order in orders:
         r = await resolve_order(
-            session, order,
+            session,
+            order,
             source=source,
             dry_run=False,
             min_auto_confidence=min_auto_confidence,
@@ -346,9 +350,7 @@ async def dry_run_resolve(
     elif mode == "review_only":
         q = select(Order).where(Order.match_status == "auto_review")
     elif mode == "all_non_manual":
-        q = select(Order).where(
-            Order.match_status.not_in(["manual", "ignored"])
-        )
+        q = select(Order).where(Order.match_status.not_in(["manual", "ignored"]))
     else:
         q = select(Order)
 
@@ -363,7 +365,8 @@ async def dry_run_resolve(
 
     for order in orders:
         r = await resolve_order(
-            session, order,
+            session,
+            order,
             source=source,
             dry_run=True,
             min_auto_confidence=min_auto_confidence,
@@ -372,7 +375,9 @@ async def dry_run_resolve(
 
         if r.get("skipped"):
             skipped += 1
-        elif r.get("match_status") in ("auto_high",) or (r.get("match_confidence", 0) >= min_auto_confidence):
+        elif r.get("match_status") in ("auto_high",) or (
+            r.get("match_confidence", 0) >= min_auto_confidence
+        ):
             would_link += 1
         elif r.get("match_confidence", 0) >= 0.75:
             would_review += 1
@@ -383,14 +388,19 @@ async def dry_run_resolve(
     examples = []
     for r in results:
         if not r.get("skipped") and r.get("evidence"):
-            examples.append({
-                "order_id": r["order_id"],
-                "security_name": r["evidence"].get("order", {}).get("security_name", ""),
-                "would_link": r.get("match_status") == "auto_high" or r.get("match_confidence", 0) >= min_auto_confidence,
-                "best_score": r.get("match_confidence"),
-                "best_method": r.get("match_method"),
-                "best_instrument_id": r["evidence"].get("selected_candidate", {}).get("instrument_id"),
-            })
+            examples.append(
+                {
+                    "order_id": r["order_id"],
+                    "security_name": r["evidence"].get("order", {}).get("security_name", ""),
+                    "would_link": r.get("match_status") == "auto_high"
+                    or r.get("match_confidence", 0) >= min_auto_confidence,
+                    "best_score": r.get("match_confidence"),
+                    "best_method": r.get("match_method"),
+                    "best_instrument_id": r["evidence"]
+                    .get("selected_candidate", {})
+                    .get("instrument_id"),
+                }
+            )
 
     return {
         "dry_run": True,

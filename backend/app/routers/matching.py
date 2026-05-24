@@ -11,6 +11,7 @@ Provides endpoints for:
 - Audit log
 - Backfill/dry-run
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -22,11 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.models import (
     AccountAlias,
+    HoldingSnapshot,
     Instrument,
     InstrumentAlias,
     Order,
     OrderMatchAudit,
-    HoldingSnapshot,
 )
 from app.schemas import (
     AccountAliasIn,
@@ -44,15 +45,14 @@ from app.schemas import (
     ResolveOrderBody,
     UnmatchedGroup,
 )
-from app.services.matching.normalisation import normalise_name
-from app.services.matching.candidates import (
-    resolve_canonical_account,
-    build_candidates,
-    find_alias_match,
-)
-from app.services.matching.scoring import score_candidate, determine_method
-from app.services.matching.resolver import resolve_order, resolve_batch, dry_run_resolve
 from app.services.matching.audit import write_audit
+from app.services.matching.candidates import (
+    build_candidates,
+    resolve_canonical_account,
+)
+from app.services.matching.normalisation import normalise_name
+from app.services.matching.resolver import dry_run_resolve, resolve_batch
+from app.services.matching.scoring import determine_method, score_candidate
 
 router = APIRouter(prefix="/api/matching", tags=["matching"])
 
@@ -61,22 +61,27 @@ router = APIRouter(prefix="/api/matching", tags=["matching"])
 # Summary
 # ---------------------------------------------------------------------------
 
+
 @router.get("/summary", response_model=MatchSummary)
 async def get_matching_summary(
     session: AsyncSession = Depends(get_session),
 ) -> MatchSummary:
     """Get overall matching health summary."""
     total = (await session.execute(select(func.count()).select_from(Order))).scalar_one()
-    matched = (await session.execute(
-        select(func.count()).select_from(Order).where(Order.instrument_id.isnot(None))
-    )).scalar_one()
+    matched = (
+        await session.execute(
+            select(func.count()).select_from(Order).where(Order.instrument_id.isnot(None))
+        )
+    ).scalar_one()
     unmatched = total - matched
 
     status_counts = {}
     for status in ["auto_high", "auto_review", "manual", "ignored", "unmatched", "legacy_matched"]:
-        cnt = (await session.execute(
-            select(func.count()).select_from(Order).where(Order.match_status == status)
-        )).scalar_one()
+        cnt = (
+            await session.execute(
+                select(func.count()).select_from(Order).where(Order.match_status == status)
+            )
+        ).scalar_one()
         status_counts[status] = cnt
 
     # Count unmatched groups
@@ -84,9 +89,9 @@ async def get_matching_summary(
         select(
             Order.account_name,
             Order.security_name,
-        ).where(
-            Order.instrument_id.is_(None)
-        ).group_by(
+        )
+        .where(Order.instrument_id.is_(None))
+        .group_by(
             Order.account_name,
             Order.security_name,
         )
@@ -109,6 +114,7 @@ async def get_matching_summary(
 # ---------------------------------------------------------------------------
 # Unmatched groups
 # ---------------------------------------------------------------------------
+
 
 @router.get("/unmatched-groups", response_model=list[UnmatchedGroup])
 async def get_unmatched_groups(
@@ -136,31 +142,27 @@ async def get_unmatched_groups(
         func.min(Order.order_date).label("first_date"),
         func.max(Order.order_date).label("last_date"),
         func.coalesce(
-            func.sum(
-                case((Order.side == "Buy", Order.quantity), else_=-Order.quantity)
-            ), 0.0
+            func.sum(case((Order.side == "Buy", Order.quantity), else_=-Order.quantity)), 0.0
         ).label("net_qty"),
         func.coalesce(
-            func.sum(
-                case((Order.side == "Buy", Order.cost_proceeds_gbp), else_=0.0)
-            ), 0.0
+            func.sum(case((Order.side == "Buy", Order.cost_proceeds_gbp), else_=0.0)), 0.0
         ).label("buy_total"),
         func.coalesce(
-            func.sum(
-                case((Order.side == "Sell", Order.cost_proceeds_gbp), else_=0.0)
-            ), 0.0
+            func.sum(case((Order.side == "Sell", Order.cost_proceeds_gbp), else_=0.0)), 0.0
         ).label("sell_total"),
     ).where(unmatched_clause)
 
     if account:
         q = q.where(Order.account_name == account)
 
-    q = q.group_by(
-        Order.account_name,
-        Order.security_name,
-    ).order_by(
-        func.count().desc()
-    ).limit(limit)
+    q = (
+        q.group_by(
+            Order.account_name,
+            Order.security_name,
+        )
+        .order_by(func.count().desc())
+        .limit(limit)
+    )
 
     rows = (await session.execute(q)).all()
 
@@ -171,16 +173,16 @@ async def get_unmatched_groups(
         canonical = await resolve_canonical_account(session, "barclays_orders", acct)
 
         # Find best candidate
-        candidates = await build_candidates(
-            session, "barclays_orders", acct, sec_name
-        )
+        candidates = await build_candidates(session, "barclays_orders", acct, sec_name)
         best_candidate: MatchCandidate | None = None
         candidate_count = len(candidates)
 
         if candidates:
             best_score = 0.0
             best_ev = {}
-            for inst in candidates:  # Score all candidates so newly created historical instruments are always considered
+            for inst in (
+                candidates
+            ):  # Score all candidates so newly created historical instruments are always considered
                 s, ev = score_candidate(inst, sec_name, acct, canonical)
                 if s > best_score:
                     best_score = s
@@ -193,22 +195,24 @@ async def get_unmatched_groups(
                     method=determine_method(best_score, best_ev),
                 )
 
-        groups.append(UnmatchedGroup(
-            group_key=f"barclays_orders|{acct}|{norm}",
-            source="barclays_orders",
-            account_name=acct,
-            canonical_account_name=canonical,
-            security_name=sec_name,
-            normalised_name=norm,
-            order_count=count,
-            first_order_date=first_d.isoformat() if first_d else None,
-            last_order_date=last_d.isoformat() if last_d else None,
-            net_quantity=net_qty,
-            buy_total_gbp=buy_tot,
-            sell_total_gbp=sell_tot,
-            candidate_count=candidate_count,
-            best_candidate=best_candidate,
-        ))
+        groups.append(
+            UnmatchedGroup(
+                group_key=f"barclays_orders|{acct}|{norm}",
+                source="barclays_orders",
+                account_name=acct,
+                canonical_account_name=canonical,
+                security_name=sec_name,
+                normalised_name=norm,
+                order_count=count,
+                first_order_date=first_d.isoformat() if first_d else None,
+                last_order_date=last_d.isoformat() if last_d else None,
+                net_quantity=net_qty,
+                buy_total_gbp=buy_tot,
+                sell_total_gbp=sell_tot,
+                candidate_count=candidate_count,
+                best_candidate=best_candidate,
+            )
+        )
 
     return groups
 
@@ -216,6 +220,7 @@ async def get_unmatched_groups(
 # ---------------------------------------------------------------------------
 # Candidates
 # ---------------------------------------------------------------------------
+
 
 @router.get("/candidates")
 async def get_candidates(
@@ -225,22 +230,22 @@ async def get_candidates(
 ) -> dict:
     """Get ranked candidate instruments for a security name + account."""
     canonical = await resolve_canonical_account(session, "barclays_orders", account_name)
-    candidates = await build_candidates(
-        session, "barclays_orders", account_name, security_name
-    )
+    candidates = await build_candidates(session, "barclays_orders", account_name, security_name)
 
     scored = []
     for inst in candidates[:20]:
         s, ev = score_candidate(inst, security_name, account_name, canonical)
-        scored.append({
-            "instrument_id": inst.id,
-            "security_name": inst.security_name,
-            "account_name": inst.account_name,
-            "score": ev["final_score"],
-            "method": determine_method(s, ev),
-            "scores": ev.get("scores", {}),
-            "is_closed": inst.closed_at is not None,
-        })
+        scored.append(
+            {
+                "instrument_id": inst.id,
+                "security_name": inst.security_name,
+                "account_name": inst.account_name,
+                "score": ev["final_score"],
+                "method": determine_method(s, ev),
+                "scores": ev.get("scores", {}),
+                "is_closed": inst.closed_at is not None,
+            }
+        )
 
     scored.sort(key=lambda x: x["score"], reverse=True)
 
@@ -255,6 +260,7 @@ async def get_candidates(
 # ---------------------------------------------------------------------------
 # Resolve group
 # ---------------------------------------------------------------------------
+
 
 @router.post("/resolve-group")
 async def resolve_group(
@@ -289,7 +295,8 @@ async def resolve_group(
 
     # Update matching orders
     q = select(Order).where(
-        Order.source_account_name == body.account_name if hasattr(Order, "source_account_name")
+        Order.source_account_name == body.account_name
+        if hasattr(Order, "source_account_name")
         else Order.account_name == body.account_name,
         Order.security_name == body.security_name,
         Order.instrument_id.is_(None),
@@ -306,7 +313,8 @@ async def resolve_group(
     affected = 0
     for order in orders:
         await write_audit(
-            session, order,
+            session,
+            order,
             new_instrument_id=body.instrument_id,
             new_status="manual",
             method="admin_group_resolve",
@@ -334,6 +342,7 @@ async def resolve_group(
 # Resolve individual order
 # ---------------------------------------------------------------------------
 
+
 @router.post("/orders/{order_id}/resolve")
 async def resolve_order_endpoint(
     order_id: int,
@@ -351,10 +360,13 @@ async def resolve_order_endpoint(
     if body.instrument_id is not None:
         inst = await session.get(Instrument, body.instrument_id)
         if inst is None:
-            raise HTTPException(status_code=404, detail=f"Instrument {body.instrument_id} not found")
+            raise HTTPException(
+                status_code=404, detail=f"Instrument {body.instrument_id} not found"
+            )
 
     await write_audit(
-        session, order,
+        session,
+        order,
         new_instrument_id=new_instrument_id,
         new_status=new_status,
         method="admin_manual",
@@ -381,6 +393,7 @@ async def resolve_order_endpoint(
 # Unmatch
 # ---------------------------------------------------------------------------
 
+
 @router.post("/orders/{order_id}/unmatch")
 async def unmatch_order(
     order_id: int,
@@ -392,7 +405,8 @@ async def unmatch_order(
         raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
 
     await write_audit(
-        session, order,
+        session,
+        order,
         new_instrument_id=None,
         new_status="unmatched",
         method="admin_unmatch",
@@ -416,6 +430,7 @@ async def unmatch_order(
 # Ignore
 # ---------------------------------------------------------------------------
 
+
 @router.post("/ignore-group")
 async def ignore_group(
     body: ResolveGroupBody,
@@ -433,7 +448,8 @@ async def ignore_group(
     affected = 0
     for order in orders:
         await write_audit(
-            session, order,
+            session,
+            order,
             new_instrument_id=None,
             new_status="ignored",
             method="admin_ignore",
@@ -453,6 +469,7 @@ async def ignore_group(
 # Create historical instrument
 # ---------------------------------------------------------------------------
 
+
 @router.post("/create-instrument")
 async def create_historical_instrument(
     body: CreateHistoricalInstrumentBody,
@@ -464,6 +481,7 @@ async def create_historical_instrument(
     Creates the instrument, an alias, and links all matching unmatched orders.
     """
     import re
+
     norm_re = re.compile(r"[^a-z0-9]+")
     slug = norm_re.sub("-", body.security_name.lower().strip())[:64]
     identifier = body.identifier or f"MANUAL:{slug}"
@@ -520,7 +538,8 @@ async def create_historical_instrument(
     affected = 0
     for order in orders:
         await write_audit(
-            session, order,
+            session,
+            order,
             new_instrument_id=inst.id,
             new_status="manual",
             method="admin_historical_instrument",
@@ -557,7 +576,8 @@ async def ignore_order(
         raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
 
     await write_audit(
-        session, order,
+        session,
+        order,
         new_instrument_id=None,
         new_status="ignored",
         method="admin_ignore",
@@ -575,6 +595,7 @@ async def ignore_order(
 # ---------------------------------------------------------------------------
 # Backfill / dry-run
 # ---------------------------------------------------------------------------
+
 
 @router.post("/backfill", response_model=BackfillResult)
 async def run_backfill(
@@ -615,6 +636,7 @@ async def run_backfill(
 # ---------------------------------------------------------------------------
 # Account aliases
 # ---------------------------------------------------------------------------
+
 
 @router.get("/account-aliases", response_model=list[AccountAliasOut])
 async def list_account_aliases(
@@ -658,6 +680,7 @@ async def delete_account_alias(
 # ---------------------------------------------------------------------------
 # Instrument aliases
 # ---------------------------------------------------------------------------
+
 
 @router.get("/instrument-aliases", response_model=list[InstrumentAliasOut])
 async def list_instrument_aliases(
@@ -713,14 +736,21 @@ async def delete_instrument_alias(
 # Reconciliation
 # ---------------------------------------------------------------------------
 
+
 @router.get("/reconciliation", response_model=list[ReconciliationRow])
 async def get_reconciliation(
     session: AsyncSession = Depends(get_session),
 ) -> list[ReconciliationRow]:
     """Get per-instrument reconciliation rows."""
-    instruments = (await session.execute(
-        select(Instrument).where(Instrument.is_cash == False)  # noqa: E712
-    )).scalars().all()
+    instruments = (
+        (
+            await session.execute(
+                select(Instrument).where(Instrument.is_cash == False)  # noqa: E712
+            )
+        )
+        .scalars()
+        .all()
+    )
 
     rows: list[ReconciliationRow] = []
     for inst in instruments:
@@ -738,49 +768,69 @@ async def get_reconciliation(
             select(
                 func.count().label("total"),
                 func.count(Order.instrument_id).label("matched"),
-                func.coalesce(func.sum(
-                    case((Order.side == "Buy", Order.quantity), else_=-Order.quantity)
-                ), 0.0).label("net_qty"),
-                func.coalesce(func.sum(
-                    case((Order.side == "Buy", Order.cost_proceeds_gbp), else_=0.0)
-                ), 0.0).label("buy_total"),
-                func.coalesce(func.sum(
-                    case((Order.side == "Sell", Order.cost_proceeds_gbp), else_=0.0)
-                ), 0.0).label("sell_total"),
-                func.coalesce(func.sum(
-                    case(
-                        (Order.is_drip == True and Order.side == "Buy", Order.cost_proceeds_gbp),  # noqa: E712
-                        else_=0.0
-                    )
-                ), 0.0).label("drip_total"),
+                func.coalesce(
+                    func.sum(case((Order.side == "Buy", Order.quantity), else_=-Order.quantity)),
+                    0.0,
+                ).label("net_qty"),
+                func.coalesce(
+                    func.sum(case((Order.side == "Buy", Order.cost_proceeds_gbp), else_=0.0)), 0.0
+                ).label("buy_total"),
+                func.coalesce(
+                    func.sum(case((Order.side == "Sell", Order.cost_proceeds_gbp), else_=0.0)), 0.0
+                ).label("sell_total"),
+                func.coalesce(
+                    func.sum(
+                        case(
+                            (
+                                Order.is_drip == True and Order.side == "Buy",
+                                Order.cost_proceeds_gbp,
+                            ),  # noqa: E712
+                            else_=0.0,
+                        )
+                    ),
+                    0.0,
+                ).label("drip_total"),
             ).where(Order.instrument_id == inst.id)
         )
         order_stats = order_q.one()
 
         # Match status summary
         status_summary: dict[str, int] = {}
-        for status in ["auto_high", "auto_review", "manual", "ignored", "unmatched", "legacy_matched"]:
-            cnt = (await session.execute(
-                select(func.count()).where(
-                    Order.instrument_id == inst.id,
-                    Order.match_status == status,
+        for status in [
+            "auto_high",
+            "auto_review",
+            "manual",
+            "ignored",
+            "unmatched",
+            "legacy_matched",
+        ]:
+            cnt = (
+                await session.execute(
+                    select(func.count()).where(
+                        Order.instrument_id == inst.id,
+                        Order.match_status == status,
+                    )
                 )
-            )).scalar_one()
+            ).scalar_one()
             if cnt > 0:
                 status_summary[status] = cnt
 
         # Unmatched orders for likely same security
-        unmatched_count = (await session.execute(
-            select(func.count()).where(
-                Order.instrument_id.is_(None),
-                Order.account_name == inst.account_name,
+        unmatched_count = (
+            await session.execute(
+                select(func.count()).where(
+                    Order.instrument_id.is_(None),
+                    Order.account_name == inst.account_name,
+                )
             )
-        )).scalar_one()
+        ).scalar_one()
 
         # Determine status
         snap_qty = latest_snap.quantity if latest_snap else None
         order_qty = order_stats.net_qty
-        qty_delta = (abs(snap_qty - order_qty) if snap_qty is not None and order_qty is not None else None)
+        qty_delta = (
+            abs(snap_qty - order_qty) if snap_qty is not None and order_qty is not None else None
+        )
 
         status = "ok"
         if unmatched_count > 0:
@@ -788,26 +838,30 @@ async def get_reconciliation(
         if qty_delta is not None and qty_delta > max(1, (snap_qty or 0) * 0.05):
             status = "quantity_mismatch"
 
-        rows.append(ReconciliationRow(
-            instrument_id=inst.id,
-            security_name=inst.security_name,
-            account_name=inst.account_name,
-            is_closed=inst.closed_at is not None,
-            latest_snapshot_date=latest_snap.batch.as_of_date.isoformat() if latest_snap else None,
-            snapshot_quantity=snap_qty,
-            order_derived_quantity=order_qty,
-            quantity_delta=qty_delta,
-            snapshot_book_cost_gbp=latest_snap.book_cost_gbp if latest_snap else None,
-            order_net_cost_gbp=order_stats.buy_total,
-            drip_total_gbp=order_stats.drip_total,
-            buy_total_gbp=order_stats.buy_total,
-            sell_total_gbp=order_stats.sell_total,
-            unmatched_order_count=unmatched_count,
-            matched_order_count=order_stats.matched,
-            match_status_summary=status_summary,
-            latest_value_gbp=latest_snap.value_gbp if latest_snap else None,
-            status=status,
-        ))
+        rows.append(
+            ReconciliationRow(
+                instrument_id=inst.id,
+                security_name=inst.security_name,
+                account_name=inst.account_name,
+                is_closed=inst.closed_at is not None,
+                latest_snapshot_date=latest_snap.batch.as_of_date.isoformat()
+                if latest_snap
+                else None,
+                snapshot_quantity=snap_qty,
+                order_derived_quantity=order_qty,
+                quantity_delta=qty_delta,
+                snapshot_book_cost_gbp=latest_snap.book_cost_gbp if latest_snap else None,
+                order_net_cost_gbp=order_stats.buy_total,
+                drip_total_gbp=order_stats.drip_total,
+                buy_total_gbp=order_stats.buy_total,
+                sell_total_gbp=order_stats.sell_total,
+                unmatched_order_count=unmatched_count,
+                matched_order_count=order_stats.matched,
+                match_status_summary=status_summary,
+                latest_value_gbp=latest_snap.value_gbp if latest_snap else None,
+                status=status,
+            )
+        )
 
     return rows
 
@@ -815,6 +869,7 @@ async def get_reconciliation(
 # ---------------------------------------------------------------------------
 # Audit log
 # ---------------------------------------------------------------------------
+
 
 @router.get("/audit", response_model=list[OrderMatchAuditOut])
 async def get_audit_log(
@@ -829,8 +884,8 @@ async def get_audit_log(
         q = q.where(OrderMatchAudit.order_id == order_id)
     if instrument_id is not None:
         q = q.where(
-            (OrderMatchAudit.old_instrument_id == instrument_id) |
-            (OrderMatchAudit.new_instrument_id == instrument_id)
+            (OrderMatchAudit.old_instrument_id == instrument_id)
+            | (OrderMatchAudit.new_instrument_id == instrument_id)
         )
 
     q = q.limit(limit)

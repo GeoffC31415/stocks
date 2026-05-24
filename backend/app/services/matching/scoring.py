@@ -12,17 +12,18 @@ Scores each candidate instrument against an order using multiple dimensions:
 
 Returns a score from 0.0 to 1.0 plus detailed evidence.
 """
+
 from __future__ import annotations
 
 import datetime as dt
 
 from app.models import Instrument
 from app.services.matching.normalisation import (
+    character_similarity,
+    instrument_type_compatibility,
+    issuer_prefix,
     normalise_name,
     token_similarity,
-    character_similarity,
-    issuer_prefix,
-    instrument_type_compatibility,
 )
 
 # Score weights

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt  # noqa: TC003
 from collections import defaultdict
 from collections.abc import Sequence
 
@@ -38,9 +39,7 @@ async def get_latest_batch_for_account(
     return r.scalar_one_or_none()
 
 
-async def get_previous_batch(
-    session: AsyncSession, *, before_batch_id: int
-) -> ImportBatch | None:
+async def get_previous_batch(session: AsyncSession, *, before_batch_id: int) -> ImportBatch | None:
     r = await session.execute(
         select(ImportBatch)
         .where(ImportBatch.id < before_batch_id)
@@ -198,7 +197,7 @@ def build_instrument_out(
         peak_last_price=metrics.get("peak_last_price") if metrics else None,
         drawdown_from_peak_pct=metrics.get("drawdown_from_peak_pct") if metrics else None,
         quantity_unchanged_snapshot_count=(
-            int(metrics["quantity_unchanged_snapshot_count"])
+            int(metrics.get("quantity_unchanged_snapshot_count") or 0)
             if metrics and metrics.get("quantity_unchanged_snapshot_count") is not None
             else None
         ),
@@ -250,7 +249,11 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
                 "instrument": inst,
                 "snapshot": s,
                 "pnl_gbp": pnl,
-                "snapshot_as_of_date": batch_by_id.get(s.import_batch_id).as_of_date if s.import_batch_id in batch_by_id else None,
+                "snapshot_as_of_date": (
+                    batch_by_id[s.import_batch_id].as_of_date
+                    if batch_by_id.get(s.import_batch_id) is not None
+                    else None
+                ),
             }
         )
 
@@ -268,7 +271,9 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
     )
     groups = r_groups.scalars().unique().all()
     by_group: dict[str, float] = {}
-    inst_to_value = {row["instrument"].id: row["snapshot"].value_gbp or 0.0 for row in instrument_rows}
+    inst_to_value = {
+        row["instrument"].id: row["snapshot"].value_gbp or 0.0 for row in instrument_rows
+    }
     group_allocation: list[dict] = []
     for g in groups:
         total_g = 0.0
@@ -344,9 +349,7 @@ async def instrument_history(
     instrument_id: int,
 ) -> list[dict]:
     orders_result = await session.execute(
-        select(Order)
-        .where(Order.instrument_id == instrument_id)
-        .order_by(Order.order_date)
+        select(Order).where(Order.instrument_id == instrument_id).order_by(Order.order_date)
     )
     orders = list(orders_result.scalars().all())
     discretionary_basis_by_date: dict[object, float] = {}
@@ -361,7 +364,9 @@ async def instrument_history(
     )
     out: list[dict] = []
     for snap, batch in r.all():
-        while order_index < len(orders) and orders[order_index].order_date.date() <= batch.as_of_date:
+        while (
+            order_index < len(orders) and orders[order_index].order_date.date() <= batch.as_of_date
+        ):
             order = orders[order_index]
             cost = order.cost_proceeds_gbp or 0.0
             if order.side.lower() == "buy" and not order.is_drip:

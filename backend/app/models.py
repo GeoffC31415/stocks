@@ -62,7 +62,7 @@ class Instrument(Base):
     group_links: Mapped[list[InstrumentGroupMember]] = relationship(
         back_populates="instrument", cascade="all, delete-orphan"
     )
-    aliases: Mapped[list["InstrumentAlias"]] = relationship(
+    aliases: Mapped[list[InstrumentAlias]] = relationship(
         back_populates="instrument", cascade="all, delete-orphan"
     )
 
@@ -71,7 +71,9 @@ class HoldingSnapshot(Base):
     __tablename__ = "holding_snapshots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    import_batch_id: Mapped[int] = mapped_column(ForeignKey("import_batches.id", ondelete="CASCADE"))
+    import_batch_id: Mapped[int] = mapped_column(
+        ForeignKey("import_batches.id", ondelete="CASCADE")
+    )
     instrument_id: Mapped[int] = mapped_column(ForeignKey("instruments.id", ondelete="CASCADE"))
 
     investment_label: Mapped[str] = mapped_column(String(1024))
@@ -104,7 +106,7 @@ class OrderImportBatch(Base):
     filename: Mapped[str | None] = mapped_column(String(512), nullable=True)
     row_count: Mapped[int] = mapped_column(Integer, default=0)
 
-    orders: Mapped[list["Order"]] = relationship(
+    orders: Mapped[list[Order]] = relationship(
         back_populates="import_batch", cascade="all, delete-orphan"
     )
 
@@ -141,7 +143,7 @@ class Order(Base):
 
     import_batch: Mapped[OrderImportBatch] = relationship(back_populates="orders")
     instrument: Mapped[Instrument | None] = relationship(back_populates="orders")
-    match_audit: Mapped[list["OrderMatchAudit"]] = relationship(
+    match_audit: Mapped[list[OrderMatchAudit]] = relationship(
         back_populates="order", cascade="all, delete-orphan"
     )
 
@@ -194,8 +196,11 @@ class InstrumentQuote(Base):
 
 class AccountAlias(Base):
     """Map source account names to canonical account names for deterministic matching."""
+
     __tablename__ = "account_aliases"
-    __table_args__ = (UniqueConstraint("source", "source_account_name", name="uq_account_alias_source"),)
+    __table_args__ = (
+        UniqueConstraint("source", "source_account_name", name="uq_account_alias_source"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(String(64))
@@ -210,10 +215,13 @@ class AccountAlias(Base):
 
 class InstrumentAlias(Base):
     """Persist reusable mappings from external/imported security names to internal instruments."""
+
     __tablename__ = "instrument_aliases"
     __table_args__ = (
         UniqueConstraint(
-            "source", "source_account_name", "source_security_name_norm",
+            "source",
+            "source_account_name",
+            "source_security_name_norm",
             name="uq_instrument_alias_source_account_name",
         ),
     )
@@ -240,6 +248,7 @@ class InstrumentAlias(Base):
 
 class OrderMatchAudit(Base):
     """Immutable change history for order-instrument matching decisions."""
+
     __tablename__ = "order_match_audit"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

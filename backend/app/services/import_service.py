@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.models import AccountAlias, HoldingSnapshot, ImportBatch, Instrument
 from app.services.barclays_parser import ParsedHoldingRow, parse_barclays_xls_bytes
 from app.services.hl_parser import parse_hl_holdings_csv_bytes
+from app.services.portfolio_service import get_latest_batch_for_account
 
 
 async def resolve_account_name(
@@ -26,9 +27,6 @@ async def resolve_account_name(
     if alias is not None:
         return alias.canonical_account_name
     return source_account_name
-
-
-from app.services.portfolio_service import get_latest_batch_for_account
 
 
 class DuplicateImportError(Exception):
@@ -58,9 +56,7 @@ async def _portfolio_snapshots_after_batch(
     forward the latest snapshot for accounts that were not touched by that file.
     """
     batches_result = await session.execute(
-        select(ImportBatch)
-        .where(ImportBatch.id <= batch_id)
-        .order_by(ImportBatch.id)
+        select(ImportBatch).where(ImportBatch.id <= batch_id).order_by(ImportBatch.id)
     )
     batches = list(batches_result.scalars().all())
     if not batches:
@@ -329,9 +325,7 @@ async def import_holding_snapshot(
                 prev_by_instrument[snapshot.instrument_id] = snapshot
 
     prev_batch = (
-        max(previous_batches.values(), key=lambda batch: batch.id)
-        if previous_batches
-        else None
+        max(previous_batches.values(), key=lambda batch: batch.id) if previous_batches else None
     )
 
     batch = ImportBatch(
@@ -415,11 +409,14 @@ async def import_holding_snapshot(
             )
 
     from app.services.instrument_matcher import link_orders_to_instruments
+
     orders_linked = await link_orders_to_instruments(session)
 
     summary: dict[str, Any] = {
         "previous_batch_id": prev_batch.id if prev_batch is not None else None,
-        "previous_as_of_date": prev_batch.as_of_date.isoformat() if prev_batch is not None else None,
+        "previous_as_of_date": prev_batch.as_of_date.isoformat()
+        if prev_batch is not None
+        else None,
         "new_instrument_ids": new_ids,
         "closed": closed,
         "changed": changed,

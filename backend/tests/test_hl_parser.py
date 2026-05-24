@@ -35,7 +35,10 @@ def test_parse_hl_activity_csv_bytes_skips_cash_events() -> None:
     assert {row.side for row in rows} == {"Buy"}
 
     first = rows[0]
-    assert first.security_name == "Vanguard Funds Plc FTSE All-World UCITS ETF (USD) Distributing - GBP"
+    assert (
+        first.security_name
+        == "Vanguard Funds Plc FTSE All-World UCITS ETF (USD) Distributing - GBP"
+    )
     assert first.order_date == dt.datetime(2026, 3, 25, tzinfo=dt.UTC)
     assert first.quantity == 164
     assert first.cost_proceeds_gbp == 19976.13

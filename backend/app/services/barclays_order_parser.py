@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from python_calamine import CalamineWorkbook
 
@@ -63,27 +63,47 @@ def parse_barclays_order_xls_bytes(
             if not row or all(c is None or c == "" for c in row):
                 continue
 
-            inv = str(row[inv_col]).strip() if inv_col is not None and row[inv_col] is not None else None
+            inv = (
+                str(row[inv_col]).strip()
+                if inv_col is not None and row[inv_col] is not None
+                else None
+            )
             if not inv:
                 continue
 
             date_val = row[date_col] if date_col is not None else None
             if isinstance(date_val, datetime):
-                order_date = date_val.replace(tzinfo=timezone.utc)
+                order_date = date_val.replace(tzinfo=UTC)
             else:
                 continue
 
-            status = str(row[status_col]).strip() if status_col is not None and row[status_col] is not None else ""
+            status = (
+                str(row[status_col]).strip()
+                if status_col is not None and row[status_col] is not None
+                else ""
+            )
             if status.lower() != "completed":
                 continue
 
-            acct = str(row[acct_col]).strip() if acct_col is not None and row[acct_col] is not None else ""
-            side = str(row[side_col]).strip() if side_col is not None and row[side_col] is not None else ""
+            acct = (
+                str(row[acct_col]).strip()
+                if acct_col is not None and row[acct_col] is not None
+                else ""
+            )
+            side = (
+                str(row[side_col]).strip()
+                if side_col is not None and row[side_col] is not None
+                else ""
+            )
             qty_raw = row[qty_col] if qty_col is not None else None
-            qty = float(qty_raw) if qty_raw is not None else None
+            qty = float(str(qty_raw)) if qty_raw is not None else None
             cost_raw = row[cost_col] if cost_col is not None else None
-            cost = float(cost_raw) if cost_raw is not None else None
-            country = str(row[country_col]).strip() if country_col is not None and row[country_col] is not None else None
+            cost = float(str(cost_raw)) if cost_raw is not None else None
+            country = (
+                str(row[country_col]).strip()
+                if country_col is not None and row[country_col] is not None
+                else None
+            )
 
             is_drip = side.lower() == "buy" and cost is not None and cost < drip_threshold_gbp
 

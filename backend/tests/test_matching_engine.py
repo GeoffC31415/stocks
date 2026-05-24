@@ -1,21 +1,21 @@
 """Tests for the new matching engine and admin API."""
+
 from __future__ import annotations
 
 import datetime as dt
-from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.models import Base, AccountAlias, Instrument, InstrumentAlias, Order, OrderMatchAudit
+from app.models import AccountAlias, Base, Instrument, InstrumentAlias, Order, OrderMatchAudit
 from app.services.matching.normalisation import (
     character_similarity,
+    instrument_type_compatibility,
     is_etf,
     is_preference_share,
     issuer_prefix,
-    instrument_type_compatibility,
     meaningful_tokens,
     normalise_name,
     token_similarity,
@@ -26,10 +26,10 @@ from app.services.matching.scoring import (
     score_candidate,
 )
 
-
 # ---------------------------------------------------------------------------
 # Normalisation tests
 # ---------------------------------------------------------------------------
+
 
 class TestNormalisation:
     def test_basic_normalisation(self) -> None:
@@ -90,6 +90,7 @@ class TestNormalisation:
 # Scoring tests
 # ---------------------------------------------------------------------------
 
+
 class TestScoring:
     def test_exact_match_same_account(self) -> None:
         inst = Instrument(
@@ -137,8 +138,13 @@ class TestScoring:
             closed_at=dt.datetime(2024, 1, 1, tzinfo=dt.UTC),
         )
         score_open, _ = score_candidate(
-            Instrument(id=1, account_name="ID1585211-001 (Investment ISA)", identifier="ID1",
-                       security_name="Big Yellow Group PLC ORD 10P", is_cash=False),
+            Instrument(
+                id=1,
+                account_name="ID1585211-001 (Investment ISA)",
+                identifier="ID1",
+                security_name="Big Yellow Group PLC ORD 10P",
+                is_cash=False,
+            ),
             "Big Yellow Group PLC ORD 10P",
             "Investment ISA",
             "ID1585211-001 (Investment ISA)",
@@ -173,6 +179,7 @@ class TestScoring:
 # ---------------------------------------------------------------------------
 # Async integration tests for resolver
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 async def async_db():
@@ -235,6 +242,7 @@ async def test_alias_match_wins_over_fuzzy(async_db: AsyncSession) -> None:
     await async_db.commit()
 
     from app.services.matching.resolver import resolve_order
+
     result = await resolve_order(async_db, order)
 
     assert result["instrument_id"] == 1
@@ -244,9 +252,9 @@ async def test_alias_match_wins_over_fuzzy(async_db: AsyncSession) -> None:
     assert result["match_confidence"] == 1.0
 
     # Verify audit was written
-    audit_count = (await async_db.execute(
-        select(func.count()).select_from(OrderMatchAudit)
-    )).scalar_one()
+    audit_count = (
+        await async_db.execute(select(func.count()).select_from(OrderMatchAudit))
+    ).scalar_one()
     assert audit_count >= 1
 
 
@@ -282,6 +290,7 @@ async def test_manual_status_not_overwritten(async_db: AsyncSession) -> None:
     await async_db.commit()
 
     from app.services.matching.resolver import resolve_order
+
     result = await resolve_order(async_db, order)
 
     assert result.get("skipped") is True
@@ -338,6 +347,7 @@ async def test_dry_run_does_not_persist(async_db: AsyncSession) -> None:
     await async_db.commit()
 
     from app.services.matching.resolver import resolve_order
+
     result = await resolve_order(async_db, order, dry_run=True)
 
     # Order should still be unmatched in DB
@@ -417,6 +427,7 @@ async def test_batch_resolve_unmatched_only(async_db: AsyncSession) -> None:
     await async_db.commit()
 
     from app.services.matching.resolver import resolve_batch
+
     result = await resolve_batch(
         async_db,
         source="barclays_orders",
@@ -486,6 +497,7 @@ async def test_ignored_orders_not_overwritten(async_db: AsyncSession) -> None:
     await async_db.commit()
 
     from app.services.matching.resolver import resolve_order
+
     result = await resolve_order(async_db, order)
 
     assert result.get("skipped") is True

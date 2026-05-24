@@ -11,6 +11,7 @@ Provides a single reusable normalizer with explicit handling for:
 - ETF phrases: UCITS ETF, ACC, DIST
 - Corporate suffixes: PLC, LTD, INC, etc.
 """
+
 from __future__ import annotations
 
 import re
@@ -20,16 +21,39 @@ import unicodedata
 _NORMALISE_RE = re.compile(r"[^a-z0-9 ]+")
 
 # Words that add no discriminating value for matching
-_NOISE = frozenset({
-    "plc", "ltd", "inc", "corp", "corporation", "company", "nv", "sa",
-    "group", "holdings", "holding", "limited",
-    "the", "and", "of", "co", "new",
-    "common", "shares", "share", "public",
-    "ordinary", "ord",
-    # ETF noise - these are often consistent across sources
-    "etf", "ucits", "fund", "funds",
-    # Keep "np" out - it can be meaningful in some contexts
-})
+_NOISE = frozenset(
+    {
+        "plc",
+        "ltd",
+        "inc",
+        "corp",
+        "corporation",
+        "company",
+        "nv",
+        "sa",
+        "group",
+        "holdings",
+        "holding",
+        "limited",
+        "the",
+        "and",
+        "of",
+        "co",
+        "new",
+        "common",
+        "shares",
+        "share",
+        "public",
+        "ordinary",
+        "ord",
+        # ETF noise - these are often consistent across sources
+        "etf",
+        "ucits",
+        "fund",
+        "funds",
+        # Keep "np" out - it can be meaningful in some contexts
+    }
+)
 
 
 def normalise_name(name: str) -> str:
@@ -77,10 +101,7 @@ def meaningful_tokens(name: str) -> frozenset[str]:
         return frozenset()
 
     tokens = norm.split()
-    meaningful = frozenset(
-        t for t in tokens
-        if t not in _NOISE and len(t) > 1
-    )
+    meaningful = frozenset(t for t in tokens if t not in _NOISE and len(t) > 1)
     return meaningful
 
 
@@ -111,6 +132,7 @@ def character_similarity(a: str, b: str) -> float:
     Compute character-level similarity using SequenceMatcher.
     """
     from difflib import SequenceMatcher
+
     norm_a = normalise_name(a)
     norm_b = normalise_name(b)
     if not norm_a or not norm_b:
@@ -132,7 +154,20 @@ def issuer_prefix(name: str) -> str:
     tokens = norm.split()
     # Take first few tokens before share class indicators
     issuer_tokens = []
-    share_class_indicators = {"ord", "pref", "prf", "p", "cl", "class", "series", "ser", "plc", "ltd", "inc", "corp"}
+    share_class_indicators = {
+        "ord",
+        "pref",
+        "prf",
+        "p",
+        "cl",
+        "class",
+        "series",
+        "ser",
+        "plc",
+        "ltd",
+        "inc",
+        "corp",
+    }
     for token in tokens:
         if token in share_class_indicators:
             break
@@ -151,7 +186,16 @@ def is_etf(name: str) -> bool:
 def is_preference_share(name: str) -> bool:
     """Check if a security name suggests a preference/preferred share."""
     norm = normalise_name(name)
-    pref_indicators = {"pref", "prf", "preference", "preferred", "cum", "non-cum", "non cum", "stlg"}
+    pref_indicators = {
+        "pref",
+        "prf",
+        "preference",
+        "preferred",
+        "cum",
+        "non-cum",
+        "non cum",
+        "stlg",
+    }
     tokens = frozenset(norm.split())
     return bool(pref_indicators & tokens)
 

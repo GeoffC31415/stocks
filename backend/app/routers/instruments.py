@@ -5,8 +5,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
-from app.models import HoldingSnapshot, ImportBatch, Instrument, InstrumentGroupMember, InstrumentQuote
-from app.schemas import InstrumentHistoryPoint, InstrumentMarketPatch, InstrumentOut, InstrumentQuoteOut, OrderOut
+from app.models import (
+    HoldingSnapshot,
+    ImportBatch,
+    Instrument,
+    InstrumentGroupMember,
+    InstrumentQuote,
+)
+from app.schemas import (
+    InstrumentHistoryPoint,
+    InstrumentMarketPatch,
+    InstrumentOut,
+    InstrumentQuoteOut,
+    OrderOut,
+)
 from app.services.market_data_service import infer_asset_class, refresh_instrument_quote
 from app.services.order_service import get_orders_for_instrument
 from app.services.portfolio_service import (
@@ -41,7 +53,9 @@ async def list_instruments(session: AsyncSession = Depends(get_session)) -> list
     batch_ids = {snap.import_batch_id for snap in snapshots}
     batch_by_id: dict[int, ImportBatch] = {}
     if batch_ids:
-        batch_result = await session.execute(select(ImportBatch).where(ImportBatch.id.in_(batch_ids)))
+        batch_result = await session.execute(
+            select(ImportBatch).where(ImportBatch.id.in_(batch_ids))
+        )
         batch_by_id = {b.id: b for b in batch_result.scalars().all()}
     if instrument_ids:
         history_result = await session.execute(
@@ -77,7 +91,9 @@ async def list_instruments(session: AsyncSession = Depends(get_session)) -> list
             group_ids=by_instrument.get(snap.instrument_id, []),
             previous_snapshot=prev_snapshots.get(snap.instrument_id),
             metrics=metrics_by_instrument.get(snap.instrument_id),
-            snapshot_as_of_date=batch_by_id.get(snap.import_batch_id).as_of_date if snap.import_batch_id in batch_by_id else None,
+            snapshot_as_of_date=batch_by_id.get(snap.import_batch_id).as_of_date
+            if snap.import_batch_id in batch_by_id
+            else None,
         )
         for snap in snapshots
     ]

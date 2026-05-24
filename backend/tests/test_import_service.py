@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models import Base, Instrument
 from app.services.barclays_parser import ParsedHoldingRow
-from app.services.import_service import compare_import_batches, import_holding_snapshot
 from app.services.hl_parser import HL_ACCOUNT_NAME
+from app.services.import_service import compare_import_batches, import_holding_snapshot
 from app.services.portfolio_service import portfolio_value_timeseries
 
 

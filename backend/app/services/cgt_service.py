@@ -9,14 +9,12 @@ Implements the three UK CGT matching rules for shares:
 from __future__ import annotations
 
 import datetime as dt
-from collections import defaultdict
 from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Instrument, Order
-
 
 # ---------------------------------------------------------------------------
 # Internal data classes
@@ -117,19 +115,19 @@ def calculate_cgt_for_instrument(
     consumed_buys: set[int] = set()
 
     for sell in sells:
+        sell_qty = sell.quantity or 0.0
+        sell_cost = sell.cost_proceeds_gbp or 0.0
         sale = SaleDetail(
             order_id=sell.id,
             order_date=sell.order_date.isoformat(),
             security_name=sell.security_name,
             instrument_id=sell.instrument_id,
-            quantity=sell.quantity or 0.0,
-            proceeds_gbp=sell.cost_proceeds_gbp or 0.0,
+            quantity=sell_qty,
+            proceeds_gbp=sell_cost,
         )
         sale.pool_quantity_before = pool.quantity
         sale.pool_cost_before = pool.cost
-        sale.pool_cost_per_share = (
-            pool.cost / pool.quantity if pool.quantity > 0 else 0.0
-        )
+        sale.pool_cost_per_share = pool.cost / pool.quantity if pool.quantity > 0 else 0.0
 
         remaining_qty = sale.quantity
 
@@ -146,7 +144,8 @@ def calculate_cgt_for_instrument(
 
         # --- 1. Same-day rule ---
         same_day_buys = [
-            b for b in buys
+            b
+            for b in buys
             if b.order_date.date() == sell.order_date.date() and b.id not in consumed_buys
         ]
         for b in same_day_buys:
@@ -166,14 +165,15 @@ def calculate_cgt_for_instrument(
                     security_name=b.security_name,
                     quantity=match_qty,
                     cost=round(match_cost, 2),
-                    proceeds=round((sell.cost_proceeds_gbp / sell.quantity) * match_qty, 2) if sell.quantity > 0 else 0.0,
+                    proceeds=round((sell_cost / sell_qty) * match_qty, 2) if sell_qty > 0 else 0.0,
                 )
             )
 
         # --- 2. Bed & breakfasting (30-day rule) ---
         bf_limit = sell.order_date + dt.timedelta(days=30)
         bf_buys = [
-            b for b in buys
+            b
+            for b in buys
             if sell.order_date < b.order_date <= bf_limit and b.id not in consumed_buys
         ]
         for b in bf_buys:
@@ -193,7 +193,7 @@ def calculate_cgt_for_instrument(
                     security_name=b.security_name,
                     quantity=match_qty,
                     cost=round(match_cost, 2),
-                    proceeds=round((sell.cost_proceeds_gbp / sell.quantity) * match_qty, 2) if sell.quantity > 0 else 0.0,
+                    proceeds=round((sell_cost / sell_qty) * match_qty, 2) if sell_qty > 0 else 0.0,
                 )
             )
 
@@ -208,7 +208,7 @@ def calculate_cgt_for_instrument(
                     source="pool",
                     quantity=pool_qty,
                     cost=round(pool_cost, 2),
-                    proceeds=round((sell.cost_proceeds_gbp / sell.quantity) * pool_qty, 2) if sell.quantity > 0 else 0.0,
+                    proceeds=round((sell_cost / sell_qty) * pool_qty, 2) if sell_qty > 0 else 0.0,
                 )
             )
             # Remove from pool
@@ -217,7 +217,7 @@ def calculate_cgt_for_instrument(
 
         # Aggregate
         sale.total_cost = sum(m.cost for m in sale.matches)
-        sale.total_proceeds = sell.cost_proceeds_gbp or 0.0
+        sale.total_proceeds = sell_cost
         sale.realised_gain = sale.total_proceeds - sale.total_cost
 
         sale_details.append(sale)
@@ -269,7 +269,7 @@ def _group_by_tax_year(sale_details: list[SaleDetail]) -> list[TaxYearSummary]:
         else:
             gain = sale.total_proceeds - sale.total_cost
             by_year[year_end] = TaxYearSummary(
-                tax_year=f"{year_end-1}-{str(year_end)[2:]}",
+                tax_year=f"{year_end - 1}-{str(year_end)[2:]}",
                 year_end=year_end,
                 total_proceeds=sale.total_proceeds,
                 total_cost=sale.total_cost,
@@ -312,10 +312,14 @@ async def get_instrument_cgt(
 
     out: list[dict] = []
     for inst in instruments:
-        oq = select(Order).where(
-            Order.instrument_id == inst.id,
-            func.lower(Order.side).in_(["buy", "sell"]),
-        ).order_by(Order.order_date)
+        oq = (
+            select(Order)
+            .where(
+                Order.instrument_id == inst.id,
+                func.lower(Order.side).in_(["buy", "sell"]),
+            )
+            .order_by(Order.order_date)
+        )
         orders_result = await session.execute(oq)
         orders = list(orders_result.scalars().all())
 

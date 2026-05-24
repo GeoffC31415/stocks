@@ -40,6 +40,4 @@ def test_order_fingerprint_changes_when_economic_identity_changes() -> None:
         "country": "GB",
     }
 
-    assert order_fingerprint(**base) != order_fingerprint(
-        **{**base, "cost_proceeds_gbp": 101.0}
-    )
+    assert order_fingerprint(**base) != order_fingerprint(**{**base, "cost_proceeds_gbp": 101.0})

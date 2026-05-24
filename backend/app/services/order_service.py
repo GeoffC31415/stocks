@@ -28,7 +28,9 @@ class DuplicateOrderImportError(Exception):
         super().__init__(f"Identical order history file already imported as batch {batch_id}")
 
 
-def _cagr(start_value: float, end_value: float, start: datetime.date, end: datetime.date) -> float | None:
+def _cagr(
+    start_value: float, end_value: float, start: datetime.date, end: datetime.date
+) -> float | None:
     """Compound Annual Growth Rate as a percentage. Returns None when not meaningful."""
     years = (end - start).days / 365.25
     if years < 0.25 or start_value <= 0 or end_value <= 0:
@@ -296,8 +298,7 @@ async def get_order_analytics(
         "sell_count": sell_count,
         "drip_threshold_gbp": drip_threshold_gbp,
         "annual_drip": [
-            {"year": year, "total_gbp": round(v, 2)}
-            for year, v in sorted(annual_drip.items())
+            {"year": year, "total_gbp": round(v, 2)} for year, v in sorted(annual_drip.items())
         ],
         "first_order_date": first_order_date,
     }
@@ -438,7 +439,9 @@ async def get_order_positions(
     # Aggregate by instrument_id where available, fall back to security_name
     agg: dict[str | int, dict] = {}
     for o in orders:
-        key: str | int = o.instrument_id if o.instrument_id is not None else o.security_name.lower().strip()
+        key: str | int = (
+            o.instrument_id if o.instrument_id is not None else o.security_name.lower().strip()
+        )
         if key not in agg:
             agg[key] = {
                 "security_name": o.security_name,
@@ -520,7 +523,9 @@ async def get_order_positions(
         elif is_closed:
             realized_pnl = p["total_sell_gbp"] - p["total_buy_gbp"]
             if p["total_buy_gbp"] > 0 and p["total_sell_gbp"] > 0:
-                annualised_return_pct = _cagr(p["total_buy_gbp"], p["total_sell_gbp"], first_date, last_date)
+                annualised_return_pct = _cagr(
+                    p["total_buy_gbp"], p["total_sell_gbp"], first_date, last_date
+                )
             elif p["total_buy_gbp"] > 0 and p["total_sell_gbp"] == 0:
                 annualised_return_pct = -100.0
 
@@ -539,7 +544,9 @@ async def get_order_positions(
                 "last_order_date": last_date.isoformat(),
                 "current_value_gbp": round(current_value, 2) if current_value is not None else None,
                 "estimated_pnl_gbp": round(estimated_pnl, 2) if estimated_pnl is not None else None,
-                "annualised_return_pct": round(annualised_return_pct, 1) if annualised_return_pct is not None else None,
+                "annualised_return_pct": round(annualised_return_pct, 1)
+                if annualised_return_pct is not None
+                else None,
                 "trailing_drip_yield_pct": (
                     round(
                         _trailing_drip_yield_pct(
@@ -587,9 +594,7 @@ async def get_group_performance(
     CAGRs weighted by absolute net cost) which is more robust when members
     started at very different times.
     """
-    groups_result = await session.execute(
-        select(InstrumentGroup).order_by(InstrumentGroup.name)
-    )
+    groups_result = await session.execute(select(InstrumentGroup).order_by(InstrumentGroup.name))
     groups = list(groups_result.scalars().all())
     if not groups:
         return []
@@ -624,14 +629,10 @@ async def get_group_performance(
     instruments_result = await session.execute(
         select(Instrument).where(Instrument.id.in_(all_member_ids))
     )
-    instrument_by_id: dict[int, Instrument] = {
-        i.id: i for i in instruments_result.scalars().all()
-    }
+    instrument_by_id: dict[int, Instrument] = {i.id: i for i in instruments_result.scalars().all()}
 
     orders_result = await session.execute(
-        select(Order)
-        .where(Order.instrument_id.in_(all_member_ids))
-        .order_by(Order.order_date)
+        select(Order).where(Order.instrument_id.in_(all_member_ids)).order_by(Order.order_date)
     )
     orders = list(orders_result.scalars().all())
 
@@ -682,9 +683,7 @@ async def get_group_performance(
     snapshots_by_batch: dict[int, dict[int, HoldingSnapshot]] = {}
     if batches:
         history_result = await session.execute(
-            select(HoldingSnapshot).where(
-                HoldingSnapshot.instrument_id.in_(all_member_ids)
-            )
+            select(HoldingSnapshot).where(HoldingSnapshot.instrument_id.in_(all_member_ids))
         )
         for s in history_result.scalars().all():
             snapshots_by_batch.setdefault(s.import_batch_id, {})[s.instrument_id] = s
@@ -736,12 +735,8 @@ async def get_group_performance(
                 continue
             pos = per_instrument.get(iid)
             current_value = current_values.get(iid)
-            net_cost = (
-                (pos["discretionary_buy_gbp"] - pos["total_sell_gbp"]) if pos else 0.0
-            )
-            pnl = (
-                (current_value - net_cost) if current_value is not None else None
-            )
+            net_cost = (pos["discretionary_buy_gbp"] - pos["total_sell_gbp"]) if pos else 0.0
+            pnl = (current_value - net_cost) if current_value is not None else None
             cagr: float | None = None
             first_dt = pos["first_order"] if pos else None
             if (
@@ -767,9 +762,7 @@ async def get_group_performance(
                     ),
                     "net_cost_gbp": round(net_cost, 2),
                     "pnl_gbp": round(pnl, 2) if pnl is not None else None,
-                    "annualised_return_pct": (
-                        round(cagr, 1) if cagr is not None else None
-                    ),
+                    "annualised_return_pct": (round(cagr, 1) if cagr is not None else None),
                     "weight_pct": None,
                     "first_order_date": (
                         first_dt.date().isoformat() if first_dt is not None else None
@@ -790,25 +783,17 @@ async def get_group_performance(
         if total_value > 0:
             for m in members_view:
                 if m["current_value_gbp"] is not None:
-                    m["weight_pct"] = round(
-                        (m["current_value_gbp"] / total_value) * 100.0, 1
-                    )
+                    m["weight_pct"] = round((m["current_value_gbp"] / total_value) * 100.0, 1)
 
         members_view.sort(
-            key=lambda m: (m["current_value_gbp"] or 0.0),
+            key=lambda m: m["current_value_gbp"] or 0.0,
             reverse=True,
         )
 
         total_pnl = total_value - total_net_cost
-        pnl_pct = (
-            round((total_pnl / total_net_cost) * 100.0, 1)
-            if total_net_cost > 0
-            else None
-        )
+        pnl_pct = round((total_pnl / total_net_cost) * 100.0, 1) if total_net_cost > 0 else None
         group_orders = [
-            order
-            for iid in member_ids
-            for order in per_instrument.get(iid, {}).get("orders", [])
+            order for iid in member_ids for order in per_instrument.get(iid, {}).get("orders", [])
         ]
         combined_cagr = (
             _modified_dietz_annualised(
@@ -820,9 +805,7 @@ async def get_group_performance(
             if total_value > 0
             else None
         )
-        weighted_cagr = (
-            (weighted_cagr_num / weighted_cagr_den) if weighted_cagr_den > 0 else None
-        )
+        weighted_cagr = (weighted_cagr_num / weighted_cagr_den) if weighted_cagr_den > 0 else None
 
         out.append(
             {
@@ -858,8 +841,6 @@ async def get_orders_for_instrument(
     instrument_id: int,
 ) -> list[Order]:
     r = await session.execute(
-        select(Order)
-        .where(Order.instrument_id == instrument_id)
-        .order_by(Order.order_date.desc())
+        select(Order).where(Order.instrument_id == instrument_id).order_by(Order.order_date.desc())
     )
     return list(r.scalars().all())

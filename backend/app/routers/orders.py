@@ -113,7 +113,9 @@ async def order_analytics(
     account_name: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> OrderAnalytics:
-    data = await get_order_analytics(session, drip_threshold_gbp=drip_threshold, account_name=account_name)
+    data = await get_order_analytics(
+        session, drip_threshold_gbp=drip_threshold, account_name=account_name
+    )
     return OrderAnalytics(**data)
 
 
@@ -123,7 +125,9 @@ async def cashflow_timeseries(
     account_name: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[CashflowPoint]:
-    data = await get_cashflow_timeseries(session, drip_threshold_gbp=drip_threshold, account_name=account_name)
+    data = await get_cashflow_timeseries(
+        session, drip_threshold_gbp=drip_threshold, account_name=account_name
+    )
     return [CashflowPoint(**row) for row in data]
 
 
@@ -166,9 +170,7 @@ async def list_unlinked_orders(
     These would otherwise be silently absent from per-position analytics.
     """
     count_result = await session.execute(
-        select(func.count())
-        .select_from(Order)
-        .where(Order.instrument_id.is_(None))
+        select(func.count()).select_from(Order).where(Order.instrument_id.is_(None))
     )
     count = int(count_result.scalar_one() or 0)
 
@@ -209,7 +211,12 @@ async def list_orders(
     limit: int = 200,
     session: AsyncSession = Depends(get_session),
 ) -> list[OrderOut]:
-    q = select(Order).options(joinedload(Order.instrument)).order_by(Order.order_date.desc()).limit(limit)
+    q = (
+        select(Order)
+        .options(joinedload(Order.instrument))
+        .order_by(Order.order_date.desc())
+        .limit(limit)
+    )
     result = await session.execute(q)
     orders = list(result.scalars().all())
 
@@ -233,7 +240,9 @@ async def list_orders(
                     id=o.instrument.id,
                     security_name=o.instrument.security_name,
                     identifier=o.instrument.identifier,
-                ) if o.instrument else None,
+                )
+                if o.instrument
+                else None,
                 order_date=o.order_date,
                 order_status=o.order_status,
                 account_name=o.account_name,

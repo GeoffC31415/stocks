@@ -3,9 +3,8 @@ Audit logging for order-instrument matching decisions.
 
 Every change to orders.instrument_id, match_status, etc. should be recorded here.
 """
-from __future__ import annotations
 
-import datetime as dt
+from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

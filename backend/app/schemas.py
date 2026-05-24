@@ -340,6 +340,7 @@ class GroupPerformance(BaseModel):
 # Matching admin schemas
 # ---------------------------------------------------------------------------
 
+
 class AccountAliasIn(BaseModel):
     source: str
     source_account_name: str
@@ -497,6 +498,7 @@ class ReconciliationRow(BaseModel):
 
 class CreateHistoricalInstrumentBody(BaseModel):
     """Create a new instrument for historical/order-only securities."""
+
     security_name: str
     account_name: str | None = None
     identifier: str | None = None  # optional real identifier; auto-generated if omitted
@@ -507,6 +509,7 @@ class CreateHistoricalInstrumentBody(BaseModel):
 # ---------------------------------------------------------------------------
 # CGT schemas
 # ---------------------------------------------------------------------------
+
 
 class CGTMismatchEntry(BaseModel):
     source: str  # "same_day", "b&f", "pool"
@@ -576,4 +579,3 @@ class CGTTaxYearTotals(BaseModel):
 class CGTSummaryResponse(BaseModel):
     instruments: list[CGTInstrumentSummary] = Field(default_factory=list)
     tax_year_totals: list[CGTTaxYearTotals] = Field(default_factory=list)
-

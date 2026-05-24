@@ -7,6 +7,7 @@ Finds potential instrument matches for a given order by:
 3. Looking at other account instruments (lower priority)
 4. Filtering closed instruments based on order date
 """
+
 from __future__ import annotations
 
 import datetime as dt
@@ -14,7 +15,7 @@ import datetime as dt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Instrument, InstrumentAlias, AccountAlias
+from app.models import AccountAlias, Instrument, InstrumentAlias
 from app.services.matching.normalisation import normalise_name
 
 
@@ -27,12 +28,9 @@ async def resolve_canonical_account(
     Resolve an account name to its canonical form using account_aliases.
     Falls back to the original name if no alias exists.
     """
-    stmt = (
-        select(AccountAlias.canonical_account_name)
-        .where(
-            AccountAlias.source == source,
-            AccountAlias.source_account_name == account_name,
-        )
+    stmt = select(AccountAlias.canonical_account_name).where(
+        AccountAlias.source == source,
+        AccountAlias.source_account_name == account_name,
     )
     result = await session.execute(stmt)
     canonical = result.scalar_one_or_none()
@@ -54,13 +52,10 @@ async def find_alias_match(
         return None
 
     # Try with account scope first
-    stmt = (
-        select(InstrumentAlias.instrument_id)
-        .where(
-            InstrumentAlias.source == source,
-            InstrumentAlias.source_account_name == account_name,
-            InstrumentAlias.source_security_name_norm == norm_name,
-        )
+    stmt = select(InstrumentAlias.instrument_id).where(
+        InstrumentAlias.source == source,
+        InstrumentAlias.source_account_name == account_name,
+        InstrumentAlias.source_security_name_norm == norm_name,
     )
     result = await session.execute(stmt)
     inst_id = result.scalar_one_or_none()
@@ -69,13 +64,10 @@ async def find_alias_match(
         return await session.get(Instrument, inst_id)
 
     # Try without account scope (source + name only)
-    stmt = (
-        select(InstrumentAlias.instrument_id)
-        .where(
-            InstrumentAlias.source == source,
-            InstrumentAlias.source_account_name.is_(None),
-            InstrumentAlias.source_security_name_norm == norm_name,
-        )
+    stmt = select(InstrumentAlias.instrument_id).where(
+        InstrumentAlias.source == source,
+        InstrumentAlias.source_account_name.is_(None),
+        InstrumentAlias.source_security_name_norm == norm_name,
     )
     result = await session.execute(stmt)
     inst_id = result.scalar_one_or_none()

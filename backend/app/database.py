@@ -15,8 +15,9 @@ async def init_db() -> None:
     """Run alembic migrations to ensure the database schema is up to date."""
     from pathlib import Path
 
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     alembic_ini = Path(__file__).resolve().parents[2] / "alembic.ini"
     alembic_cfg = Config(str(alembic_ini))
