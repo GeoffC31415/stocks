@@ -1,3 +1,5 @@
+import re
+
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -202,7 +204,6 @@ def _migrate_match_metadata(sync_conn) -> None:
     instruments = sync_conn.exec_driver_sql(
         "SELECT id, account_name, security_name FROM instruments WHERE is_cash = 0"
     ).fetchall()
-    import re
     _norm_re = re.compile(r"[^a-z0-9 ]+")
     for (inst_id, acct, sec_name,) in instruments:
         norm_name = _norm_re.sub(" ", sec_name.lower()).strip()
