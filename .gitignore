@@ -2,7 +2,11 @@
 __pycache__/
 *.pyc
 portfolio.db
+portfolio copy.db
 *.db.bak
+*.db
+*.sqlite
+*.sqlite3
 frontend/node_modules/
 frontend/dist/
 .DS_Store
