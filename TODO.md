@@ -12,7 +12,7 @@
 
 - [x] **File:** `backend/tests/test_hl_parser.py`, lines 17, 31
 - [x] **Problem:** Tests reference `data/HL-Summary.csv` and `data/hl-portfolio-summary.csv` which don't exist. The `data/` directory is gitignored but test fixtures need to be present for tests to pass.
-- [ ] **Fix:** Add minimal fixture CSV files to `data/` so the tests are deterministic.
+- [x] **Fix:** Add minimal fixture CSV files to `data/` so the tests are deterministic.
 
 ---
 
