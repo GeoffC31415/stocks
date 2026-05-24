@@ -8,6 +8,13 @@
 
 ---
 
+## 1b. Add Alembic migrations (problem verification)
+
+- [x] **Problem:** The project uses `Base.metadata.create_all` + inline SQL migrations in `database.py`. This approach is fragile — it won't handle schema drops, column type changes, or work reliably when multiple instances share the DB. Schema changes are undocumented and ad-hoc.
+- [x] **Status:** Resolved in commit b43b1dd. alembic replaces all inline migrations with proper upgrade/downgrade functions.
+
+---
+
 ## 2. Fix failing tests: missing HL parser fixture files
 
 - [x] **File:** `backend/tests/test_hl_parser.py`, lines 17, 31
