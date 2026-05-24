@@ -49,7 +49,7 @@
 
 ## 4. Fix CGT frontend integration
 
-- [ ] **File:** `frontend/src/layout/Sidebar.tsx`, `frontend/src/routes/CGT.tsx`
+- [x] **File:** `frontend/src/layout/Sidebar.tsx`, `frontend/src/routes/CGT.tsx`
 - [ ] **Problem:** The CGT service (`cgt_service.py`, 444 lines), router (`cgt.py`), and frontend types (`CGTSummaryResponse`, `CGTTaxYearSummary`, etc.) are all built, but the CGT route doesn't appear to be linked from the sidebar navigation. Users can't access the UK Capital Gains Tax view that's been implemented.
 - [ ] **Fix:**
   1. Review `Sidebar.tsx` — add a "CGT" nav item linking to the `/cgt` route
