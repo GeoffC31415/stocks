@@ -32,7 +32,7 @@
 
 - [x] **File:** `backend/app/database.py`, line ~110
 - [x] **Problem:** `import re` is placed inside the `_migrate_match_metadata` function body, which is unconventional and can confuse linters/readers.
-- [ ] **Fix:** Move `import re` to the existing top-level imports in `database.py` and remove the inline import.
+- [x] **Fix:** Move `import re` to the existing top-level imports in `database.py` and remove the inline import.
 
 ---
 
