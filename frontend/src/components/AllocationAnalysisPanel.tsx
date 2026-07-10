@@ -35,6 +35,10 @@ export function AllocationAnalysisPanel() {
     [dimension, instruments],
   );
   const unclassified = analysis.categories.find((row) => row.label === "Unclassified");
+  const dimensionLabel =
+    dimension === "asset_class" ? "asset class" : dimension === "sector" ? "sector" : "region";
+  const hhiLabel =
+    analysis.hhi < 1500 ? "Lower concentration" : analysis.hhi < 2500 ? "Moderate concentration" : "High concentration";
 
   return (
     <div className="space-y-5">
@@ -65,7 +69,7 @@ export function AllocationAnalysisPanel() {
         <Metric
           label="Concentration index"
           value={analysis.hhi.toFixed(0)}
-          note="HHI: lower is more diversified"
+          note={`${hhiLabel} · HHI, lower is more diversified`}
         />
       </div>
 
@@ -83,7 +87,7 @@ export function AllocationAnalysisPanel() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="glass rounded-2xl p-5">
-          <h2 className="text-sm font-semibold text-white">By {DIMENSIONS.find((item) => item.key === dimension)?.label.toLowerCase()}</h2>
+          <h2 className="text-sm font-semibold text-white">By {dimensionLabel}</h2>
           <div className="mt-4 space-y-3">
             {analysis.categories.map((row) => (
               <div key={row.label}>
