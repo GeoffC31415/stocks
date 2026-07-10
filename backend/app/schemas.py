@@ -157,6 +157,36 @@ class PortfolioReturnSummary(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class AttributionInstrument(BaseModel):
+    instrument_id: int
+    identifier: str
+    security_name: str
+    account_name: str
+    opening_value_gbp: float
+    closing_value_gbp: float
+    raw_value_change_gbp: float
+    net_external_flow_gbp: float
+    drip_proxy_gbp: float
+    estimated_market_movement_gbp: float
+
+
+class SnapshotAttributionResponse(BaseModel):
+    from_batch: ImportBatchOut | None
+    to_batch: ImportBatchOut | None
+    opening_value_gbp: float | None
+    closing_value_gbp: float | None
+    raw_value_change_gbp: float | None
+    contributions_gbp: float | None
+    withdrawals_gbp: float | None
+    drip_proxy_gbp: float | None
+    net_external_flow_gbp: float | None
+    residual_market_movement_gbp: float | None
+    reconciliation_difference_gbp: float | None
+    top_contributors: list[AttributionInstrument] = Field(default_factory=list)
+    top_detractors: list[AttributionInstrument] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class PortfolioSummary(BaseModel):
     as_of_date: dt.date | None
     import_batch_id: int | None

@@ -13,6 +13,36 @@ export type PortfolioReturnSummary = {
   notes: string[];
 };
 
+export type SnapshotAttributionInstrument = {
+  instrument_id: number;
+  identifier: string;
+  security_name: string;
+  account_name: string;
+  opening_value_gbp: number;
+  closing_value_gbp: number;
+  raw_value_change_gbp: number;
+  net_external_flow_gbp: number;
+  drip_proxy_gbp: number;
+  estimated_market_movement_gbp: number;
+};
+
+export type SnapshotAttribution = {
+  from_batch: ImportBatch | null;
+  to_batch: ImportBatch | null;
+  opening_value_gbp: number | null;
+  closing_value_gbp: number | null;
+  raw_value_change_gbp: number | null;
+  contributions_gbp: number | null;
+  withdrawals_gbp: number | null;
+  drip_proxy_gbp: number | null;
+  net_external_flow_gbp: number | null;
+  residual_market_movement_gbp: number | null;
+  reconciliation_difference_gbp: number | null;
+  top_contributors: SnapshotAttributionInstrument[];
+  top_detractors: SnapshotAttributionInstrument[];
+  notes: string[];
+};
+
 export type PortfolioSummary = {
   as_of_date: string | null;
   import_batch_id: number | null;
@@ -533,6 +563,17 @@ const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
 
 export const api = {
   getSummary: () => requestJson<PortfolioSummary>("/api/portfolio/summary"),
+  getSnapshotAttribution: (
+    accountName?: string | null,
+    fromBatchId?: number | null,
+    toBatchId?: number | null,
+  ) => {
+    const params = new URLSearchParams();
+    if (accountName) params.set("account_name", accountName);
+    if (fromBatchId != null) params.set("from_batch_id", String(fromBatchId));
+    if (toBatchId != null) params.set("to_batch_id", String(toBatchId));
+    return requestJson<SnapshotAttribution>(`/api/portfolio/attribution?${params.toString()}`);
+  },
   getPortfolioReturns: (
     accountName?: string | null,
     fromDate?: string | null,

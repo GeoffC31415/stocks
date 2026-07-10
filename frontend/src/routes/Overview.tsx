@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { CalendarClock, Loader2, Sparkles, Wallet, Banknote } from "lucide-react";
-import { api, formatSnapshotDateIso, type AllocationRow, type ImportDiffSummary } from "../lib/api";
+import { api, formatSnapshotDateIso, type AllocationRow } from "../lib/api";
 import { toGbp } from "../lib/formatters";
 import { usePreferences } from "../state/usePreferences";
 import { HeroKpi } from "../components/HeroKpi";
@@ -10,6 +10,7 @@ import { StatCard } from "../components/StatCard";
 import { ChartPanel } from "../components/ChartPanel";
 import { PerformersSection } from "../components/PerformersSection";
 import { PortfolioReturnCard } from "../components/PortfolioReturnCard";
+import { AttributionSummaryCard } from "../components/AttributionSummaryCard";
 
 export function Overview() {
   const navigate = useNavigate();
@@ -39,10 +40,9 @@ export function Overview() {
     queryFn: () => api.getEstimatedTimeseries(accountFilter === "all" ? undefined : accountFilter),
     enabled: (analyticsQ.data?.total_orders ?? 0) > 0,
   });
-  const importDiffQ = useQuery({
-    queryKey: ["import-diff", summaryQ.data?.import_batch_id],
-    queryFn: () => api.getImportDiff(summaryQ.data?.import_batch_id as number),
-    enabled: summaryQ.data?.import_batch_id != null,
+  const attributionQ = useQuery({
+    queryKey: ["snapshot-attribution", accountFilter],
+    queryFn: () => api.getSnapshotAttribution(selectedAccount),
   });
   const benchmarkStart = estimatedQ.data?.[0]?.month
     ? `${estimatedQ.data[0].month}-01`
@@ -233,7 +233,7 @@ export function Overview() {
         latestAsOfDate={accountFilter === "all" ? snapshotDateRange.latest : null}
       />
 
-      <WhatChangedCard diff={importDiffQ.data ?? null} />
+      <AttributionSummaryCard attribution={attributionQ.data ?? null} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <PortfolioReturnCard summary={returnsQ.data} />
@@ -365,85 +365,6 @@ function SnapshotStalenessChip({
           <span className="tabular font-medium">{ageLabel}</span>
         </>
       )}
-    </div>
-  );
-}
-
-function WhatChangedCard({ diff }: { diff: ImportDiffSummary | null }) {
-  if (!diff || diff.previous_batch_id == null) return null;
-
-  const topMovers = [...diff.changed]
-    .sort((a, b) => Math.abs(b.delta_value_gbp ?? 0) - Math.abs(a.delta_value_gbp ?? 0))
-    .slice(0, 3);
-
-  return (
-    <div className="glass rounded-2xl p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-            What changed
-          </p>
-          <h2 className="mt-1 text-sm font-semibold text-white">
-            Since{" "}
-            {diff.previous_as_of_date
-              ? formatSnapshotDateIso(diff.previous_as_of_date)
-              : `batch ${diff.previous_batch_id}`}
-          </h2>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            window.location.href = `/diff?from=${diff.previous_batch_id}&to=${diff.batch_id}`;
-          }}
-          className="chip chip-muted"
-        >
-          Open diff
-        </button>
-      </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <ChangeStat label="New" value={diff.new_instrument_ids.length} />
-        <ChangeStat label="Closed" value={diff.closed.length} />
-        <ChangeStat label="Changed" value={diff.changed.length} />
-      </div>
-      {topMovers.length > 0 ? (
-        <div className="mt-4 space-y-2">
-          {topMovers.map((mover) => {
-            const delta = mover.delta_value_gbp ?? 0;
-            return (
-              <div key={mover.instrument_id} className="flex items-center gap-3 rounded-xl bg-white/[0.02] px-3 py-2">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-medium text-slate-200">
-                    {mover.identifier}
-                  </p>
-                  <p className="truncate text-[11px] text-slate-600">
-                    {mover.security_name ?? mover.account_name}
-                  </p>
-                </div>
-                <div className={`tabular text-right text-xs font-semibold ${delta >= 0 ? "text-pos" : "text-neg"}`}>
-                  {delta >= 0 ? "+" : ""}
-                  {toGbp(delta)}
-                  {mover.quantity_before !== mover.quantity_after ? (
-                    <p className="font-normal text-slate-500">
-                      qty {mover.quantity_before ?? "—"} → {mover.quantity_after ?? "—"}
-                    </p>
-                  ) : (
-                    <p className="font-normal text-slate-500">price movement</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ChangeStat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2">
-      <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className="tabular text-lg font-semibold text-white">{value}</p>
     </div>
   );
 }
