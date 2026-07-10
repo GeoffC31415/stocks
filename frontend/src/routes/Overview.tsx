@@ -168,6 +168,12 @@ export function Overview() {
       value: p.estimated_value_gbp,
     }));
   }, [estimatedQ.data]);
+  const valueSparklineCaption = useMemo(() => {
+    if (valueSparkline.length === 0) return "Latest snapshot";
+    const first = String(valueSparkline[0].month);
+    const last = String(valueSparkline[valueSparkline.length - 1].month);
+    return `Latest snapshot · order-derived trend ${first}–${last}`;
+  }, [valueSparkline]);
 
   const pnlSparkline = useMemo(() => {
     const data = timeseriesQ.data ?? [];
@@ -224,7 +230,7 @@ export function Overview() {
         trendPct={null}
         deltaAbs={null}
         sparkline={valueSparkline}
-        caption={hasOrders ? "Latest snapshot · trend is order-derived" : "Latest snapshot"}
+        caption={valueSparklineCaption}
       />
 
       <SnapshotStalenessChip
@@ -241,7 +247,7 @@ export function Overview() {
           label="Portfolio P&L"
           value={toGbp(summary.total_pnl_gbp)}
           tone={summary.total_pnl_gbp >= 0 ? "pos" : "neg"}
-          sub="Unrealised gain from the latest snapshots"
+          sub="Unrealised gain on invested holdings · cash excluded"
           sparkline={pnlSparkline.length > 1 ? pnlSparkline : undefined}
           sparklineKey="value"
         />
@@ -291,7 +297,7 @@ export function Overview() {
             Performance leaders
           </h2>
           <p className="text-xs text-slate-500">
-            Top and bottom movers by % change.
+            Highest and lowest holding returns against recorded book cost.
           </p>
         </div>
         <PerformersSection

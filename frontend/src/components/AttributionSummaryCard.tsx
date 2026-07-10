@@ -71,6 +71,11 @@ export function AttributionSummaryCard({
               tone={(marketMovement ?? 0) >= 0 ? "pos" : "neg"}
             />
           </div>
+          <p className="mt-2 text-[10px] text-slate-600">
+            {Math.abs(attribution.reconciliation_difference_gbp ?? 0) < 0.005
+              ? "Exact reconciliation before display rounding."
+              : `Unreconciled difference ${toGbp(attribution.reconciliation_difference_gbp)}`}
+          </p>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <MoverList title="Top contributors" rows={attribution.top_contributors} />
             <MoverList title="Top detractors" rows={attribution.top_detractors} />

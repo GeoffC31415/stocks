@@ -41,7 +41,7 @@ function PerformerList({
           <Icon size={16} className={colorClass} />
           <h3 className="text-sm font-semibold text-slate-200">{title}</h3>
           <span className="ml-auto text-[10px] uppercase tracking-wider text-slate-600">
-            % change
+            % vs cost
           </span>
         </div>
 

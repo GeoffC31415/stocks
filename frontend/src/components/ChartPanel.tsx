@@ -90,7 +90,7 @@ export function ChartPanel({
   benchmarks: BenchmarkPoint[];
   hasOrders: boolean;
 }) {
-  const [tab, setTab] = useState<ChartTab>("estimated");
+  const [tab, setTab] = useState<ChartTab>("value");
 
   const mergedEstimated = useMemo(() => {
     const byMonth = new Map(cashflow.map((c) => [c.month, c]));
