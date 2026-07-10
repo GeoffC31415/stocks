@@ -13,20 +13,20 @@ function PerformerList({
   title: string;
   icon: typeof TrendingUp;
   items: Instrument[];
-  variant: "pos" | "neg";
+  variant: "high" | "low";
   onSelect: (id: number) => void;
 }) {
-  const colorClass = variant === "pos" ? "text-pos" : "text-neg";
-  const dotClass = variant === "pos" ? "bg-pos" : "bg-neg";
+  const colorClass = variant === "high" ? "text-pos" : "text-amber-300";
+  const dotClass = variant === "high" ? "bg-pos" : "bg-amber-300";
   const glowStyle =
-    variant === "pos"
+    variant === "high"
       ? {
           background:
             "radial-gradient(60% 80% at 0% 100%, rgba(52,211,153,0.18), transparent 70%)",
         }
       : {
           background:
-            "radial-gradient(60% 80% at 100% 0%, rgba(248,113,113,0.18), transparent 70%)",
+            "radial-gradient(60% 80% at 100% 0%, rgba(251,191,36,0.14), transparent 70%)",
         };
 
   return (
@@ -97,17 +97,17 @@ export function PerformersSection({
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <PerformerList
-        title="Poor performers"
+        title="Lowest returns"
         icon={TrendingDown}
         items={worst}
-        variant="neg"
+        variant="low"
         onSelect={onSelect}
       />
       <PerformerList
-        title="Strong performers"
+        title="Highest returns"
         icon={TrendingUp}
         items={best}
-        variant="pos"
+        variant="high"
         onSelect={onSelect}
       />
     </div>

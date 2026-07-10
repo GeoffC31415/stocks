@@ -132,10 +132,10 @@ export function Overview() {
       group_allocation: filteredGroupAllocation,
       worst_pct: [...withPct]
         .sort((a, b) => (a.latest_pct_change ?? 0) - (b.latest_pct_change ?? 0))
-        .slice(0, 8),
+        .slice(0, 5),
       best_pct: [...withPct]
         .sort((a, b) => (b.latest_pct_change ?? 0) - (a.latest_pct_change ?? 0))
-        .slice(0, 8),
+        .slice(0, 5),
       latest_snapshot_date: latestSnapshotDate,
     };
   }, [accountFilter, filteredInstruments, rawSummary]);
@@ -163,69 +163,6 @@ export function Overview() {
       value: p.estimated_value_gbp,
     }));
   }, [estimatedQ.data]);
-
-  const valueTrendPct = useMemo(() => {
-    const data = estimatedQ.data ?? [];
-    if (data.length < 2) return null;
-    const last = data[data.length - 1].estimated_value_gbp;
-    const yearAgo =
-      data.length >= 13
-        ? data[data.length - 13].estimated_value_gbp
-        : data[0].estimated_value_gbp;
-    if (!yearAgo) return null;
-    return ((last - yearAgo) / yearAgo) * 100;
-  }, [estimatedQ.data]);
-
-  const valueDeltaAbs = useMemo(() => {
-    const data = estimatedQ.data ?? [];
-    if (data.length < 2) return null;
-    const last = data[data.length - 1].estimated_value_gbp;
-    const yearAgo =
-      data.length >= 13
-        ? data[data.length - 13].estimated_value_gbp
-        : data[0].estimated_value_gbp;
-    return last - yearAgo;
-  }, [estimatedQ.data]);
-
-  const effectiveReturn = useMemo(() => {
-    if (!analytics || !summary) return null;
-    return summary.total_value_gbp + analytics.total_sell_gbp - analytics.cash_deployed_gbp;
-  }, [analytics, summary]);
-
-  const effectiveReturnPct = useMemo(() => {
-    if (!analytics || !effectiveReturn || analytics.cash_deployed_gbp === 0) return null;
-    return (effectiveReturn / analytics.cash_deployed_gbp) * 100;
-  }, [analytics, effectiveReturn]);
-
-  const annualisedReturnPct = useMemo(() => {
-    if (!analytics || !summary || analytics.cash_deployed_gbp <= 0 || !analytics.first_order_date) return null;
-    const endValue = summary.total_value_gbp + analytics.total_sell_gbp;
-    const startValue = analytics.cash_deployed_gbp;
-    if (endValue <= 0) return null;
-    const first = new Date(analytics.first_order_date);
-    const now = new Date();
-    const years = (now.getTime() - first.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-    if (years < 0.25) return null;
-    return ((endValue / startValue) ** (1.0 / years) - 1.0) * 100.0;
-  }, [analytics, summary]);
-
-  const effReturnSparkline = useMemo(() => {
-    const est = estimatedQ.data ?? [];
-    const flow = cashflowQ.data ?? [];
-    if (est.length === 0 || flow.length === 0) return [];
-    const byMonth = new Map(flow.map((c) => [c.month, c]));
-    return est
-      .slice(-24)
-      .map((p) => {
-        const cf = byMonth.get(p.month);
-        const deployed = cf?.cumulative_net_deployed ?? 0;
-        const sells = cf?.cumulative_sells ?? 0;
-        return {
-          month: p.month,
-          value: p.estimated_value_gbp + sells - deployed,
-        };
-      });
-  }, [estimatedQ.data, cashflowQ.data]);
 
   const pnlSparkline = useMemo(() => {
     const data = timeseriesQ.data ?? [];
@@ -279,10 +216,10 @@ export function Overview() {
       <HeroKpi
         label="Portfolio value"
         value={summary.total_value_gbp}
-        trendPct={valueTrendPct}
-        deltaAbs={valueDeltaAbs}
+        trendPct={null}
+        deltaAbs={null}
         sparkline={valueSparkline}
-        caption={hasOrders ? "vs. 12 months ago" : undefined}
+        caption={hasOrders ? "Latest snapshot · trend is order-derived" : "Latest snapshot"}
       />
 
       <SnapshotStalenessChip
@@ -298,81 +235,36 @@ export function Overview() {
           label="Portfolio P&L"
           value={toGbp(summary.total_pnl_gbp)}
           tone={summary.total_pnl_gbp >= 0 ? "pos" : "neg"}
-          sub={`Book cost ${toGbp(summary.total_book_cost_gbp)}`}
+          sub="Unrealised gain from the latest snapshots"
           sparkline={pnlSparkline.length > 1 ? pnlSparkline : undefined}
           sparklineKey="value"
         />
-        {hasOrders && analytics && effectiveReturn != null ? (
-          <StatCard
-            label="Effective return"
-            value={toGbp(effectiveReturn)}
-            tone={effectiveReturn >= 0 ? "pos" : "neg"}
-            trend={effectiveReturnPct ?? null}
-            trendFormat={(v) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`}
-            sub={
-              annualisedReturnPct != null
-                ? `${annualisedReturnPct >= 0 ? "+" : ""}${annualisedReturnPct.toFixed(1)}% p.a.`
-                : "on cash deployed"
-            }
-            sparkline={effReturnSparkline}
-            sparklineKey="value"
-            icon={<Sparkles size={14} />}
-          />
-        ) : (
-          <StatCard
-            label="Book cost"
-            value={toGbp(summary.total_book_cost_gbp)}
-            tone="muted"
-            sub="From latest snapshot"
-            icon={<Wallet size={14} />}
-          />
-        )}
+        <StatCard
+          label="Book cost"
+          value={toGbp(summary.total_book_cost_gbp)}
+          tone="muted"
+          sub="Cost recorded in the latest snapshots"
+          icon={<Wallet size={14} />}
+        />
         {hasOrders && analytics ? (
           <StatCard
             label="Cash deployed"
             value={toGbp(analytics.cash_deployed_gbp)}
             tone="accent"
-            sub={`${analytics.buy_count} discretionary buys`}
+            sub={`${analytics.buy_count} discretionary buys · account filtered`}
             sparkline={cashSparkline}
             sparklineKey="value"
             icon={<Banknote size={14} />}
           />
         ) : (
           <StatCard
-            label="Holdings"
+            label="Accounts"
             value={String(Object.keys(summary.by_account).length || 0)}
             tone="accent"
-            sub="Unique accounts"
+            sub="Included in this view"
           />
         )}
       </div>
-
-      {hasOrders && analytics && (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <StatCard
-            label="DRIP reinvested"
-            value={toGbp(analytics.total_drip_gbp)}
-            tone="amber"
-            sub={`${analytics.drip_count} orders < ${toGbp(dripThreshold)}`}
-          />
-          <StatCard
-            label="Sale proceeds"
-            value={toGbp(analytics.total_sell_gbp)}
-            tone="muted"
-            sub={`${analytics.sell_count} sell orders`}
-          />
-          <StatCard
-            label="Total orders"
-            value={String(analytics.total_orders)}
-            tone="muted"
-            sub={
-              analytics.first_order_date
-                ? `Since ${analytics.first_order_date.slice(0, 7)}`
-                : undefined
-            }
-          />
-        </div>
-      )}
 
       <AllocationPanel
         allocation={summary.allocation ?? []}
@@ -397,8 +289,8 @@ export function Overview() {
           </p>
         </div>
         <PerformersSection
-          worst={summary.worst_pct ?? []}
-          best={summary.best_pct ?? []}
+          worst={(summary.worst_pct ?? []).slice(0, 5)}
+          best={(summary.best_pct ?? []).slice(0, 5)}
           onSelect={(id) => navigate(`/holdings?inst=${id}`)}
         />
       </div>
@@ -415,9 +307,13 @@ function SnapshotStalenessChip({
   earliestAsOfDate: string | null;
   latestAsOfDate: string | null;
 }) {
-  const showRange = earliestAsOfDate && latestAsOfDate;
+  const showRange = Boolean(
+    earliestAsOfDate && latestAsOfDate && earliestAsOfDate !== latestAsOfDate,
+  );
   const displayDate = showRange ? latestAsOfDate : asOfDate;
   if (!displayDate) return null;
+  const rangeStart = earliestAsOfDate ?? displayDate;
+  const rangeEnd = latestAsOfDate ?? displayDate;
 
   const parts = displayDate.split("-").map(Number);
   if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return null;
@@ -449,7 +345,7 @@ function SnapshotStalenessChip({
       {showRange ? (
         <>
           <span className="tabular">
-            Snapshot {formatSnapshotDateIso(earliestAsOfDate)} → {formatSnapshotDateIso(latestAsOfDate)}
+            Snapshot {formatSnapshotDateIso(rangeStart)} → {formatSnapshotDateIso(rangeEnd)}
           </span>
           <span className="text-slate-500">·</span>
           <span className="tabular font-medium">{ageLabel}</span>
@@ -520,9 +416,13 @@ function WhatChangedCard({ diff }: { diff: ImportDiffSummary | null }) {
                 <div className={`tabular text-right text-xs font-semibold ${delta >= 0 ? "text-pos" : "text-neg"}`}>
                   {delta >= 0 ? "+" : ""}
                   {toGbp(delta)}
-                  <p className="font-normal text-slate-500">
-                    qty {mover.quantity_before ?? "—"} → {mover.quantity_after ?? "—"}
-                  </p>
+                  {mover.quantity_before !== mover.quantity_after ? (
+                    <p className="font-normal text-slate-500">
+                      qty {mover.quantity_before ?? "—"} → {mover.quantity_after ?? "—"}
+                    </p>
+                  ) : (
+                    <p className="font-normal text-slate-500">price movement</p>
+                  )}
                 </div>
               </div>
             );
@@ -568,27 +468,37 @@ function AllocationPanel({
         ) : null}
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div className="space-y-2">
-          {topHoldings.map((row) => (
-            <AllocationBar key={row.label} label={row.label} value={row.weight_pct} />
-          ))}
+        <div>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+            Largest holdings
+          </p>
+          <div className="space-y-2">
+            {topHoldings.map((row) => (
+              <AllocationBar key={row.label} label={row.label} value={row.weight_pct} />
+            ))}
+          </div>
         </div>
-        <div className="space-y-2">
-          {groups.length === 0 ? (
-            <p className="rounded-xl bg-white/[0.02] p-3 text-xs text-slate-500">
-              Add groups and optional targets to track allocation drift.
-            </p>
-          ) : (
-            groups.map((row) => (
-              <AllocationBar
-                key={row.label}
-                label={row.label}
-                value={row.weight_pct}
-                target={row.target_pct}
-                drift={row.drift_pct}
-              />
-            ))
-          )}
+        <div>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+            Portfolio groups
+          </p>
+          <div className="space-y-2">
+            {groups.length === 0 ? (
+              <p className="rounded-xl bg-white/[0.02] p-3 text-xs text-slate-500">
+                Add groups and optional targets to track allocation drift.
+              </p>
+            ) : (
+              groups.map((row) => (
+                <AllocationBar
+                  key={row.label}
+                  label={row.label}
+                  value={row.weight_pct}
+                  target={row.target_pct}
+                  drift={row.drift_pct}
+                />
+              ))
+            )}
+          </div>
         </div>
       </div>
     </div>
