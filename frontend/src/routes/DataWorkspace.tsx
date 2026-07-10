@@ -2,7 +2,7 @@ import { useSearchParams } from "react-router-dom";
 import { WorkspaceTabs } from "../components/WorkspaceTabs";
 import { ClassificationQueue } from "../components/ClassificationQueue";
 import { ImportPage } from "./Import";
-import { MatchingAdmin } from "./MatchingAdmin";
+import { MatchingWorkspace } from "./MatchingWorkspace";
 
 const TABS = [
   { key: "import", label: "Import & refresh" },
@@ -18,7 +18,7 @@ export function DataWorkspace() {
     <div className="space-y-5">
       <WorkspaceTabs label="Data views" tabs={TABS} />
       {tab === "matching" ? (
-        <MatchingAdmin />
+        <MatchingWorkspace />
       ) : tab === "classifications" ? (
         <ClassificationQueue />
       ) : (
