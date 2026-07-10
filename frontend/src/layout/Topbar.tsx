@@ -63,25 +63,45 @@ export function Topbar() {
   const asOf = summaryQ.data?.as_of_date;
 
   return (
-    <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-white/[0.05] bg-aurora-base/60 px-6 py-3 backdrop-blur-xl">
-      <div className="flex items-center gap-3">
-        <Calendar size={14} className="text-slate-500" />
-        <span className="text-xs text-slate-500">Last snapshot</span>
+    <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-white/[0.05] bg-aurora-base/60 px-3 py-3 backdrop-blur-xl sm:px-6">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+        <Calendar size={14} className="hidden text-slate-500 sm:block" />
+        <span className="hidden text-xs text-slate-500 sm:inline">Last snapshot</span>
         <span className="chip chip-accent tabular">
           {asOf ? formatOrderDate(asOf) : "—"}
         </span>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         {accountSegments.length > 1 ? (
-          <SegmentedControl
-            layoutId="account-filter"
-            value={accountFilter}
-            onChange={setAccountFilter}
-            tone="violet"
-            size="sm"
-            segments={accountSegments}
-          />
+          <>
+            <label className="sr-only" htmlFor="mobile-account-filter">
+              Account
+            </label>
+            <select
+              id="mobile-account-filter"
+              aria-label="Account"
+              value={accountFilter}
+              onChange={(event) => setAccountFilter(event.target.value)}
+              className="max-w-36 rounded-lg border border-white/[0.08] bg-aurora-base/80 px-2 py-2 text-xs text-slate-200 md:hidden"
+            >
+              {accountSegments.map((segment) => (
+                <option key={segment.key} value={segment.key}>
+                  {segment.label}
+                </option>
+              ))}
+            </select>
+            <div className="hidden md:block">
+              <SegmentedControl
+                layoutId="account-filter"
+                value={accountFilter}
+                onChange={setAccountFilter}
+                tone="violet"
+                size="sm"
+                segments={accountSegments}
+              />
+            </div>
+          </>
         ) : null}
 
         <div className="relative" ref={popoverRef}>
@@ -91,7 +111,7 @@ export function Topbar() {
             className="flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:bg-white/[0.06]"
           >
             <Settings2 size={14} className="text-slate-400" />
-            <span className="text-slate-400">DRIP threshold</span>
+            <span className="hidden text-slate-400 xl:inline">DRIP threshold</span>
             <span className="tabular text-amber-300">
               {toGbp(dripThreshold)}
             </span>
@@ -129,11 +149,11 @@ export function Topbar() {
 
         <button
           type="button"
-          onClick={() => navigate("/import")}
-          className="flex items-center gap-2 rounded-lg bg-aurora-accent px-3 py-1.5 text-xs font-semibold text-white shadow-glow-accent transition-transform hover:-translate-y-0.5"
+          onClick={() => navigate("/data?tab=import")}
+          className="flex min-h-9 items-center gap-2 rounded-lg bg-aurora-accent px-3 text-xs font-semibold text-white shadow-glow-accent transition-transform hover:-translate-y-0.5"
         >
           <Upload size={14} />
-          Import
+          <span className="hidden sm:inline">Refresh data</span>
         </button>
       </div>
     </header>

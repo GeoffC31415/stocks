@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import type { Group, Instrument } from "../lib/api";
 import { toGbp, pct } from "../lib/formatters";
+import { holdingPerformanceSignals } from "./holdingSignals";
 
 type SortKey = "value" | "pnl" | "pct" | "delta";
 
@@ -27,10 +28,6 @@ type HoldingBadge = {
   tone: "amber" | "cyan" | "rose";
 };
 
-const TOP_UP_LOSS_THRESHOLD_PCT = -10;
-const TOP_UP_FLAT_SNAPSHOT_COUNT = 3;
-const TRIM_GAIN_THRESHOLD_PCT = 20;
-const TRIM_NEAR_PEAK_DRAWDOWN_PCT = -5;
 const MIN_UNDERWEIGHT_GAP_GBP = 250;
 
 export function HoldingsTable({
@@ -101,31 +98,13 @@ export function HoldingsTable({
       .find((badge): badge is HoldingBadge => badge != null);
     if (groupBadge) badges.push(groupBadge);
 
-    if (
-      inst.latest_pct_change != null &&
-      inst.drawdown_from_peak_pct != null &&
-      inst.latest_pct_change >= TRIM_GAIN_THRESHOLD_PCT &&
-      inst.drawdown_from_peak_pct >= TRIM_NEAR_PEAK_DRAWDOWN_PCT
-    ) {
-      badges.push({
-        label: `Trim data: ${pct(inst.latest_pct_change)} gain, ${Math.abs(
-          inst.drawdown_from_peak_pct,
-        ).toFixed(1)}% off peak`,
-        tone: "amber",
-      });
-    }
-
-    if (
-      inst.latest_pct_change != null &&
-      inst.quantity_unchanged_snapshot_count != null &&
-      inst.latest_pct_change <= TOP_UP_LOSS_THRESHOLD_PCT &&
-      inst.quantity_unchanged_snapshot_count >= TOP_UP_FLAT_SNAPSHOT_COUNT
-    ) {
-      badges.push({
-        label: `Top-up data: ${pct(inst.latest_pct_change)}, qty flat ${inst.quantity_unchanged_snapshot_count} snapshots`,
-        tone: "rose",
-      });
-    }
+    badges.push(
+      ...holdingPerformanceSignals({
+        latestPctChange: inst.latest_pct_change,
+        drawdownFromPeakPct: inst.drawdown_from_peak_pct,
+        quantityUnchangedSnapshotCount: inst.quantity_unchanged_snapshot_count,
+      }),
+    );
 
     return badges;
   };

@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { AuroraBackground } from "../components/AuroraBackground";
 import { Sidebar } from "./Sidebar";
+import { MobileNav } from "./MobileNav";
 import { Topbar } from "./Topbar";
 import { PreferencesContext } from "../state/usePreferences";
 import { DRIP_DEFAULT } from "../lib/formatters";
@@ -43,7 +44,7 @@ export function AppShell() {
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar />
-          <main className="flex-1 px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
+          <main className="flex-1 px-4 pb-24 pt-6 sm:px-6 lg:px-10 lg:py-8">
             <div className="mx-auto max-w-[1400px]">
               <AnimatePresence mode="wait">
                 <motion.div
@@ -59,6 +60,7 @@ export function AppShell() {
             </div>
           </main>
         </div>
+        <MobileNav />
       </div>
     </PreferencesContext.Provider>
   );
