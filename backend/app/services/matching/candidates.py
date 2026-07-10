@@ -106,7 +106,12 @@ async def build_candidates(
     for inst in all_instruments:
         # Check if instrument is compatible with order date
         if inst.closed_at is not None:
-            if order_date is not None and order_date > inst.closed_at:
+            # Ensure both datetimes are timezone-aware before comparing
+            # (SQLite stores DateTime(timezone=True) as naive on some drivers)
+            closed_at = inst.closed_at
+            if closed_at.tzinfo is None and order_date.tzinfo is not None:
+                closed_at = closed_at.replace(tzinfo=order_date.tzinfo)
+            if order_date is not None and order_date > closed_at:
                 # Order is after instrument was closed - skip unless very close
                 continue
             # Include closed instruments but deprioritize them

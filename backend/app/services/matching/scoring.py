@@ -98,7 +98,12 @@ def score_candidate(
     # 7. Date/closed status compatibility
     date_score = 1.0
     if instrument.closed_at is not None:
-        if order_date is not None and order_date > instrument.closed_at:
+        # Ensure both datetimes are timezone-aware before comparing
+        # (SQLite stores DateTime(timezone=True) as naive on some drivers)
+        closed_at = instrument.closed_at
+        if closed_at.tzinfo is None and order_date.tzinfo is not None:
+            closed_at = closed_at.replace(tzinfo=order_date.tzinfo)
+        if order_date is not None and order_date > closed_at:
             date_score = 0.0
         else:
             date_score = 0.7  # Partial credit for closed instruments
