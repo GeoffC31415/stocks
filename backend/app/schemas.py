@@ -142,6 +142,21 @@ class AllocationRow(BaseModel):
     is_concentration_risk: bool = False
 
 
+class PortfolioReturnSummary(BaseModel):
+    period_start: dt.date | None
+    period_end: dt.date | None
+    start_value_gbp: float | None
+    end_value_gbp: float | None
+    contributions_gbp: float | None
+    withdrawals_gbp: float | None
+    net_external_flow_gbp: float | None
+    absolute_gain_after_flows_gbp: float | None
+    modified_dietz_return_pct: float | None
+    annualised_return_pct: float | None
+    method: str
+    notes: list[str] = Field(default_factory=list)
+
+
 class PortfolioSummary(BaseModel):
     as_of_date: dt.date | None
     import_batch_id: int | None

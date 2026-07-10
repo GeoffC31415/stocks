@@ -9,6 +9,7 @@ import { HeroKpi } from "../components/HeroKpi";
 import { StatCard } from "../components/StatCard";
 import { ChartPanel } from "../components/ChartPanel";
 import { PerformersSection } from "../components/PerformersSection";
+import { PortfolioReturnCard } from "../components/PortfolioReturnCard";
 
 export function Overview() {
   const navigate = useNavigate();
@@ -16,6 +17,10 @@ export function Overview() {
   const selectedAccount = accountFilter === "all" ? undefined : accountFilter;
 
   const summaryQ = useQuery({ queryKey: ["summary"], queryFn: api.getSummary });
+  const returnsQ = useQuery({
+    queryKey: ["portfolio-returns", accountFilter],
+    queryFn: () => api.getPortfolioReturns(selectedAccount),
+  });
   const instrumentsQ = useQuery({ queryKey: ["instruments"], queryFn: api.getInstruments });
   const timeseriesQ = useQuery({
     queryKey: ["timeseries", accountFilter],
@@ -230,7 +235,8 @@ export function Overview() {
 
       <WhatChangedCard diff={importDiffQ.data ?? null} />
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <PortfolioReturnCard summary={returnsQ.data} />
         <StatCard
           label="Portfolio P&L"
           value={toGbp(summary.total_pnl_gbp)}

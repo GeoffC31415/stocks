@@ -442,3 +442,193 @@ async def portfolio_value_timeseries(
         )
 
     return rows
+
+
+RETURN_METHOD = "Modified Dietz"
+MIN_ANNUALISATION_DAYS = 365
+
+
+def _unavailable_return_summary(notes: list[str]) -> dict:
+    return {
+        "period_start": None,
+        "period_end": None,
+        "start_value_gbp": None,
+        "end_value_gbp": None,
+        "contributions_gbp": None,
+        "withdrawals_gbp": None,
+        "net_external_flow_gbp": None,
+        "absolute_gain_after_flows_gbp": None,
+        "modified_dietz_return_pct": None,
+        "annualised_return_pct": None,
+        "method": RETURN_METHOD,
+        "notes": notes,
+    }
+
+
+async def get_portfolio_return_summary(
+    session: AsyncSession,
+    *,
+    account_name: str | None = None,
+    from_date: dt.date | None = None,
+    to_date: dt.date | None = None,
+) -> dict:
+    """Calculate Modified Dietz from observed boundaries and dated external cashflows.
+
+    Non-DRIP buys are contributions. Sales are withdrawals because imported
+    orders cannot show whether proceeds remained as unreported account cash.
+    """
+    notes = [
+        "Modified Dietz uses the first and last available snapshot boundaries within the requested period.",
+        "DRIP transactions are internal portfolio cashflows and are excluded from contributions.",
+        "Imported sale proceeds are treated as withdrawals because the source cannot distinguish retained cash from an external withdrawal.",
+        "Cashflows on the starting snapshot date are assumed to be included in its boundary value.",
+    ]
+    if from_date is not None and to_date is not None and from_date > to_date:
+        return _unavailable_return_summary(notes + ["The requested start date is after the end date."])
+
+    batches_result = await session.execute(
+        select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
+    )
+    batches = list(batches_result.scalars().all())
+    snapshot_query = (
+        select(HoldingSnapshot)
+        .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
+        .options(selectinload(HoldingSnapshot.instrument))
+        .order_by(HoldingSnapshot.import_batch_id)
+    )
+    if account_name is not None:
+        snapshot_query = snapshot_query.where(Instrument.account_name == account_name)
+    snapshot_result = await session.execute(snapshot_query)
+    snapshots_by_batch: dict[int, list[HoldingSnapshot]] = defaultdict(list)
+    included_instrument_ids: set[int] = set()
+    for snapshot in snapshot_result.scalars().all():
+        snapshots_by_batch[snapshot.import_batch_id].append(snapshot)
+        included_instrument_ids.add(snapshot.instrument_id)
+
+    if not snapshots_by_batch:
+        return _unavailable_return_summary(notes + ["No portfolio snapshots are available for this selection."])
+
+    current_by_instrument: dict[int, HoldingSnapshot] = {}
+    values_by_date: dict[dt.date, tuple[float, bool]] = {}
+    for batch in batches:
+        event_for_selection = bool(snapshots_by_batch.get(batch.id))
+        for snapshot in snapshots_by_batch.get(batch.id, []):
+            current_by_instrument[snapshot.instrument_id] = snapshot
+        for closed in (batch.diff_summary or {}).get("closed", []):
+            instrument_id = closed.get("instrument_id")
+            if instrument_id is None:
+                continue
+            instrument_id = int(instrument_id)
+            if instrument_id in included_instrument_ids:
+                event_for_selection = True
+                current_by_instrument.pop(instrument_id, None)
+        if event_for_selection:
+            values = [snapshot.value_gbp for snapshot in current_by_instrument.values()]
+            values_by_date[batch.as_of_date] = (
+                float(sum(value for value in values if value is not None)),
+                bool(values) and all(value is not None for value in values),
+            )
+
+    candidate_dates = [
+        date
+        for date in sorted(values_by_date)
+        if (from_date is None or date >= from_date) and (to_date is None or date <= to_date)
+    ]
+    if not candidate_dates:
+        return _unavailable_return_summary(notes + ["No portfolio snapshots fall within the requested period."])
+    if len(candidate_dates) < 2:
+        only_date = candidate_dates[0]
+        value, complete = values_by_date[only_date]
+        result = _unavailable_return_summary(
+            notes + ["At least two snapshot dates are required to calculate a return."]
+        )
+        result.update(
+            {
+                "period_start": only_date,
+                "period_end": only_date,
+                "start_value_gbp": value if complete else None,
+                "end_value_gbp": value if complete else None,
+            }
+        )
+        return result
+
+    period_start = candidate_dates[0]
+    period_end = candidate_dates[-1]
+    start_value, start_complete = values_by_date[period_start]
+    end_value, end_complete = values_by_date[period_end]
+    if not start_complete or not end_complete:
+        result = _unavailable_return_summary(
+            notes + ["A boundary snapshot has a missing GBP value, so the return is unavailable."]
+        )
+        result.update({"period_start": period_start, "period_end": period_end})
+        return result
+
+    orders_query = select(Order).where(
+        Order.order_date > dt.datetime.combine(period_start, dt.time.max),
+        Order.order_date <= dt.datetime.combine(period_end, dt.time.max),
+    )
+    if account_name is not None:
+        orders_query = orders_query.where(Order.account_name == account_name)
+    orders_result = await session.execute(orders_query.order_by(Order.order_date))
+    contributions = 0.0
+    withdrawals = 0.0
+    signed_flows: list[tuple[dt.date, float]] = []
+    for order in orders_result.scalars().all():
+        if order.cost_proceeds_gbp is None:
+            continue
+        amount = abs(float(order.cost_proceeds_gbp))
+        side = order.side.lower()
+        if side == "buy" and not order.is_drip:
+            contributions += amount
+            signed_flows.append((order.order_date.date(), amount))
+        elif side == "sell":
+            withdrawals += amount
+            signed_flows.append((order.order_date.date(), -amount))
+
+    total_days = (period_end - period_start).days
+    net_external_flow = contributions - withdrawals
+    absolute_gain = end_value - start_value - net_external_flow
+    weighted_flows = sum(
+        amount * ((period_end - flow_date).days / total_days)
+        for flow_date, amount in signed_flows
+    )
+    denominator = start_value + weighted_flows
+    result = {
+        "period_start": period_start,
+        "period_end": period_end,
+        "start_value_gbp": start_value,
+        "end_value_gbp": end_value,
+        "contributions_gbp": contributions,
+        "withdrawals_gbp": withdrawals,
+        "net_external_flow_gbp": net_external_flow,
+        "absolute_gain_after_flows_gbp": absolute_gain,
+        "modified_dietz_return_pct": None,
+        "annualised_return_pct": None,
+        "method": RETURN_METHOD,
+        "notes": notes,
+    }
+    if denominator <= 0:
+        result["notes"] = notes + [
+            "The Modified Dietz denominator is zero or negative, so return metrics are unavailable."
+        ]
+        return result
+
+    period_return = absolute_gain / denominator
+    result["modified_dietz_return_pct"] = period_return * 100.0
+    if total_days < MIN_ANNUALISATION_DAYS:
+        result["notes"] = notes + [
+            "Annualised return is unavailable for periods shorter than 365 days."
+        ]
+    elif period_return <= -1:
+        result["notes"] = notes + [
+            "Annualised return is unavailable when the period return is -100% or lower."
+        ]
+    else:
+        try:
+            years = total_days / 365.25
+            result["annualised_return_pct"] = (
+                (1.0 + period_return) ** (1.0 / years) - 1.0
+            ) * 100.0
+        except (OverflowError, ValueError, ZeroDivisionError):
+            result["notes"] = notes + ["The annualised return could not be calculated safely."]
+    return result

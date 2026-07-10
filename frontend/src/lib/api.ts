@@ -1,3 +1,18 @@
+export type PortfolioReturnSummary = {
+  period_start: string | null;
+  period_end: string | null;
+  start_value_gbp: number | null;
+  end_value_gbp: number | null;
+  contributions_gbp: number | null;
+  withdrawals_gbp: number | null;
+  net_external_flow_gbp: number | null;
+  absolute_gain_after_flows_gbp: number | null;
+  modified_dietz_return_pct: number | null;
+  annualised_return_pct: number | null;
+  method: string;
+  notes: string[];
+};
+
 export type PortfolioSummary = {
   as_of_date: string | null;
   import_batch_id: number | null;
@@ -518,6 +533,17 @@ const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
 
 export const api = {
   getSummary: () => requestJson<PortfolioSummary>("/api/portfolio/summary"),
+  getPortfolioReturns: (
+    accountName?: string | null,
+    fromDate?: string | null,
+    toDate?: string | null,
+  ) => {
+    const params = new URLSearchParams();
+    if (accountName) params.set("account_name", accountName);
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    return requestJson<PortfolioReturnSummary>(`/api/portfolio/returns?${params.toString()}`);
+  },
   getTimeseries: (accountName?: string | null) => {
     const params = new URLSearchParams();
     if (accountName) params.set("account_name", accountName);
