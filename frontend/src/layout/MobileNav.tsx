@@ -7,7 +7,7 @@ export function MobileNav() {
       aria-label="Mobile"
       className="fixed inset-x-0 bottom-0 z-30 border-t border-white/[0.08] bg-aurora-base/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl lg:hidden"
     >
-      <ul className="grid grid-cols-5 gap-1">
+      <ul className="grid grid-cols-6 gap-1">
         {PRIMARY_NAV.map((item) => (
           <li key={item.to}>
             <NavLink

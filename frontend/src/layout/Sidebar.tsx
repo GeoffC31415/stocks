@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import {
   Activity,
   BarChart3,
+  CircleHelp,
   Database,
   LayoutDashboard,
   Scale,
@@ -21,6 +22,7 @@ export const PRIMARY_NAV: NavItem[] = [
   { to: "/activity", label: "Activity", icon: Activity },
   { to: "/tax", label: "Tax", icon: Scale },
   { to: "/data", label: "Data", icon: Database },
+  { to: "/help", label: "Help", icon: CircleHelp },
 ];
 
 export function Sidebar() {

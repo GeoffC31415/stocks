@@ -11,7 +11,7 @@ const renderSidebar = () =>
   );
 
 describe("Sidebar", () => {
-  it("shows the five task-oriented destinations without admin categories", () => {
+  it("shows the task-oriented destinations and Help without admin categories", () => {
     renderSidebar();
 
     const nav = screen.getByRole("navigation", { name: "Primary" });
@@ -21,6 +21,7 @@ describe("Sidebar", () => {
       "Activity",
       "Tax",
       "Data",
+      "Help",
     ]);
     expect(screen.queryByText("Daily")).not.toBeInTheDocument();
     expect(screen.queryByText("Administration")).not.toBeInTheDocument();

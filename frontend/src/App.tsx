@@ -4,6 +4,7 @@ import { LegacyRedirect } from "./routing";
 import { ActivityWorkspace } from "./routes/ActivityWorkspace";
 import { CGT } from "./routes/CGT";
 import { DataWorkspace } from "./routes/DataWorkspace";
+import { Help } from "./routes/Help";
 import { Overview } from "./routes/Overview";
 import { PortfolioWorkspace } from "./routes/PortfolioWorkspace";
 
@@ -17,6 +18,7 @@ export default function App() {
           <Route path="/activity" element={<ActivityWorkspace />} />
           <Route path="/tax" element={<CGT />} />
           <Route path="/data" element={<DataWorkspace />} />
+          <Route path="/help" element={<Help />} />
 
           <Route path="/holdings" element={<LegacyRedirect target="/portfolio" tab="holdings" />} />
           <Route path="/positions" element={<LegacyRedirect target="/portfolio" tab="returns" />} />

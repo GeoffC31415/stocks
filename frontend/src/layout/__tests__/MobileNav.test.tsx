@@ -18,6 +18,7 @@ describe("MobileNav", () => {
       "Activity",
       "Tax",
       "Data",
+      "Help",
     ]);
   });
 });
