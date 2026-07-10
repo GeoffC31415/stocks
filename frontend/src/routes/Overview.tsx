@@ -13,6 +13,7 @@ import { PerformersSection } from "../components/PerformersSection";
 export function Overview() {
   const navigate = useNavigate();
   const { dripThreshold, accountFilter } = usePreferences();
+  const selectedAccount = accountFilter === "all" ? undefined : accountFilter;
 
   const summaryQ = useQuery({ queryKey: ["summary"], queryFn: api.getSummary });
   const instrumentsQ = useQuery({ queryKey: ["instruments"], queryFn: api.getInstruments });
@@ -21,12 +22,12 @@ export function Overview() {
     queryFn: () => api.getTimeseries(accountFilter === "all" ? undefined : accountFilter),
   });
   const analyticsQ = useQuery({
-    queryKey: ["order-analytics", dripThreshold],
-    queryFn: () => api.getOrderAnalytics(dripThreshold),
+    queryKey: ["order-analytics", dripThreshold, accountFilter],
+    queryFn: () => api.getOrderAnalytics(dripThreshold, selectedAccount),
   });
   const cashflowQ = useQuery({
-    queryKey: ["cashflow", dripThreshold],
-    queryFn: () => api.getCashflowTimeseries(dripThreshold),
+    queryKey: ["cashflow", dripThreshold, accountFilter],
+    queryFn: () => api.getCashflowTimeseries(dripThreshold, selectedAccount),
   });
   const estimatedQ = useQuery({
     queryKey: ["estimated-timeseries", accountFilter],

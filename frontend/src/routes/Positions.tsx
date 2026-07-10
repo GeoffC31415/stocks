@@ -12,15 +12,16 @@ type View = "positions" | "groups";
 
 export function Positions() {
   const { dripThreshold, accountFilter } = usePreferences();
+  const selectedAccount = accountFilter === "all" ? undefined : accountFilter;
   const [view, setView] = useState<View>("positions");
 
   const positionsQ = useQuery({
-    queryKey: ["positions", dripThreshold],
-    queryFn: () => api.getOrderPositions(dripThreshold),
+    queryKey: ["positions", dripThreshold, accountFilter],
+    queryFn: () => api.getOrderPositions(dripThreshold, selectedAccount),
   });
   const analyticsQ = useQuery({
-    queryKey: ["order-analytics", dripThreshold],
-    queryFn: () => api.getOrderAnalytics(dripThreshold),
+    queryKey: ["order-analytics", dripThreshold, accountFilter],
+    queryFn: () => api.getOrderAnalytics(dripThreshold, selectedAccount),
   });
   const groupPerfQ = useQuery({
     queryKey: ["group-performance", dripThreshold],

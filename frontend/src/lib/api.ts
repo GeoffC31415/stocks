@@ -618,8 +618,14 @@ export const api = {
     if (accountName) params.set("account_name", accountName);
     return requestJson<OrderAnalytics>(`/api/orders/analytics?${params.toString()}`);
   },
-  getOrders: (dripThreshold: number) =>
-    requestJson<Order[]>(`/api/orders?drip_threshold=${dripThreshold}&limit=500`),
+  getOrders: (dripThreshold: number, accountName?: string | null) => {
+    const params = new URLSearchParams({
+      drip_threshold: String(dripThreshold),
+      limit: "500",
+    });
+    if (accountName) params.set("account_name", accountName);
+    return requestJson<Order[]>(`/api/orders?${params.toString()}`);
+  },
   getUnlinkedOrders: (dripThreshold: number) =>
     requestJson<UnlinkedOrdersResponse>(
       `/api/orders/unlinked?drip_threshold=${dripThreshold}&limit=200`,
@@ -632,8 +638,11 @@ export const api = {
     if (accountName) params.set("account_name", accountName);
     return requestJson<CashflowPoint[]>(`/api/orders/cashflow-timeseries?${params.toString()}`);
   },
-  getOrderPositions: (dripThreshold: number) =>
-    requestJson<PositionSummary[]>(`/api/orders/positions?drip_threshold=${dripThreshold}`),
+  getOrderPositions: (dripThreshold: number, accountName?: string | null) => {
+    const params = new URLSearchParams({ drip_threshold: String(dripThreshold) });
+    if (accountName) params.set("account_name", accountName);
+    return requestJson<PositionSummary[]>(`/api/orders/positions?${params.toString()}`);
+  },
   getEstimatedTimeseries: (accountName?: string | null) => {
     const params = new URLSearchParams();
     if (accountName) params.set("account_name", accountName);
