@@ -22,8 +22,9 @@ describe("PortfolioReturnCard", () => {
   it("shows the Modified Dietz return with method and period context", () => {
     render(<PortfolioReturnCard summary={summary} />);
 
-    expect(screen.getByText("Money-weighted return")).toBeInTheDocument();
+    expect(screen.getByText("Estimated money-weighted return")).toBeInTheDocument();
     expect(screen.getByText("+9.52%")).toBeInTheDocument();
+    expect(screen.getByText(/Cumulative, not annualised/)).toBeInTheDocument();
     expect(screen.getByText(/Modified Dietz/)).toBeInTheDocument();
     expect(screen.getByText(/1 Jan 2025.*31 Dec 2025/)).toBeInTheDocument();
   });

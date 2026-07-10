@@ -501,12 +501,19 @@ async def get_portfolio_return_summary(
     snapshot_result = await session.execute(snapshot_query)
     snapshots_by_batch: dict[int, list[HoldingSnapshot]] = defaultdict(list)
     included_instrument_ids: set[int] = set()
+    included_account_names: set[str] = set()
     for snapshot in snapshot_result.scalars().all():
         snapshots_by_batch[snapshot.import_batch_id].append(snapshot)
         included_instrument_ids.add(snapshot.instrument_id)
+        included_account_names.add(snapshot.instrument.account_name)
 
     if not snapshots_by_batch:
         return _unavailable_return_summary(notes + ["No portfolio snapshots are available for this selection."])
+
+    if account_name is None and len(included_account_names) > 1:
+        notes.append(
+            "The all-account period starts only after every included account has snapshot coverage."
+        )
 
     current_by_instrument: dict[int, HoldingSnapshot] = {}
     values_by_date: dict[dt.date, tuple[float, bool]] = {}
@@ -523,6 +530,11 @@ async def get_portfolio_return_summary(
                 event_for_selection = True
                 current_by_instrument.pop(instrument_id, None)
         if event_for_selection:
+            current_account_names = {
+                snapshot.instrument.account_name for snapshot in current_by_instrument.values()
+            }
+            if account_name is None and current_account_names != included_account_names:
+                continue
             values = [snapshot.value_gbp for snapshot in current_by_instrument.values()]
             values_by_date[batch.as_of_date] = (
                 float(sum(value for value in values if value is not None)),

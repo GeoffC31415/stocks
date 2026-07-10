@@ -19,7 +19,7 @@ export function PortfolioReturnCard({ summary }: { summary: PortfolioReturnSumma
     const explanation = notes[notes.length - 1] ?? "Return data is not available for this selection.";
     return (
       <StatCard
-        label="Money-weighted return"
+        label="Estimated money-weighted return"
         value="Unavailable"
         tone="muted"
         sub={explanation}
@@ -36,10 +36,10 @@ export function PortfolioReturnCard({ summary }: { summary: PortfolioReturnSumma
 
   return (
     <StatCard
-      label="Money-weighted return"
+      label="Estimated money-weighted return"
       value={formatted}
       tone={returnPct >= 0 ? "pos" : "neg"}
-      sub={`${summary.method} · ${period}`}
+      sub={`Cumulative, not annualised · ${period} · ${summary.method}`}
       icon={<Percent size={14} />}
     />
   );
