@@ -1,11 +1,13 @@
 import { useSearchParams } from "react-router-dom";
 import { WorkspaceTabs } from "../components/WorkspaceTabs";
 import { Diff } from "./Diff";
+import { ImportActivity } from "./ImportActivity";
 import { Orders } from "./Orders";
 
 const TABS = [
   { key: "orders", label: "Orders" },
   { key: "changes", label: "Snapshot changes" },
+  { key: "imports", label: "Import history" },
 ];
 
 export function ActivityWorkspace() {
@@ -15,7 +17,7 @@ export function ActivityWorkspace() {
   return (
     <div className="space-y-5">
       <WorkspaceTabs label="Activity views" tabs={TABS} />
-      {tab === "changes" ? <Diff /> : <Orders />}
+      {tab === "changes" ? <Diff /> : tab === "imports" ? <ImportActivity /> : <Orders />}
     </div>
   );
 }
