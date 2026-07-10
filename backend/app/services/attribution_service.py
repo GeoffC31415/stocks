@@ -54,6 +54,18 @@ def _unavailable(
     }
 
 
+def _select_default_from_batch(
+    relevant: list[ImportBatch], to_batch: ImportBatch
+) -> ImportBatch | None:
+    """Select the latest earlier batch from a distinct snapshot date."""
+    prior = [
+        batch
+        for batch in relevant
+        if batch.id < to_batch.id and batch.as_of_date < to_batch.as_of_date
+    ]
+    return prior[-1] if prior else None
+
+
 async def _state_after_batch(
     session: AsyncSession, batch_id: int, account_name: str | None
 ) -> dict[int, HoldingSnapshot]:
@@ -127,8 +139,7 @@ async def get_snapshot_attribution(
         await session.get(ImportBatch, from_batch_id) if from_batch_id is not None else None
     )
     if from_batch_id is None:
-        prior = [batch for batch in relevant if batch.id < to_batch.id]
-        from_batch = prior[-1] if prior else None
+        from_batch = _select_default_from_batch(relevant, to_batch)
     if from_batch_id is not None and from_batch is None:
         return _unavailable(
             from_batch=None,

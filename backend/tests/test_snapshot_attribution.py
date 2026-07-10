@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.main import app
 from app.models import Base, HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
-from app.services.attribution_service import get_snapshot_attribution
+from app.services.attribution_service import _select_default_from_batch, get_snapshot_attribution
 
 
 async def _calculate(
@@ -143,6 +143,18 @@ def test_snapshot_attribution_endpoint_is_registered_with_response_schema() -> N
 
     assert route.methods == {"GET"}
     assert route.response_model.__name__ == "SnapshotAttributionResponse"
+
+
+def test_default_attribution_uses_previous_distinct_snapshot_date() -> None:
+    relevant = [
+        ImportBatch(id=1, as_of_date=dt.date(2025, 6, 19), file_sha256="a"),
+        ImportBatch(id=2, as_of_date=dt.date(2025, 7, 5), file_sha256="b"),
+        ImportBatch(id=3, as_of_date=dt.date(2025, 7, 5), file_sha256="c"),
+    ]
+
+    selected = _select_default_from_batch(relevant, relevant[-1])
+
+    assert selected is relevant[0]
 
 
 def test_snapshot_attribution_returns_nulls_and_note_without_previous_snapshot() -> None:
