@@ -566,6 +566,8 @@ class CGTTaxYearTotals(BaseModel):
     taxable_cost: float
     taxable_gain: float
     taxable_loss: float
+    annual_exempt_amount: float | None
+    gain_after_exemption: float | None
     exempt_proceeds: float
     exempt_cost: float
     exempt_gain: float

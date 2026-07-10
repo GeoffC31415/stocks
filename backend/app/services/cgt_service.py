@@ -16,6 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Instrument, Order
 
+ANNUAL_EXEMPT_AMOUNTS: dict[str, float] = {
+    "2023-24": 6000.0,
+    "2024-25": 3000.0,
+    "2025-26": 3000.0,
+    "2026-27": 3000.0,
+}
+
+
 # ---------------------------------------------------------------------------
 # Internal data classes
 # ---------------------------------------------------------------------------
@@ -68,6 +76,21 @@ class SaleDetail:
 # ---------------------------------------------------------------------------
 # Core matching engine
 # ---------------------------------------------------------------------------
+
+
+def annual_exempt_amount(tax_year: str) -> float | None:
+    """Return the published UK annual exempt amount, or None if unknown."""
+    return ANNUAL_EXEMPT_AMOUNTS.get(tax_year)
+
+
+def gain_after_exemption(
+    taxable_gain: float, taxable_loss: float, tax_year: str
+) -> float | None:
+    """Return a tax year's gain after losses and annual exemption, if known."""
+    exemption = annual_exempt_amount(tax_year)
+    if exemption is None:
+        return None
+    return max(0.0, taxable_gain - taxable_loss - exemption)
 
 
 def _tax_year_end(order_date: dt.datetime) -> int:
@@ -441,6 +464,12 @@ async def get_cgt_summary(
                 ty_totals[key]["gain_count"] += ty["gain_count"]
                 ty_totals[key]["loss_count"] += ty["loss_count"]
             ty_totals[key]["instrument_count"] += 1
+
+    for tax_year, totals in ty_totals.items():
+        totals["annual_exempt_amount"] = annual_exempt_amount(tax_year)
+        totals["gain_after_exemption"] = gain_after_exemption(
+            totals["taxable_gain"], totals["taxable_loss"], tax_year
+        )
 
     return {
         "instruments": instruments_data,

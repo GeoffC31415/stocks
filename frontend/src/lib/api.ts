@@ -481,6 +481,8 @@ export type CGTTaxYearTotals = {
   taxable_cost: number;
   taxable_gain: number;
   taxable_loss: number;
+  annual_exempt_amount: number | null;
+  gain_after_exemption: number | null;
   // ISA-exempt amounts
   exempt_proceeds: number;
   exempt_cost: number;
