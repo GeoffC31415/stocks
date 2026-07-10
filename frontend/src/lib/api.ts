@@ -1,3 +1,48 @@
+export type PortfolioReturnSummary = {
+  period_start: string | null;
+  period_end: string | null;
+  start_value_gbp: number | null;
+  end_value_gbp: number | null;
+  contributions_gbp: number | null;
+  withdrawals_gbp: number | null;
+  net_external_flow_gbp: number | null;
+  absolute_gain_after_flows_gbp: number | null;
+  modified_dietz_return_pct: number | null;
+  annualised_return_pct: number | null;
+  method: string;
+  notes: string[];
+};
+
+export type SnapshotAttributionInstrument = {
+  instrument_id: number;
+  identifier: string;
+  security_name: string;
+  account_name: string;
+  opening_value_gbp: number;
+  closing_value_gbp: number;
+  raw_value_change_gbp: number;
+  net_external_flow_gbp: number;
+  drip_proxy_gbp: number;
+  estimated_market_movement_gbp: number;
+};
+
+export type SnapshotAttribution = {
+  from_batch: ImportBatch | null;
+  to_batch: ImportBatch | null;
+  opening_value_gbp: number | null;
+  closing_value_gbp: number | null;
+  raw_value_change_gbp: number | null;
+  contributions_gbp: number | null;
+  withdrawals_gbp: number | null;
+  drip_proxy_gbp: number | null;
+  net_external_flow_gbp: number | null;
+  residual_market_movement_gbp: number | null;
+  reconciliation_difference_gbp: number | null;
+  top_contributors: SnapshotAttributionInstrument[];
+  top_detractors: SnapshotAttributionInstrument[];
+  notes: string[];
+};
+
 export type PortfolioSummary = {
   as_of_date: string | null;
   import_batch_id: number | null;
@@ -481,6 +526,8 @@ export type CGTTaxYearTotals = {
   taxable_cost: number;
   taxable_gain: number;
   taxable_loss: number;
+  annual_exempt_amount: number | null;
+  gain_after_exemption: number | null;
   // ISA-exempt amounts
   exempt_proceeds: number;
   exempt_cost: number;
@@ -516,6 +563,28 @@ const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
 
 export const api = {
   getSummary: () => requestJson<PortfolioSummary>("/api/portfolio/summary"),
+  getSnapshotAttribution: (
+    accountName?: string | null,
+    fromBatchId?: number | null,
+    toBatchId?: number | null,
+  ) => {
+    const params = new URLSearchParams();
+    if (accountName) params.set("account_name", accountName);
+    if (fromBatchId != null) params.set("from_batch_id", String(fromBatchId));
+    if (toBatchId != null) params.set("to_batch_id", String(toBatchId));
+    return requestJson<SnapshotAttribution>(`/api/portfolio/attribution?${params.toString()}`);
+  },
+  getPortfolioReturns: (
+    accountName?: string | null,
+    fromDate?: string | null,
+    toDate?: string | null,
+  ) => {
+    const params = new URLSearchParams();
+    if (accountName) params.set("account_name", accountName);
+    if (fromDate) params.set("from_date", fromDate);
+    if (toDate) params.set("to_date", toDate);
+    return requestJson<PortfolioReturnSummary>(`/api/portfolio/returns?${params.toString()}`);
+  },
   getTimeseries: (accountName?: string | null) => {
     const params = new URLSearchParams();
     if (accountName) params.set("account_name", accountName);
@@ -618,8 +687,14 @@ export const api = {
     if (accountName) params.set("account_name", accountName);
     return requestJson<OrderAnalytics>(`/api/orders/analytics?${params.toString()}`);
   },
-  getOrders: (dripThreshold: number) =>
-    requestJson<Order[]>(`/api/orders?drip_threshold=${dripThreshold}&limit=500`),
+  getOrders: (dripThreshold: number, accountName?: string | null) => {
+    const params = new URLSearchParams({
+      drip_threshold: String(dripThreshold),
+      limit: "500",
+    });
+    if (accountName) params.set("account_name", accountName);
+    return requestJson<Order[]>(`/api/orders?${params.toString()}`);
+  },
   getUnlinkedOrders: (dripThreshold: number) =>
     requestJson<UnlinkedOrdersResponse>(
       `/api/orders/unlinked?drip_threshold=${dripThreshold}&limit=200`,
@@ -632,8 +707,11 @@ export const api = {
     if (accountName) params.set("account_name", accountName);
     return requestJson<CashflowPoint[]>(`/api/orders/cashflow-timeseries?${params.toString()}`);
   },
-  getOrderPositions: (dripThreshold: number) =>
-    requestJson<PositionSummary[]>(`/api/orders/positions?drip_threshold=${dripThreshold}`),
+  getOrderPositions: (dripThreshold: number, accountName?: string | null) => {
+    const params = new URLSearchParams({ drip_threshold: String(dripThreshold) });
+    if (accountName) params.set("account_name", accountName);
+    return requestJson<PositionSummary[]>(`/api/orders/positions?${params.toString()}`);
+  },
   getEstimatedTimeseries: (accountName?: string | null) => {
     const params = new URLSearchParams();
     if (accountName) params.set("account_name", accountName);
@@ -738,4 +816,15 @@ export const api = {
     if (accountName) params.set("account_name", accountName);
     return requestJson<CGTSummaryResponse>(`/api/cgt/summary?${params.toString()}`);
   },
+
+  // Fetch (Barclays Smart Investor)
+  fetchBarclays: () =>
+    requestJson<{ status: string; message: string }>(
+      "/api/fetch/barclays",
+      { method: "POST" },
+    ),
+  getFetchStatus: () =>
+    requestJson<{ status: string; message: string; report_path: string | null; error: string | null }>(
+      "/api/fetch/status",
+    ),
 };

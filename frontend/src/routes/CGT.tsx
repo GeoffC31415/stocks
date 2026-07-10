@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   FileText,
@@ -7,64 +7,16 @@ import {
   Calendar,
   Scale,
   ShieldCheck,
-  ShieldX,
 } from "lucide-react";
-import { api } from "../lib/api";
+import { api, type CGTTaxYearTotals } from "../lib/api";
 import { toGbp } from "../lib/formatters";
 import { usePreferences } from "../state/usePreferences";
 import { MatchingWarningBanner } from "../components/MatchingWarningBanner";
+import { StatCard } from "../components/StatCard";
+import { selectTaxYear } from "./cgtPresentation";
 
-function StatCard({
-  label,
-  value,
-  sub,
-  icon,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  icon?: React.ReactNode;
-  tone?: "neutral" | "gain" | "loss" | "accent";
-}) {
-  const toneClass =
-    tone === "gain"
-      ? "text-pos"
-      : tone === "loss"
-        ? "text-neg"
-        : tone === "accent"
-          ? "text-aurora-cyan"
-          : "text-slate-300";
-
-  return (
-    <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] p-4">
-      <div className="flex items-center gap-2">
-        {icon && <span className="text-slate-500">{icon}</span>}
-        <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      </div>
-      <p className={`mt-1 text-2xl font-semibold tabular ${toneClass}`}>{value}</p>
-      {sub && <p className="mt-1 text-xs text-slate-500">{sub}</p>}
-    </div>
-  );
-}
-
-function TaxYearSummary({ ty }: { ty: {
-  tax_year: string;
-  taxable_proceeds: number;
-  taxable_cost: number;
-  taxable_gain: number;
-  taxable_loss: number;
-  exempt_proceeds: number;
-  exempt_cost: number;
-  exempt_gain: number;
-  exempt_loss: number;
-  gain_count: number;
-  loss_count: number;
-  instrument_count: number;
-  exempt_count: number;
-} }) {
+function TaxYearSummary({ ty }: { ty: CGTTaxYearTotals }) {
   const taxableNet = ty.taxable_gain - ty.taxable_loss;
-  const exemptNet = ty.exempt_gain - ty.exempt_loss;
 
   return (
     <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] p-4">
@@ -95,6 +47,16 @@ function TaxYearSummary({ ty }: { ty: {
           <p className="text-[10px] text-slate-500">Losses</p>
           <p className="tabular text-sm text-neg">{toGbp(ty.taxable_loss)}</p>
         </div>
+      </div>
+
+      <div className="mt-3 rounded-lg bg-white/[0.02] px-3 py-2 text-[11px] text-slate-400">
+        {ty.annual_exempt_amount == null || ty.gain_after_exemption == null ? (
+          <span>Annual exemption and post-exemption gain unknown</span>
+        ) : (
+          <span>
+            {toGbp(ty.annual_exempt_amount)} annual exemption · {toGbp(ty.gain_after_exemption)} after exemption
+          </span>
+        )}
       </div>
 
       {/* Exempt amounts */}
@@ -248,40 +210,15 @@ export function CGT() {
 
   const hasSales = cgtQ.data?.instruments.some((i) => i.sales.length > 0) ?? false;
 
-  // Use taxable (non-ISA) totals for summary cards
-  const taxableGain = useMemo(
-    () => (cgtQ.data?.tax_year_totals.reduce((s, t) => s + t.taxable_gain, 0) ?? 0),
-    [cgtQ.data],
-  );
-  const taxableLoss = useMemo(
-    () => (cgtQ.data?.tax_year_totals.reduce((s, t) => s + t.taxable_loss, 0) ?? 0),
-    [cgtQ.data],
-  );
-  const exemptGain = useMemo(
-    () => (cgtQ.data?.tax_year_totals.reduce((s, t) => s + t.exempt_gain, 0) ?? 0),
-    [cgtQ.data],
-  );
-  const exemptLoss = useMemo(
-    () => (cgtQ.data?.tax_year_totals.reduce((s, t) => s + t.exempt_loss, 0) ?? 0),
-    [cgtQ.data],
-  );
-
-  const exemptGainAmount = 3000; // 2025-26 CGT annual exempt amount
+  const [selectedTaxYear, setSelectedTaxYear] = useState<string | null>(null);
+  const taxYearTotals = cgtQ.data?.tax_year_totals ?? [];
+  const selectedYear = selectTaxYear(taxYearTotals, selectedTaxYear);
+  const taxableGain = selectedYear?.taxable_gain ?? 0;
+  const taxableLoss = selectedYear?.taxable_loss ?? 0;
   const taxableNetGain = taxableGain - taxableLoss;
-  const taxableGainAfterExempt = Math.max(0, taxableNetGain - exemptGainAmount);
-  const totalProceeds = useMemo(
-    () => (cgtQ.data?.tax_year_totals.reduce((s, t) => s + t.taxable_proceeds, 0) ?? 0),
-    [cgtQ.data],
-  );
-  const totalCost = useMemo(
-    () => (cgtQ.data?.tax_year_totals.reduce((s, t) => s + t.taxable_cost, 0) ?? 0),
-    [cgtQ.data],
-  );
-
-  const totalExemptCount = useMemo(
-    () => (cgtQ.data?.tax_year_totals.reduce((s, t) => s + t.exempt_count, 0) ?? 0),
-    [cgtQ.data],
-  );
+  const exemptGain = selectedYear?.exempt_gain ?? 0;
+  const exemptLoss = selectedYear?.exempt_loss ?? 0;
+  const totalExemptCount = selectedYear?.exempt_count ?? 0;
 
   if (!hasSales && cgtQ.isSuccess) {
     return (
@@ -310,19 +247,38 @@ export function CGT() {
     <div className="space-y-5">
       <MatchingWarningBanner />
 
-      <div>
-        <h1 className="text-2xl font-semibold text-white" style={{ letterSpacing: "-0.02em" }}>
-          Capital Gains Tax
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          UK CGT matching: same-day rule, bed &amp; breakfasting (30-day), and Section&nbsp;104 pool.
-          {totalExemptCount > 0 ? (
-            <span className="inline-flex items-center gap-1 ml-1">
-              <ShieldCheck size={14} className="text-emerald-400" />
-              <span className="text-emerald-300">{totalExemptCount} instrument{totalExemptCount !== 1 ? "s" : ""} ISA-exempt</span>
-            </span>
-          ) : null}
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-white" style={{ letterSpacing: "-0.02em" }}>
+            Capital Gains Tax
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            UK CGT matching: same-day rule, bed &amp; breakfasting (30-day), and Section&nbsp;104 pool.
+            {totalExemptCount > 0 ? (
+              <span className="inline-flex items-center gap-1 ml-1">
+                <ShieldCheck size={14} className="text-emerald-400" />
+                <span className="text-emerald-300">{totalExemptCount} instrument{totalExemptCount !== 1 ? "s" : ""} ISA-exempt</span>
+              </span>
+            ) : null}
+          </p>
+        </div>
+        {selectedYear ? (
+          <label className="text-xs text-slate-500">
+            Tax year
+            <select
+              aria-label="Tax year"
+              className="ml-2 rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white"
+              value={selectedYear.tax_year}
+              onChange={(event) => setSelectedTaxYear(event.target.value)}
+            >
+              {[...taxYearTotals]
+                .sort((a, b) => b.tax_year.localeCompare(a.tax_year))
+                .map((row) => (
+                  <option key={row.tax_year} value={row.tax_year}>{row.tax_year}</option>
+                ))}
+            </select>
+          </label>
+        ) : null}
       </div>
 
       {/* Summary cards - taxable only */}
@@ -331,24 +287,32 @@ export function CGT() {
           label="Taxable gains"
           value={toGbp(taxableGain)}
           icon={<TrendingUp size={14} />}
-          tone="gain"
+          tone="pos"
         />
         <StatCard
           label="Taxable losses"
           value={toGbp(taxableLoss)}
           icon={<TrendingDown size={14} />}
-          tone="loss"
+          tone="neg"
         />
         <StatCard
           label="Net taxable"
           value={toGbp(taxableNetGain)}
-          sub={`${toGbp(exemptGainAmount)} annual exemption`}
-          tone={taxableNetGain >= 0 ? "gain" : "neutral"}
+          sub={selectedYear?.annual_exempt_amount == null
+            ? "Annual exemption unknown"
+            : `${toGbp(selectedYear.annual_exempt_amount)} annual exemption`}
+          tone={taxableNetGain >= 0 ? "pos" : "muted"}
         />
         <StatCard
           label="Taxable after exemption"
-          value={toGbp(taxableGainAfterExempt)}
-          sub={taxableGainAfterExempt > 0 ? "Potential CGT liability" : "Within exemption"}
+          value={selectedYear?.gain_after_exemption == null
+            ? "Unknown"
+            : toGbp(selectedYear.gain_after_exemption)}
+          sub={selectedYear?.gain_after_exemption == null
+            ? "No published exemption configured"
+            : selectedYear.gain_after_exemption > 0
+              ? "Potential CGT liability"
+              : "Within exemption"}
           tone="accent"
         />
       </div>

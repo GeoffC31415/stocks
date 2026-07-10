@@ -142,6 +142,51 @@ class AllocationRow(BaseModel):
     is_concentration_risk: bool = False
 
 
+class PortfolioReturnSummary(BaseModel):
+    period_start: dt.date | None
+    period_end: dt.date | None
+    start_value_gbp: float | None
+    end_value_gbp: float | None
+    contributions_gbp: float | None
+    withdrawals_gbp: float | None
+    net_external_flow_gbp: float | None
+    absolute_gain_after_flows_gbp: float | None
+    modified_dietz_return_pct: float | None
+    annualised_return_pct: float | None
+    method: str
+    notes: list[str] = Field(default_factory=list)
+
+
+class AttributionInstrument(BaseModel):
+    instrument_id: int
+    identifier: str
+    security_name: str
+    account_name: str
+    opening_value_gbp: float
+    closing_value_gbp: float
+    raw_value_change_gbp: float
+    net_external_flow_gbp: float
+    drip_proxy_gbp: float
+    estimated_market_movement_gbp: float
+
+
+class SnapshotAttributionResponse(BaseModel):
+    from_batch: ImportBatchOut | None
+    to_batch: ImportBatchOut | None
+    opening_value_gbp: float | None
+    closing_value_gbp: float | None
+    raw_value_change_gbp: float | None
+    contributions_gbp: float | None
+    withdrawals_gbp: float | None
+    drip_proxy_gbp: float | None
+    net_external_flow_gbp: float | None
+    residual_market_movement_gbp: float | None
+    reconciliation_difference_gbp: float | None
+    top_contributors: list[AttributionInstrument] = Field(default_factory=list)
+    top_detractors: list[AttributionInstrument] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class PortfolioSummary(BaseModel):
     as_of_date: dt.date | None
     import_batch_id: int | None
@@ -566,6 +611,8 @@ class CGTTaxYearTotals(BaseModel):
     taxable_cost: float
     taxable_gain: float
     taxable_loss: float
+    annual_exempt_amount: float | None
+    gain_after_exemption: float | None
     exempt_proceeds: float
     exempt_cost: float
     exempt_gain: float

@@ -426,12 +426,16 @@ async def get_order_positions(
     session: AsyncSession,
     *,
     drip_threshold_gbp: float = 1000.0,
+    account_name: str | None = None,
 ) -> list[dict]:
     """
     Per-security position analysis derived from order history,
     enriched with current portfolio values via instrument_id FK.
     """
-    r = await session.execute(select(Order).order_by(Order.order_date))
+    q = select(Order).order_by(Order.order_date)
+    if account_name:
+        q = q.where(Order.account_name == account_name)
+    r = await session.execute(q)
     orders = list(r.scalars().all())
     if not orders:
         return []

@@ -13,10 +13,9 @@ import { chartYearStartUtcMs, formatChartYearTick } from "../lib/chartDates";
 import { toGbp } from "../lib/formatters";
 import { OrderRow } from "./OrderRow";
 import { SegmentedControl, type Segment } from "./SegmentedControl";
+import { filterOrders, type OrderFilterKind } from "./orderFilters";
 
-type OrderFilter = "all" | "buy" | "drip" | "sell";
-
-function filterTone(key: OrderFilter) {
+function filterTone(key: OrderFilterKind) {
   if (key === "sell") return "neg" as const;
   if (key === "drip") return "amber" as const;
   return "accent" as const;
@@ -53,8 +52,10 @@ export function OrderHistorySection({
   analytics: OrderAnalytics;
   dripThreshold: number;
 }) {
-  const [filter, setFilter] = useState<OrderFilter>("all");
+  const [filter, setFilter] = useState<OrderFilterKind>("all");
   const [nameFilter, setNameFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   const counts = useMemo(() => {
     let buy = 0;
@@ -68,25 +69,18 @@ export function OrderHistorySection({
     return { all: orders.length, buy, drip, sell };
   }, [orders]);
 
-  const filtered = useMemo(() => {
-    let result = orders;
-    if (filter === "drip") result = result.filter((o) => o.is_drip);
-    if (filter === "buy")
-      result = result.filter(
-        (o) => o.side.toLowerCase() === "buy" && !o.is_drip,
-      );
-    if (filter === "sell")
-      result = result.filter((o) => o.side.toLowerCase() === "sell");
-    if (nameFilter.trim()) {
-      const q = nameFilter.trim().toLowerCase();
-      result = result.filter((o) =>
-        o.security_name.toLowerCase().includes(q),
-      );
-    }
-    return result;
-  }, [orders, filter, nameFilter]);
+  const filtered = useMemo(
+    () =>
+      filterOrders(orders, {
+        kind: filter,
+        name: nameFilter,
+        from: fromDate,
+        to: toDate,
+      }),
+    [orders, filter, nameFilter, fromDate, toDate],
+  );
 
-  const segments: Segment<OrderFilter>[] = [
+  const segments: Segment<OrderFilterKind>[] = [
     { key: "all", label: "All", count: counts.all },
     { key: "buy", label: "Buy", count: counts.buy },
     { key: "drip", label: "DRIP", count: counts.drip },
@@ -129,6 +123,42 @@ export function OrderHistorySection({
             segments={segments}
             size="sm"
           />
+        </div>
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+          <span className="font-medium uppercase tracking-wider">Date range</span>
+          <label className="flex items-center gap-1.5">
+            From
+            <input
+              aria-label="Orders from date"
+              type="date"
+              value={fromDate}
+              onChange={(event) => setFromDate(event.target.value)}
+              className="rounded-lg border border-white/[0.08] bg-aurora-base/60 px-2 py-1 text-slate-300 outline-none focus:border-white/[0.16]"
+            />
+          </label>
+          <label className="flex items-center gap-1.5">
+            To
+            <input
+              aria-label="Orders to date"
+              type="date"
+              value={toDate}
+              onChange={(event) => setToDate(event.target.value)}
+              className="rounded-lg border border-white/[0.08] bg-aurora-base/60 px-2 py-1 text-slate-300 outline-none focus:border-white/[0.16]"
+            />
+          </label>
+          {fromDate || toDate ? (
+            <button
+              type="button"
+              onClick={() => {
+                setFromDate("");
+                setToDate("");
+              }}
+              className="ml-auto rounded-lg px-2 py-1 text-slate-400 hover:bg-white/[0.04] hover:text-white"
+            >
+              Clear dates
+            </button>
+          ) : null}
+          <span className="ml-auto tabular text-slate-600">{filtered.length} matching</span>
         </div>
         <div className="max-h-[480px] space-y-1 overflow-auto pr-1">
           {filtered.slice(0, 100).map((o) => (

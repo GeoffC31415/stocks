@@ -134,9 +134,14 @@ async def cashflow_timeseries(
 @router.get("/positions", response_model=list[PositionSummary])
 async def order_positions(
     drip_threshold: float = _DRIP_DEFAULT,
+    account_name: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[PositionSummary]:
-    data = await get_order_positions(session, drip_threshold_gbp=drip_threshold)
+    data = await get_order_positions(
+        session,
+        drip_threshold_gbp=drip_threshold,
+        account_name=account_name,
+    )
     return [PositionSummary(**row) for row in data]
 
 
@@ -208,15 +213,14 @@ async def list_orders(
     side: str | None = None,
     is_drip: bool | None = None,
     drip_threshold: float = _DRIP_DEFAULT,
+    account_name: str | None = None,
     limit: int = 200,
     session: AsyncSession = Depends(get_session),
 ) -> list[OrderOut]:
-    q = (
-        select(Order)
-        .options(joinedload(Order.instrument))
-        .order_by(Order.order_date.desc())
-        .limit(limit)
-    )
+    q = select(Order).options(joinedload(Order.instrument))
+    if account_name:
+        q = q.where(Order.account_name == account_name)
+    q = q.order_by(Order.order_date.desc()).limit(limit)
     result = await session.execute(q)
     orders = list(result.scalars().all())
 

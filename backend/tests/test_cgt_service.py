@@ -12,7 +12,9 @@ from app.services.cgt_service import (
     SaleDetail,
     _group_by_tax_year,
     _tax_year_end,
+    annual_exempt_amount,
     calculate_cgt_for_instrument,
+    gain_after_exemption,
     get_cgt_summary,
     get_instrument_cgt,
     is_isa_account,
@@ -65,6 +67,43 @@ class TestTaxYearEnd:
         """Jan falls in the current tax year."""
         d = dt.datetime(2024, 1, 15, tzinfo=dt.UTC)
         assert _tax_year_end(d) == 2024
+
+
+class TestAnnualExemptAmount:
+    @pytest.mark.parametrize(
+        ("tax_year", "expected"),
+        [
+            ("2023-24", 6000.0),
+            ("2024-25", 3000.0),
+            ("2025-26", 3000.0),
+            ("2026-27", 3000.0),
+            ("2027-28", None),
+        ],
+    )
+    def test_returns_published_amount_only_for_known_tax_years(
+        self, tax_year: str, expected: float | None
+    ) -> None:
+        assert annual_exempt_amount(tax_year) == expected
+
+
+class TestGainAfterExemption:
+    @pytest.mark.parametrize(
+        ("taxable_gain", "taxable_loss", "tax_year", "expected"),
+        [
+            (10000.0, 1000.0, "2023-24", 3000.0),
+            (2000.0, 500.0, "2024-25", 0.0),
+            (1000.0, 2000.0, "2025-26", 0.0),
+            (10000.0, 1000.0, "2027-28", None),
+        ],
+    )
+    def test_applies_losses_then_that_tax_years_exemption(
+        self,
+        taxable_gain: float,
+        taxable_loss: float,
+        tax_year: str,
+        expected: float | None,
+    ) -> None:
+        assert gain_after_exemption(taxable_gain, taxable_loss, tax_year) == expected
 
 
 class TestSameDayRule:
@@ -679,6 +718,8 @@ class TestIsaExemption:
         # Taxable amounts from non-ISA instrument
         assert ty["taxable_gain"] == 300.0  # 800 - (1000/100)*50
         assert ty["taxable_loss"] == 0.0
+        assert ty["annual_exempt_amount"] == 3000.0
+        assert ty["gain_after_exemption"] == 0.0
         assert ty["gain_count"] == 1
 
         # Exempt amounts from ISA instrument

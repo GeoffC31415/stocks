@@ -6,11 +6,19 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
-from app.schemas import BenchmarkPoint, InstrumentOut, PortfolioSummary
+from app.schemas import (
+    BenchmarkPoint,
+    InstrumentOut,
+    PortfolioReturnSummary,
+    PortfolioSummary,
+    SnapshotAttributionResponse,
+)
+from app.services.attribution_service import get_snapshot_attribution
 from app.services.market_data_service import fetch_history
 from app.services.portfolio_service import (
     build_instrument_out,
     build_portfolio_summary,
+    get_portfolio_return_summary,
     portfolio_value_timeseries,
 )
 
@@ -49,6 +57,38 @@ async def timeseries(
     session: AsyncSession = Depends(get_session),
 ) -> list[dict]:
     return await portfolio_value_timeseries(session, account_name=account_name)
+
+
+@router.get("/returns", response_model=PortfolioReturnSummary)
+async def returns(
+    account_name: str | None = None,
+    from_date: dt.date | None = None,
+    to_date: dt.date | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> PortfolioReturnSummary:
+    data = await get_portfolio_return_summary(
+        session,
+        account_name=account_name,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    return PortfolioReturnSummary(**data)
+
+
+@router.get("/attribution", response_model=SnapshotAttributionResponse)
+async def attribution(
+    account_name: str | None = None,
+    from_batch_id: int | None = None,
+    to_batch_id: int | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> SnapshotAttributionResponse:
+    data = await get_snapshot_attribution(
+        session,
+        account_name=account_name,
+        from_batch_id=from_batch_id,
+        to_batch_id=to_batch_id,
+    )
+    return SnapshotAttributionResponse(**data)
 
 
 @router.get("/benchmarks", response_model=list[BenchmarkPoint])

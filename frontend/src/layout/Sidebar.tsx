@@ -1,17 +1,14 @@
-import { NavLink } from "react-router-dom";
-import {
-  LayoutDashboard,
-  Wallet,
-  History,
-  Target,
-  Upload,
-  Layers,
-  BarChart3,
-  GitCompareArrows,
-  Link,
-  Scale,
-} from "lucide-react";
 import { motion } from "framer-motion";
+import {
+  Activity,
+  BarChart3,
+  CircleHelp,
+  Database,
+  LayoutDashboard,
+  Scale,
+  Wallet,
+} from "lucide-react";
+import { NavLink } from "react-router-dom";
 
 type NavItem = {
   to: string;
@@ -19,40 +16,31 @@ type NavItem = {
   icon: typeof LayoutDashboard;
 };
 
-const NAV: NavItem[] = [
-  { to: "/", label: "Overview", icon: LayoutDashboard },
-  { to: "/holdings", label: "Holdings", icon: Wallet },
-  { to: "/orders", label: "Orders", icon: History },
-  { to: "/positions", label: "Positions", icon: Target },
-  { to: "/import", label: "Import", icon: Upload },
-  { to: "/diff", label: "Diff", icon: GitCompareArrows },
-];
-
-const ADMIN_NAV: NavItem[] = [
-  { to: "/groups", label: "Groups", icon: Layers },
-  { to: "/matching", label: "Matching", icon: Link },
-  { to: "/cgt", label: "CGT", icon: Scale },
+export const PRIMARY_NAV: NavItem[] = [
+  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/portfolio", label: "Portfolio", icon: Wallet },
+  { to: "/activity", label: "Activity", icon: Activity },
+  { to: "/tax", label: "Tax", icon: Scale },
+  { to: "/data", label: "Data", icon: Database },
+  { to: "/help", label: "Help", icon: CircleHelp },
 ];
 
 export function Sidebar() {
   return (
-    <aside className="hidden lg:flex sticky top-0 h-screen w-60 shrink-0 flex-col border-r border-white/[0.06] bg-aurora-base/60 backdrop-blur-xl">
+    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-white/[0.06] bg-aurora-base/60 backdrop-blur-xl lg:flex">
       <div className="flex items-center gap-3 px-5 py-5">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-aurora-accent shadow-glow-accent">
           <BarChart3 size={18} className="text-white" />
         </div>
         <div>
           <p className="text-sm font-semibold text-white">Portfolio</p>
-          <p className="text-[11px] text-slate-500">Aurora dashboard</p>
+          <p className="text-[11px] text-slate-500">Personal analytics</p>
         </div>
       </div>
 
-      <nav className="flex-1 px-3 py-2">
-        <div className="px-3 mb-2">
-          <p className="text-[10px] uppercase tracking-widest font-semibold text-slate-600">Daily</p>
-        </div>
+      <nav aria-label="Primary" className="flex-1 px-3 py-3">
         <ul className="space-y-1">
-          {NAV.map((item) => (
+          {PRIMARY_NAV.map((item) => (
             <li key={item.to}>
               <NavLink
                 to={item.to}
@@ -61,77 +49,21 @@ export function Sidebar() {
                   `group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                     isActive
                       ? "text-white"
-                      : "text-slate-400 hover:text-slate-100 hover:bg-white/[0.04]"
+                      : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-100"
                   }`
                 }
               >
                 {({ isActive }) => (
                   <>
-                    {isActive && (
+                    {isActive ? (
                       <motion.span
                         layoutId="sidebar-active"
                         className="absolute inset-0 -z-10 rounded-lg bg-gradient-to-r from-violet-500/20 to-cyan-500/20 ring-1 ring-white/10"
-                        transition={{
-                          type: "spring",
-                          stiffness: 350,
-                          damping: 32,
-                        }}
+                        transition={{ type: "spring", stiffness: 350, damping: 32 }}
                       />
-                    )}
-                    {isActive && (
-                      <span className="absolute -left-3 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r bg-aurora-accent" />
-                    )}
+                    ) : null}
                     <item.icon
-                      size={16}
-                      className={
-                        isActive
-                          ? "text-aurora-cyan"
-                          : "text-slate-500 group-hover:text-slate-300"
-                      }
-                    />
-                    <span>{item.label}</span>
-                  </>
-                )}
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-
-        <div className="mt-4 mb-2 px-3">
-          <p className="text-[10px] uppercase tracking-widest font-semibold text-slate-600">Administration</p>
-        </div>
-        <ul className="space-y-1">
-          {ADMIN_NAV.map((item) => (
-            <li key={item.to}>
-              <NavLink
-                to={item.to}
-                end={item.to === "/"}
-                className={({ isActive }) =>
-                  `group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                    isActive
-                      ? "text-white"
-                      : "text-slate-400 hover:text-slate-100 hover:bg-white/[0.04]"
-                  }`
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    {isActive && (
-                      <motion.span
-                        layoutId="sidebar-active"
-                        className="absolute inset-0 -z-10 rounded-lg bg-gradient-to-r from-violet-500/20 to-cyan-500/20 ring-1 ring-white/10"
-                        transition={{
-                          type: "spring",
-                          stiffness: 350,
-                          damping: 32,
-                        }}
-                      />
-                    )}
-                    {isActive && (
-                      <span className="absolute -left-3 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r bg-aurora-accent" />
-                    )}
-                    <item.icon
-                      size={16}
+                      size={17}
                       className={
                         isActive
                           ? "text-aurora-cyan"
@@ -148,7 +80,7 @@ export function Sidebar() {
       </nav>
 
       <div className="px-5 py-4 text-[10px] text-slate-600">
-        Portfolio Tracker · CGT analysis
+        Private · local portfolio data
       </div>
     </aside>
   );
