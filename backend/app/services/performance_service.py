@@ -20,8 +20,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import HoldingSnapshot, ImportBatch, Instrument
+from app.models import HoldingSnapshot, ImportBatch, Instrument, Order
 from app.services.market_data_service import fetch_history
+from app.services.portfolio_service import (
+    MIN_ANNUALISATION_DAYS,
+    classify_external_flows,
+)
 
 # Period -> trailing day count. ``ALL`` means "from the first snapshot".
 # ``YTD`` is resolved relative to the window end (Jan 1 of that year).
@@ -199,6 +203,172 @@ def compute_performance_metrics(
     return base
 
 
+def _dietz_interval_return(
+    value_prev: float,
+    value_next: float,
+    raw_flow: float,
+    weighted_flow: float,
+) -> float | None:
+    """Modified Dietz return for one interval.
+
+    Uses the standard Modified Dietz form shared with the returns card: the
+    **raw** signed net flow in the numerator (money added is not gain, money
+    removed is not a loss) and the **weighted** flow in the denominator (a
+    flow earns credit for the time it actually sat in the account).
+
+    ``raw_flow`` is the signed net flow in the interval (contributions +,
+    withdrawals −); ``weighted_flow`` is that flow weighted by hold duration.
+    Returns ``None`` when the interval is unusable (non-positive prior value
+    or a non-positive denominator).
+    """
+    if value_prev <= 0:
+        return None
+    denominator = value_prev + weighted_flow
+    if denominator <= 0:
+        return None
+    return (value_next - (value_prev + raw_flow)) / denominator
+
+
+def compute_flow_adjusted_metrics(
+    points: list[tuple[dt.date, float]],
+    signed_flows: list[tuple[dt.date, float]],
+    *,
+    contributions: float,
+    withdrawals: float,
+    risk_free_annual_pct: float = 0.0,
+) -> dict:
+    """Growth + risk with external cashflows netted out (Modified Dietz).
+
+    ``signed_flows`` are ``(date, signed_amount)`` external cashflows
+    (contributions positive, withdrawals negative) for the window, already
+    classified via ``classify_external_flows``. This is the flow-aware
+    counterpart to :func:`compute_performance_metrics`; it exists because a
+    raw value series conflates market movement with cash being added or
+    removed, so volatility/Sharpe/Sortino would be distorted by those flows.
+
+    A contribution (e.g. a manual HL cash injection + new orders) is *not*
+    portfolio gain; a withdrawal is *not* a loss. Modified Dietz removes the
+    flow effect from the return, and the per-interval Dietz returns are used
+    for the risk statistics so the risk metrics are also flow-adjusted.
+    """
+    base: dict = {
+        "contributions_gbp": round(contributions, 2),
+        "withdrawals_gbp": round(withdrawals, 2),
+        "net_external_flow_gbp": round(contributions - withdrawals, 2),
+        "total_return_pct": None,
+        "annualised_return_pct": None,
+        "annualised_volatility_pct": None,
+        "sharpe_ratio": None,
+        "sortino_ratio": None,
+        "num_periods": 0,
+        "annualisation_factor": None,
+        "method": "Modified Dietz (flow-adjusted) on snapshot-derived portfolio value",
+        "notes": [
+            "Returns are flow-adjusted: external contributions (manual cash + new "
+            "orders) and withdrawals are netted out via Modified Dietz, so growth "
+            "reflects market movement rather than money added to or taken from "
+            "the account. DRIP buys are internal and excluded."
+        ],
+    }
+    if len(points) < 2:
+        base["notes"].append(
+            "At least two dated portfolio values are required for flow-adjusted metrics."
+        )
+        return base
+
+    dates = [p[0] for p in points]
+    values = [p[1] for p in points]
+    start_value = values[0]
+    end_value = values[-1]
+
+    # --- Headline Dietz return over the whole window (same as returns card). ---
+    # Standard Modified Dietz: raw signed net flow in the numerator (money
+    # added is not gain / removed is not a loss) and hold-weighted flow in the
+    # denominator. This mirrors ``get_portfolio_return_summary`` exactly.
+    period_start = dates[0]
+    period_end = dates[-1]
+    total_days = (period_end - period_start).days
+    net_flow = sum(amount for _flow_date, amount in signed_flows)
+    weighted_flow = (
+        sum(
+            amount * ((period_end - flow_date).days / total_days)
+            for flow_date, amount in signed_flows
+        )
+        if total_days > 0
+        else 0.0
+    )
+    denominator = start_value + weighted_flow
+    if denominator <= 0:
+        base["notes"].append(
+            "The flow-adjusted denominator is zero or negative, so the headline "
+            "return is unavailable."
+        )
+    else:
+        period_return = (end_value - (start_value + net_flow)) / denominator
+        base["total_return_pct"] = round(period_return * 100.0, 4)
+        if total_days >= MIN_ANNUALISATION_DAYS and period_return > -1:
+            years = total_days / TRADING_DAYS_PER_YEAR
+            base["annualised_return_pct"] = round(
+                ((1.0 + period_return) ** (1.0 / years) - 1.0) * 100.0, 4
+            )
+        elif total_days < MIN_ANNUALISATION_DAYS:
+            base["notes"].append(
+                "Annualised flow-adjusted return is unavailable for periods under 365 days."
+            )
+
+    # --- Per-interval Dietz returns for the risk statistics. ---
+    # For each interval (prev, next]: raw signed net flow in the numerator,
+    # hold-weighted flow in the denominator (flow on the start date is already
+    # included in the start value, so it is excluded from that interval).
+    interval_returns: list[float] = []
+    for i in range(1, len(values)):
+        span_start = dates[i - 1]
+        span_end = dates[i]
+        interval_days = (span_end - span_start).days
+        if interval_days <= 0:
+            continue
+        raw_flow = 0.0
+        weighted_flow = 0.0
+        for flow_date, amount in signed_flows:
+            if span_start < flow_date <= span_end:
+                raw_flow += amount
+                weighted_flow += amount * ((span_end - flow_date).days / interval_days)
+        interval_return = _dietz_interval_return(
+            values[i - 1], values[i], raw_flow, weighted_flow
+        )
+        if interval_return is not None:
+            interval_returns.append(interval_return)
+
+    n = len(interval_returns)
+    base["num_periods"] = n
+    if n == 0:
+        base["notes"].append(
+            "No usable interval returns for flow-adjusted volatility or risk ratios."
+        )
+        return base
+
+    ann_factor = _annualisation_factor(dates)
+    base["annualisation_factor"] = round(ann_factor, 4)
+    mean_r = statistics.fmean(interval_returns)
+    std_r = statistics.stdev(interval_returns) if n >= 2 else 0.0
+    sqrt_ann = math.sqrt(ann_factor)
+    rf_per_period = (risk_free_annual_pct / 100.0) / ann_factor if ann_factor > 0 else 0.0
+
+    base["annualised_volatility_pct"] = round(std_r * sqrt_ann * 100.0, 4)
+    if std_r > 0:
+        base["sharpe_ratio"] = round(((mean_r - rf_per_period) / std_r) * sqrt_ann, 4)
+    else:
+        base["notes"].append("Zero interval-return variance, so flow-adjusted Sharpe is undefined.")
+
+    downside = [min(r - rf_per_period, 0.0) for r in interval_returns]
+    downside_dev = math.sqrt(statistics.fmean([d * d for d in downside]))
+    if downside_dev > 0:
+        base["sortino_ratio"] = round(((mean_r - rf_per_period) / downside_dev) * sqrt_ann, 4)
+    else:
+        base["notes"].append("No downside intervals in the window, so flow-adjusted Sortino is undefined.")
+    return base
+
+
 async def build_value_series(
     session: AsyncSession,
     *,
@@ -268,6 +438,60 @@ async def build_value_series(
         total_value = sum(s.value_gbp or 0.0 for s in current_by_instrument.values())
         points.append({"as_of_date": batch.as_of_date, "value_gbp": float(total_value)})
     return points, coverage_start
+
+
+async def _flow_adjusted_block(
+    session: AsyncSession,
+    *,
+    account_name: str | None,
+    points: list[tuple[dt.date, float]],
+    window_start: dt.date,
+    window_end: dt.date,
+    risk_free_annual_pct: float,
+) -> dict:
+    """Flow-adjusted (Modified Dietz) growth + risk for a window.
+
+    Queries the window's orders, classifies external cashflows with the shared
+    ``classify_external_flows`` (so the returns card and this agree), and
+    feeds them to the pure :func:`compute_flow_adjusted_metrics`. Never raises;
+    on any DB error it returns a ``flow_adjusted`` block flagged as unavailable
+    so the rest of the payload still renders.
+    """
+    unavailable: dict = {
+        "contributions_gbp": 0.0,
+        "withdrawals_gbp": 0.0,
+        "net_external_flow_gbp": 0.0,
+        "total_return_pct": None,
+        "annualised_return_pct": None,
+        "annualised_volatility_pct": None,
+        "sharpe_ratio": None,
+        "sortino_ratio": None,
+        "num_periods": 0,
+        "annualisation_factor": None,
+        "method": "Modified Dietz (flow-adjusted) on snapshot-derived portfolio value",
+        "notes": ["Flow-adjusted metrics are unavailable for this window."],
+    }
+    try:
+        orders_query = select(Order).where(
+            Order.order_date >= dt.datetime.combine(window_start, dt.time.min),
+            Order.order_date <= dt.datetime.combine(window_end, dt.time.max),
+        )
+        if account_name is not None:
+            orders_query = orders_query.where(Order.account_name == account_name)
+        orders_result = await session.execute(orders_query.order_by(Order.order_date))
+        contributions, withdrawals, signed_flows = classify_external_flows(
+            orders_result.scalars().all()
+        )
+    except Exception:  # noqa: BLE001 - a flow query failure should not kill the panel
+        return unavailable
+
+    return compute_flow_adjusted_metrics(
+        points,
+        signed_flows,
+        contributions=contributions,
+        withdrawals=withdrawals,
+        risk_free_annual_pct=risk_free_annual_pct,
+    )
 
 
 async def get_portfolio_performance(
@@ -375,11 +599,27 @@ async def get_portfolio_performance(
                 )
     benchmarks.sort(key=lambda r: (r["date"], r["symbol"]))
 
+    # --- Flow-adjusted (Modified Dietz) metrics. ---
+    # External cashflows in the window are netted out so the HL cash
+    # injection + new orders don't masquerade as market gain. The flow
+    # classification is shared with the returns card so the two agree.
+    window_start_date = window[0][0]
+    window_end_date = window[-1][0]
+    flow_adjusted = await _flow_adjusted_block(
+        session,
+        account_name=account_name,
+        points=window,
+        window_start=window_start_date,
+        window_end=window_end_date,
+        risk_free_annual_pct=risk_free_annual_pct,
+    )
+
     payload = {
         "period": period,
         "coverage_start": coverage_start,
         **metrics,
         "growth_curve": growth_curve,
         "benchmarks": benchmarks,
+        "flow_adjusted": flow_adjusted,
     }
     return payload

@@ -1,16 +1,28 @@
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 
 import pytest
 
 from app.services.performance_service import (
     _annualisation_factor,
+    compute_flow_adjusted_metrics,
     compute_performance_metrics,
     resolve_period_start,
 )
+from app.services.portfolio_service import classify_external_flows
 
 D0 = dt.date(2026, 4, 1)
+
+
+def _order(side: str, gbp: float, date: dt.date, *, is_drip: bool = False):
+    return SimpleNamespace(
+        side=side,
+        cost_proceeds_gbp=gbp,
+        order_date=dt.datetime.combine(date, dt.time.max),
+        is_drip=is_drip,
+    )
 
 
 def _pts(values: list[float], daily: bool = True) -> list[tuple[dt.date, float]]:
@@ -180,3 +192,123 @@ async def test_get_performance_no_benchmarks_is_safe(monkeypatch) -> None:
     assert result["total_return_pct"] == pytest.approx(10.0, abs=1e-6)
     assert result["benchmarks"] == []
     assert len(result["growth_curve"]) == 2
+
+
+# --- Flow classification (shared with the returns card) ---------------------
+
+
+def test_classify_external_flows_contribs_withdrawals_drip() -> None:
+    orders = [
+        _order("buy", 1000.0, dt.date(2026, 5, 10)),  # manual cash -> contribution
+        _order("buy", 500.0, dt.date(2026, 5, 12), is_drip=True),  # DRIP -> excluded
+        _order("sell", 300.0, dt.date(2026, 5, 20)),  # sale -> withdrawal
+    ]
+    contributions, withdrawals, signed = classify_external_flows(orders)
+    assert contributions == 1000.0
+    assert withdrawals == 300.0
+    assert signed == [
+        (dt.date(2026, 5, 10), 1000.0),
+        (dt.date(2026, 5, 20), -300.0),
+    ]
+
+
+def test_classify_external_flows_skips_missing_gbp() -> None:
+    orders = [_order("buy", 0.0, dt.date(2026, 5, 1)), _order("buy", 999.0, dt.date(2026, 5, 2))]
+    orders[0].cost_proceeds_gbp = None  # unmatched / missing price
+    contributions, withdrawals, signed = classify_external_flows(orders)
+    assert contributions == 999.0
+    assert withdrawals == 0.0
+    assert len(signed) == 1
+
+
+# --- Flow-adjusted (Modified Dietz) metrics ---------------------------------
+
+
+def test_flow_adjusted_no_flows_matches_plain() -> None:
+    points = _pts([100.0, 110.0, 120.0])
+    fa = compute_flow_adjusted_metrics(points, [], contributions=0.0, withdrawals=0.0)
+    # No flows -> Dietz return == simple return.
+    assert fa["total_return_pct"] == pytest.approx(20.0, abs=1e-6)
+    assert fa["contributions_gbp"] == 0.0
+    assert fa["withdrawals_gbp"] == 0.0
+    assert fa["num_periods"] == 2
+
+
+def test_flow_adjusted_nets_out_contribution() -> None:
+    # 100 -> (contribute 100 mid-interval) -> 200. The ending value is entirely
+    # the injected cash; there is no market gain, so the real return is ~0%
+    # (a raw value view would naively report +100%).
+    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 200.0)]
+    flows = [(dt.date(2026, 1, 15), 100.0)]  # contribution mid-interval
+    fa = compute_flow_adjusted_metrics(points, flows, contributions=100.0, withdrawals=0.0)
+    # weighted flow = 100 * (17/31) = 54.84 ; numerator 200-(100+100)=0
+    assert fa["total_return_pct"] is not None
+    assert fa["total_return_pct"] == pytest.approx(0.0, abs=1e-6)
+    assert fa["contributions_gbp"] == 100.0
+
+
+def test_flow_adjusted_withdrawal_not_a_loss() -> None:
+    # 100 -> (withdraw 50 mid-interval) -> 50. The drop is the withdrawal, not
+    # a market loss, so the real return is ~0% (a raw value view would naively
+    # report -50%).
+    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 50.0)]
+    flows = [(dt.date(2026, 1, 15), -50.0)]
+    fa = compute_flow_adjusted_metrics(points, flows, contributions=0.0, withdrawals=50.0)
+    # weighted flow = -50 * (17/31) = -27.42 ; numerator 50-(100-50)=0
+    assert fa["total_return_pct"] is not None
+    assert fa["total_return_pct"] == pytest.approx(0.0, abs=1e-6)
+    assert fa["withdrawals_gbp"] == 50.0
+
+
+def test_flow_adjusted_real_gain_still_counts() -> None:
+    # 100 -> (contribute 100) -> 250. The extra 50 over (base+flow) is genuine
+    # market gain, so the real return is positive (raw view would say +150%).
+    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 250.0)]
+    flows = [(dt.date(2026, 1, 15), 100.0)]
+    fa = compute_flow_adjusted_metrics(points, flows, contributions=100.0, withdrawals=0.0)
+    assert fa["total_return_pct"] is not None
+    assert fa["total_return_pct"] > 10.0
+    assert fa["total_return_pct"] < 150.0  # far below the raw +150%
+
+
+def test_flow_adjusted_exposes_flows_in_block() -> None:
+    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 3, 1), 140.0)]
+    flows = [(dt.date(2026, 2, 1), 20.0), (dt.date(2026, 2, 15), -10.0)]
+    fa = compute_flow_adjusted_metrics(
+        points, flows, contributions=20.0, withdrawals=10.0
+    )
+    assert fa["contributions_gbp"] == 20.0
+    assert fa["withdrawals_gbp"] == 10.0
+    assert fa["net_external_flow_gbp"] == 10.0
+    assert "flow" in fa["method"].lower() or "dietz" in fa["method"].lower()
+    assert any("flow" in n.lower() for n in fa["notes"])
+
+
+def test_flow_adjusted_single_point_has_no_return() -> None:
+    fa = compute_flow_adjusted_metrics(
+        [(dt.date(2026, 1, 1), 100.0)], [], contributions=0.0, withdrawals=0.0
+    )
+    assert fa["total_return_pct"] is None
+    assert any("two dated" in n for n in fa["notes"])
+
+
+def test_flow_adjusted_risk_uses_interval_dietz_returns() -> None:
+    # Two intervals with different returns -> non-zero variance -> Sharpe/Sortino defined.
+    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 110.0), (dt.date(2026, 3, 1), 105.0)]
+    fa = compute_flow_adjusted_metrics(points, [], contributions=0.0, withdrawals=0.0)
+    assert fa["num_periods"] == 2
+    assert fa["annualised_volatility_pct"] is not None and fa["annualised_volatility_pct"] > 0
+    assert fa["sharpe_ratio"] is not None
+    assert fa["sortino_ratio"] is not None
+
+
+def test_flow_adjusted_interval_dietz_hand_check() -> None:
+    # Single interval, contribution at the exact start of the interval is
+    # excluded (it is in the start value). Contribution at the end has zero
+    # weight in the denominator but full weight in the numerator.
+    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 1, 31), 200.0)]
+    # contribute 100 at Jan 31 (end of interval): weight (31-31)/30 = 0.
+    flows = [(dt.date(2026, 1, 31), 100.0)]
+    fa = compute_flow_adjusted_metrics(points, flows, contributions=100.0, withdrawals=0.0)
+    # numerator 200-(100+100)=0 -> 0% real return despite doubling value.
+    assert fa["total_return_pct"] == pytest.approx(0.0, abs=1e-9)

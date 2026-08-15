@@ -1,13 +1,9 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Area, AreaChart, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Loader2 } from "lucide-react";
+import { Info, Loader2 } from "lucide-react";
 import { api, type PerformanceBenchmarkPoint } from "../lib/api";
-import {
-  chartUtcMs,
-  formatChartDayTick,
-  formatChartTooltipDay,
-} from "../lib/chartDates";
+import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/chartDates";
 import { SegmentedControl } from "./SegmentedControl";
 
 type Period = "1M" | "3M" | "6M" | "1Y" | "YTD" | "ALL";
@@ -22,32 +18,91 @@ const PERIODS: { key: Period; label: string }[] = [
 
 const benchKey = (symbol: string) => `bench_${symbol.replace(/[^a-z0-9]/gi, "_")}`;
 
+/** Tooltip copy for each metric: what it is + what typical values look like. */
+const METRIC_INFO: Record<string, { definition: string; typical: string }> = {
+  totalReturn: {
+    definition:
+      "Flow-adjusted return (Modified Dietz) over the window. It removes the effect of cash you added or withdrew, so it measures how the money already in the account performed — not how much you put in.",
+    typical:
+      "A diversified stock portfolio averages roughly +7–12%/yr over the long run. Much higher or lower in any single window; a big positive number that mostly reflects a cash injection is a red flag.",
+  },
+  annualised: {
+    definition:
+      "The flow-adjusted return compounded to a per-year rate (CAGR). Useful for comparing returns over different window lengths on the same footing.",
+    typical: "≈ the long-run market average of ~7–12%/yr for equities. Only shown for windows of 365 days or more (it is unreliable on short windows).",
+  },
+  volatility: {
+    definition:
+      "Annualised volatility (standard deviation of period returns). Higher means bigger swings — both up and down. Flow-adjusted so cash in/out don't inflate it.",
+    typical: "≈15–25%/yr for a diversified equity portfolio; ~5–10%/yr for a bond-heavy one; near 0 for cash. Above ~30% is unusually jumpy for a diversified book.",
+  },
+  sharpe: {
+    definition:
+      "Return earned per unit of total risk (excess return ÷ volatility), flow-adjusted. A higher Sharpe means you got more return for the risk taken.",
+    typical: "≈1 is good, 0.5–1 is solid, below 0.5 is weak, and a negative value means it underperformed the (zero) risk-free rate for the risk taken.",
+  },
+  sortino: {
+    definition:
+      "Like the Sharpe, but it only punishes downside risk (how bad the bad periods were), ignoring the upside. Flow-adjusted.",
+    typical: "Usually higher than the Sharpe for a portfolio that has few, mild drawdowns. >1 is strong. It can be undefined if there were no losing periods.",
+  },
+  maxDrawdown: {
+    definition:
+      "The largest peak-to-trough decline in the account value over the window. It measures how deep a bad stretch got — a key comfort metric for how bearable the ride is.",
+    typical: "≈-10% to -20% in mild corrections; equities can see -30% to -50% in a full bear market (e.g. 2008, 2022). A small value means a smooth ride.",
+  },
+};
+
 type Tone = "pos" | "neg" | "muted" | "accent";
 const TONE_TEXT: Record<Tone, string> = {
   pos: "text-emerald-300",
   neg: "text-rose-300",
-  muted: "text-slate-300",
+  muted: "text-slate-200",
   accent: "text-cyan-200",
 };
 
 const indexFmt = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 1 });
+const gbpCompact = new Intl.NumberFormat("en-GB", {
+  style: "currency",
+  currency: "GBP",
+  maximumFractionDigits: 0,
+});
 
 function MetricTile({
   label,
   value,
   sub,
   tone = "muted",
+  infoKey,
 }: {
   label: string;
   value: string;
   sub?: string;
   tone?: Tone;
+  infoKey: string;
 }) {
+  const info = METRIC_INFO[infoKey];
   return (
-    <div className="rounded-xl bg-white/[0.02] p-3">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+    <div className="group relative rounded-xl bg-white/[0.02] p-3">
+      <div className="flex items-center gap-1">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+          {label}
+        </p>
+        <Info size={12} className="text-slate-500 opacity-60 transition group-hover:opacity-100" />
+      </div>
       <p className={`mt-1 tabular text-lg font-semibold ${TONE_TEXT[tone]}`}>{value}</p>
       {sub ? <p className="mt-0.5 text-[11px] text-slate-500">{sub}</p> : null}
+
+      {/* Tooltip: definition + typical values */}
+      <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-64 -translate-x-1/2 rounded-xl border border-white/10 bg-aurora-base/95 p-3 text-left opacity-0 shadow-glass backdrop-blur-md transition duration-150 group-hover:opacity-100">
+        <p className="text-xs font-semibold text-white">
+          {info.definition}
+        </p>
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-300">
+          <span className="font-semibold text-slate-200">Typical: </span>
+          {info.typical}
+        </p>
+      </div>
     </div>
   );
 }
@@ -89,8 +144,9 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
     queryKey: ["performance", accountName, period],
     queryFn: () => api.getPerformance(accountName, period),
   });
-
   const perf = perfQ.data;
+  const flow = perf?.flow_adjusted;
+  const hasFlow = flow != null && (flow.contributions_gbp > 0 || flow.withdrawals_gbp > 0);
 
   const chartData = useMemo(() => {
     if (!perf) return { rows: [] as Array<Record<string, number | null>>, benchSymbols: [] as string[] };
@@ -139,8 +195,15 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
 
   const sign = (v: number | null): Tone =>
     v == null ? "muted" : v > 0 ? "pos" : v < 0 ? "neg" : "muted";
-  const fmtPct = (v: number | null) => (v == null ? "—" : `${v >= 0 ? "" : ""}${v.toFixed(2)}%`);
+  const fmtPct = (v: number | null) => (v == null ? "—" : `${v.toFixed(2)}%`);
   const fmtRatio = (v: number | null) => (v == null ? "—" : v.toFixed(2));
+
+  // Headline uses flow-adjusted (Dietz) when available; falls back to raw.
+  const headlineReturn = flow?.total_return_pct ?? perf.total_return_pct;
+  const headlineAnn = flow?.annualised_return_pct ?? perf.annualised_return_pct;
+  const headlineVol = flow?.annualised_volatility_pct ?? perf.annualised_volatility_pct;
+  const headlineSharpe = flow?.sharpe_ratio ?? perf.sharpe_ratio;
+  const headlineSortino = flow?.sortino_ratio ?? perf.sortino_ratio;
 
   const windowLabel =
     perf.period_start && perf.period_end
@@ -152,9 +215,11 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-white">Performance</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Growth and risk over {windowLabel || "the selected period"}. Normalised
-            to 100 at the start of the window.
+          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-500">
+            Growth and risk for {windowLabel || "the selected period"}. Returns and
+            risk ratios are <span className="text-slate-300">flow-adjusted</span> —
+            cash you added or withdrew is netted out so growth reflects the market,
+            not your contributions.
           </p>
         </div>
         <SegmentedControl
@@ -166,38 +231,79 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
         />
       </div>
 
+      {/* Cash-flow strip: the money that moved during the window */}
+      {flow && (
+        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs">
+          <span className="font-semibold uppercase tracking-wide text-slate-400">
+            Cash flows
+          </span>
+          <span className="text-emerald-300">
+            +{gbpCompact.format(flow.contributions_gbp)} in
+          </span>
+          <span className="text-rose-300">
+            −{gbpCompact.format(flow.withdrawals_gbp)} out
+          </span>
+          <span className="text-slate-300">
+            net {flow.net_external_flow_gbp >= 0 ? "+" : "−"}
+            {gbpCompact.format(Math.abs(flow.net_external_flow_gbp))}
+          </span>
+          {hasFlow ? (
+            <span className="text-slate-500">
+              {perf.total_return_pct != null && flow.total_return_pct != null ? (
+                <>
+                  raw value growth {fmtPct(perf.total_return_pct)} → flow-adjusted{" "}
+                  <span className="text-slate-300">{fmtPct(flow.total_return_pct)}</span>
+                </>
+              ) : (
+                "netted out of the return above"
+              )}
+            </span>
+          ) : null}
+        </div>
+      )}
+
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <MetricTile
+          infoKey="totalReturn"
           label="Total return"
-          value={fmtPct(perf.total_return_pct)}
-          sub={`£${Math.round(perf.start_value_gbp ?? 0).toLocaleString()} → £${Math.round(perf.end_value_gbp ?? 0).toLocaleString()}`}
-          tone={sign(perf.total_return_pct)}
+          value={fmtPct(headlineReturn)}
+          sub={
+            flow && perf.total_return_pct != null
+              ? `raw ${fmtPct(perf.total_return_pct)}`
+              : `£${Math.round(perf.start_value_gbp ?? 0).toLocaleString()} → £${Math.round(perf.end_value_gbp ?? 0).toLocaleString()}`
+          }
+          tone={sign(headlineReturn)}
         />
         <MetricTile
+          infoKey="annualised"
           label="Annualised"
-          value={fmtPct(perf.annualised_return_pct)}
+          value={fmtPct(headlineAnn)}
           sub="CAGR over window"
-          tone={sign(perf.annualised_return_pct)}
+          tone={sign(headlineAnn)}
         />
         <MetricTile
+          infoKey="volatility"
           label="Volatility"
-          value={fmtPct(perf.annualised_volatility_pct)}
+          value={fmtPct(headlineVol)}
           sub="Annualised std. dev."
           tone="muted"
         />
         <MetricTile
+          infoKey="sharpe"
           label="Sharpe"
-          value={fmtRatio(perf.sharpe_ratio)}
+          value={fmtRatio(headlineSharpe)}
           sub="Risk-free 0%"
-          tone={sign(perf.sharpe_ratio)}
+          tone={sign(headlineSharpe)}
         />
         <MetricTile
+          infoKey="sortino"
           label="Sortino"
-          value={fmtRatio(perf.sortino_ratio)}
+          value={fmtRatio(headlineSortino)}
           sub="Downside-adjusted"
-          tone={sign(perf.sortino_ratio)}
+          tone={sign(headlineSortino)}
         />
         <MetricTile
+          infoKey="maxDrawdown"
           label="Max drawdown"
           value={fmtPct(perf.max_drawdown_pct)}
           sub="Peak to trough"
@@ -245,7 +351,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
               stroke="#22d3ee"
               strokeWidth={2.5}
               fill="url(#perfVal)"
-              name="Portfolio"
+              name="Portfolio (raw value)"
             />
             {chartData.benchSymbols.map((symbol, index) => (
               <Line
@@ -266,7 +372,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-cyan-400" /> Portfolio (index, 100 = window start)
+          <span className="h-2 w-2 rounded-full bg-cyan-400" /> Portfolio value (index, 100 = window start)
         </span>
         {benchmarkReturns.map((b) => (
           <span key={b.symbol} className="flex items-center gap-1.5">
@@ -275,11 +381,10 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
             {(b.returnPct * 100).toFixed(1)}%
           </span>
         ))}
-        {perf.coverage_start ? (
-          <span className="text-slate-600">
-            All-account window starts {perf.coverage_start} (first date every account had coverage).
-          </span>
-        ) : null}
+        <span className="text-slate-600">
+          The chart shows raw account value (so cash-in jumps are visible); the KPI tiles
+          above are flow-adjusted.
+        </span>
       </div>
     </div>
   );

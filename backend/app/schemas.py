@@ -342,6 +342,28 @@ class PerformanceBenchmarkPoint(BaseModel):
     value: float
 
 
+class PerformanceFlowAdjusted(BaseModel):
+    """Flow-adjusted (Modified Dietz) growth + risk for a window.
+
+    External contributions (manual cash + new orders) and withdrawals are
+    netted out of the return and risk statistics, so the figures reflect
+    market movement rather than money added to / taken from the account.
+    """
+
+    contributions_gbp: float
+    withdrawals_gbp: float
+    net_external_flow_gbp: float
+    total_return_pct: float | None
+    annualised_return_pct: float | None
+    annualised_volatility_pct: float | None
+    sharpe_ratio: float | None
+    sortino_ratio: float | None
+    num_periods: int
+    annualisation_factor: float | None
+    method: str
+    notes: list[str] = Field(default_factory=list)
+
+
 class PerformanceSummary(BaseModel):
     period: str
     coverage_start: dt.date | None = None
@@ -364,6 +386,7 @@ class PerformanceSummary(BaseModel):
     notes: list[str] = Field(default_factory=list)
     growth_curve: list[PerformancePoint] = Field(default_factory=list)
     benchmarks: list[PerformanceBenchmarkPoint] = Field(default_factory=list)
+    flow_adjusted: PerformanceFlowAdjusted | None = None
 
 
 class InstrumentQuoteOut(BaseModel):

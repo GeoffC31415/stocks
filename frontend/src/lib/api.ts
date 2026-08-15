@@ -281,6 +281,21 @@ export type PerformanceSummary = {
   notes: string[];
   growth_curve: PerformancePoint[];
   benchmarks: PerformanceBenchmarkPoint[];
+  // Flow-adjusted (Modified Dietz) metrics — external cashflows netted out.
+  flow_adjusted?: {
+    contributions_gbp: number;
+    withdrawals_gbp: number;
+    net_external_flow_gbp: number;
+    total_return_pct: number | null;
+    annualised_return_pct: number | null;
+    annualised_volatility_pct: number | null;
+    sharpe_ratio: number | null;
+    sortino_ratio: number | null;
+    num_periods: number;
+    annualisation_factor: number | null;
+    method: string;
+    notes: string[];
+  };
 };
 
 export type InstrumentQuote = {
