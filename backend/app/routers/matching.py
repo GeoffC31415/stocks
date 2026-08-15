@@ -172,8 +172,9 @@ async def get_unmatched_groups(
         norm = normalise_name(sec_name)
         canonical = await resolve_canonical_account(session, "barclays_orders", acct)
 
-        # Find best candidate
-        candidates = await build_candidates(session, "barclays_orders", acct, sec_name)
+        # Find best candidate (use the group's first order date so
+        # closed-instrument filtering and date scoring are accurate)
+        candidates = await build_candidates(session, "barclays_orders", acct, sec_name, first_d)
         best_candidate: MatchCandidate | None = None
         candidate_count = len(candidates)
 
@@ -183,7 +184,7 @@ async def get_unmatched_groups(
             for inst in (
                 candidates
             ):  # Score all candidates so newly created historical instruments are always considered
-                s, ev = score_candidate(inst, sec_name, acct, canonical)
+                s, ev = score_candidate(inst, sec_name, acct, canonical, first_d)
                 if s > best_score:
                     best_score = s
                     best_ev = ev
@@ -232,8 +233,11 @@ async def get_candidates(
     canonical = await resolve_canonical_account(session, "barclays_orders", account_name)
     candidates = await build_candidates(session, "barclays_orders", account_name, security_name)
 
+    # Score ALL candidates first, then sort and limit.
+    # (Slicing before scoring would drop high-scoring candidates that sit
+    # later in the unsorted candidate list, e.g. closed instruments.)
     scored = []
-    for inst in candidates[:20]:
+    for inst in candidates:
         s, ev = score_candidate(inst, security_name, account_name, canonical)
         scored.append(
             {
@@ -253,7 +257,7 @@ async def get_candidates(
         "security_name": security_name,
         "account_name": account_name,
         "canonical_account_name": canonical,
-        "candidates": scored,
+        "candidates": scored[:20],
     }
 
 
@@ -276,22 +280,47 @@ async def resolve_group(
     norm_name = normalise_name(body.security_name)
     canonical = await resolve_canonical_account(session, body.source, body.account_name)
 
-    # Create alias if requested
+    # Create or update alias if requested.
+    # instrument_aliases has a unique constraint on
+    # (source, source_account_name, source_security_name_norm), so an
+    # unconditional INSERT fails with an IntegrityError when the group was
+    # previously resolved (or its alias already exists). Upsert instead.
+    alias_created = False
     if body.create_alias:
-        alias = InstrumentAlias(
-            instrument_id=body.instrument_id,
-            source=body.source,
-            source_account_name=body.account_name,
-            canonical_account_name=canonical,
-            source_security_name=body.security_name,
-            source_security_name_norm=norm_name,
-            alias_type="manual",
-            confidence=1.0,
-            created_by="admin",
-            notes=body.reason or "Manual admin resolution",
-        )
-        session.add(alias)
-        await session.flush()
+        existing = (
+            await session.execute(
+                select(InstrumentAlias).where(
+                    InstrumentAlias.source == body.source,
+                    InstrumentAlias.source_account_name == body.account_name,
+                    InstrumentAlias.source_security_name_norm == norm_name,
+                )
+            )
+        ).scalar_one_or_none()
+
+        if existing is not None:
+            existing.instrument_id = body.instrument_id
+            existing.canonical_account_name = canonical
+            existing.source_security_name = body.security_name
+            existing.alias_type = "manual"
+            existing.confidence = 1.0
+            existing.created_by = "admin"
+            existing.notes = body.reason or "Manual admin resolution"
+        else:
+            alias = InstrumentAlias(
+                instrument_id=body.instrument_id,
+                source=body.source,
+                source_account_name=body.account_name,
+                canonical_account_name=canonical,
+                source_security_name=body.security_name,
+                source_security_name_norm=norm_name,
+                alias_type="manual",
+                confidence=1.0,
+                created_by="admin",
+                notes=body.reason or "Manual admin resolution",
+            )
+            session.add(alias)
+            await session.flush()
+            alias_created = True
 
     # Update matching orders
     q = select(Order).where(
@@ -334,7 +363,7 @@ async def resolve_group(
     return {
         "affected_orders": affected,
         "instrument_id": body.instrument_id,
-        "alias_created": body.create_alias,
+        "alias_created": alias_created,
     }
 
 

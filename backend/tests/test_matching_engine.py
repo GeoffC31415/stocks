@@ -505,3 +505,248 @@ async def test_ignored_orders_not_overwritten(async_db: AsyncSession) -> None:
     await async_db.refresh(order)
     assert order.match_status == "ignored"
     assert order.instrument_id is None
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: order_date=None with closed instruments
+#
+# The unmatched-groups / candidates endpoints call build_candidates and
+# score_candidate WITHOUT an order date. When the portfolio contained a
+# closed instrument these code paths crashed with
+# AttributeError: 'NoneType' object has no attribute 'tzinfo', the
+# endpoints returned 500, and the UI rendered an empty unmatched table.
+# ---------------------------------------------------------------------------
+
+
+class TestClosedInstrumentWithoutOrderDate:
+    def test_score_candidate_closed_no_order_date(self) -> None:
+        """score_candidate must not crash when order_date is None and instrument is closed."""
+        inst = Instrument(
+            id=1,
+            account_name="Investment ISA",
+            identifier="MANUAL:test",
+            security_name="Amundi Etf AMUNDI ETF DAX UCITS ETF DR",
+            is_cash=False,
+            closed_at=dt.datetime(2026, 5, 7, 20, 13, 29),
+        )
+        score, evidence = score_candidate(
+            inst,
+            "AMUNDI ASSET MANAGEMENT AMUNDI ETF DAX",
+            "Investment ISA",
+            "Investment ISA",
+            # order_date omitted -> None
+        )
+        assert 0.0 <= score <= 1.0
+        assert evidence["scores"]["date_compatible"] == 0.7  # closed + no date: partial credit
+
+    @pytest.mark.anyio
+    async def test_build_candidates_closed_no_order_date(self, async_db: AsyncSession) -> None:
+        """build_candidates must not crash with order_date=None when closed instruments exist."""
+        from app.services.matching.candidates import build_candidates
+
+        async_db.add(
+            Instrument(
+                id=1,
+                account_name="Investment ISA",
+                identifier="MANUAL:closed-thing",
+                security_name="Closed Thing PLC ORD 10P",
+                is_cash=False,
+                closed_at=dt.datetime(2026, 5, 7, 20, 13, 29),
+            )
+        )
+        async_db.add(
+            Instrument(
+                id=2,
+                account_name="Investment ISA",
+                identifier="MANUAL:open-thing",
+                security_name="Open Thing PLC ORD 10P",
+                is_cash=False,
+            )
+        )
+        await async_db.commit()
+
+        candidates = await build_candidates(
+            async_db, "barclays_orders", "Investment ISA", "AMUNDI ASSET MANAGEMENT AMUNDI ETF DAX"
+        )
+        assert {c.id for c in candidates} == {1, 2}
+
+    @pytest.mark.anyio
+    async def test_unmatched_groups_endpoint_with_closed_instruments(
+        self, async_db: AsyncSession
+    ) -> None:
+        """/api/matching/unmatched-groups must return the group (not 500) when closed instruments exist."""
+        import httpx
+
+        from app.database import get_session
+        from app.main import app
+        from app.models import OrderImportBatch
+
+        batch = OrderImportBatch(id=1, file_sha256="f" * 64)
+        async_db.add(batch)
+        async_db.add(
+            Instrument(
+                id=1,
+                account_name="Investment ISA",
+                identifier="MANUAL:amundi",
+                security_name="Amundi Etf AMUNDI ETF DAX UCITS ETF DR",
+                is_cash=False,
+                closed_at=dt.datetime(2026, 5, 7, 20, 13, 29),
+            )
+        )
+        async_db.add(
+            Order(
+                id=1,
+                order_import_batch_id=1,
+                security_name="AMUNDI ASSET MANAGEMENT AMUNDI ETF DAX",
+                order_date=dt.datetime(2018, 8, 6, 21, 7, 36),
+                order_status="Completed",
+                account_name="Investment ISA",
+                side="Buy",
+                quantity=9.0,
+                cost_proceeds_gbp=1875.62,
+                country="UK",
+                is_drip=False,
+                order_fingerprint="fp-amundi-1",
+                match_status="unmatched",
+            )
+        )
+        await async_db.commit()
+
+        # Point the router's session dependency at the in-memory fixture DB
+        async def override_get_session():
+            yield async_db
+
+        app.dependency_overrides[get_session] = override_get_session
+        try:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.get("/api/matching/unmatched-groups")
+        finally:
+            app.dependency_overrides.pop(get_session, None)
+
+        assert response.status_code == 200
+        groups = response.json()
+        assert len(groups) == 1
+        group = groups[0]
+        assert group["security_name"] == "AMUNDI ASSET MANAGEMENT AMUNDI ETF DAX"
+        assert group["order_count"] == 1
+        # The closed instrument should surface as the best candidate
+        assert group["best_candidate"] is not None
+        assert group["best_candidate"]["instrument_id"] == 1
+
+
+@pytest.mark.anyio
+async def test_resolve_group_with_preexisting_alias(async_db: AsyncSession) -> None:
+    """resolve-group must upsert, not re-insert, when an alias already exists.
+
+    instrument_aliases has a UNIQUE constraint on
+    (source, source_account_name, source_security_name_norm). The UI's Match
+    button always sends create_alias=true, so resolving a group that was
+    previously resolved (alias present) must not 500 with IntegrityError.
+    """
+    import httpx
+
+    from app.database import get_session
+    from app.main import app
+    from app.models import OrderImportBatch
+    from app.services.matching.normalisation import normalise_name
+
+    acct = "Investment ISA"
+    sec = "AMUNDI ASSET MANAGEMENT AMUNDI ETF DAX"
+    norm = normalise_name(sec)
+
+    async_db.add(OrderImportBatch(id=1, file_sha256="a" * 64))
+    async_db.add(
+        Instrument(
+            id=43,
+            account_name=acct,
+            identifier="MANUAL:amundi",
+            security_name="Amundi Etf AMUNDI ETF DAX UCITS ETF DR",
+            is_cash=False,
+            closed_at=dt.datetime(2026, 5, 7),
+        )
+    )
+    async_db.add(
+        Order(
+            id=1,
+            order_import_batch_id=1,
+            security_name=sec,
+            order_date=dt.datetime(2020, 5, 11),
+            order_status="Completed",
+            account_name=acct,
+            side="Sell",
+            quantity=9.0,
+            cost_proceeds_gbp=1551.9,
+            country="UK",
+            is_drip=False,
+            order_fingerprint="fp-amundi-399",
+            match_status="unmatched",
+        )
+    )
+    # Pre-existing alias for this exact group -> the condition that used to 500
+    async_db.add(
+        InstrumentAlias(
+            id=40,
+            instrument_id=43,
+            source="barclays_orders",
+            source_account_name=acct,
+            canonical_account_name=acct,
+            source_security_name=sec,
+            source_security_name_norm=norm,
+            alias_type="manual",
+            confidence=1.0,
+            created_by="admin",
+        )
+    )
+    await async_db.commit()
+
+    async def override_get_session():
+        yield async_db
+
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/matching/resolve-group",
+                json={
+                    "source": "barclays_orders",
+                    "account_name": acct,
+                    "security_name": sec,
+                    "instrument_id": 43,
+                    "create_alias": True,
+                    "apply_to_existing_orders": True,
+                    "reason": "Admin resolution from Matching Admin",
+                },
+            )
+            # Re-resolving after the order is already matched must also not 500
+            response2 = await client.post(
+                "/api/matching/resolve-group",
+                json={
+                    "source": "barclays_orders",
+                    "account_name": acct,
+                    "security_name": sec,
+                    "instrument_id": 43,
+                    "create_alias": True,
+                    "apply_to_existing_orders": True,
+                    "reason": "retry",
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["affected_orders"] == 1
+    assert body["alias_created"] is False  # existing alias was updated, not created
+
+    assert response2.status_code == 200
+    assert response2.json()["affected_orders"] == 0
+
+    aliases = (await async_db.execute(select(InstrumentAlias))).scalars().all()
+    assert len(aliases) == 1  # no duplicate alias row
+    assert aliases[0].instrument_id == 43
+
+    order = await async_db.get(Order, 1)
+    assert order.instrument_id == 43
+    assert order.match_status == "manual"

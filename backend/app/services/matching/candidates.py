@@ -109,11 +109,12 @@ async def build_candidates(
             # Ensure both datetimes are timezone-aware before comparing
             # (SQLite stores DateTime(timezone=True) as naive on some drivers)
             closed_at = inst.closed_at
-            if closed_at.tzinfo is None and order_date.tzinfo is not None:
-                closed_at = closed_at.replace(tzinfo=order_date.tzinfo)
-            if order_date is not None and order_date > closed_at:
-                # Order is after instrument was closed - skip unless very close
-                continue
+            if order_date is not None:
+                if closed_at.tzinfo is None and order_date.tzinfo is not None:
+                    closed_at = closed_at.replace(tzinfo=order_date.tzinfo)
+                if order_date > closed_at:
+                    # Order is after instrument was closed - skip unless very close
+                    continue
             # Include closed instruments but deprioritize them
             other_account.append(inst)
             continue

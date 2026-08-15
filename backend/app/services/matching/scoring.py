@@ -101,12 +101,15 @@ def score_candidate(
         # Ensure both datetimes are timezone-aware before comparing
         # (SQLite stores DateTime(timezone=True) as naive on some drivers)
         closed_at = instrument.closed_at
-        if closed_at.tzinfo is None and order_date.tzinfo is not None:
-            closed_at = closed_at.replace(tzinfo=order_date.tzinfo)
-        if order_date is not None and order_date > closed_at:
-            date_score = 0.0
+        if order_date is not None:
+            if closed_at.tzinfo is None and order_date.tzinfo is not None:
+                closed_at = closed_at.replace(tzinfo=order_date.tzinfo)
+            if order_date > closed_at:
+                date_score = 0.0
+            else:
+                date_score = 0.7  # Partial credit for closed instruments
         else:
-            date_score = 0.7  # Partial credit for closed instruments
+            date_score = 0.7  # No order date: give partial credit for closed instruments
     evidence["scores"]["date_compatible"] = date_score
 
     # Weighted combination
