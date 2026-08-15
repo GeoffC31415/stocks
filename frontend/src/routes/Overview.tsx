@@ -11,6 +11,7 @@ import { ChartPanel } from "../components/ChartPanel";
 import { PerformersSection } from "../components/PerformersSection";
 import { PortfolioReturnCard } from "../components/PortfolioReturnCard";
 import { AttributionSummaryCard } from "../components/AttributionSummaryCard";
+import { PerformancePanel } from "../components/PerformancePanel";
 
 export function Overview() {
   const navigate = useNavigate();
@@ -240,6 +241,8 @@ export function Overview() {
       />
 
       <AttributionSummaryCard attribution={attributionQ.data ?? null} />
+
+      <PerformancePanel accountName={selectedAccount} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <PortfolioReturnCard summary={returnsQ.data} />

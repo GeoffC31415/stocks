@@ -1,0 +1,385 @@
+"""Portfolio growth + risk metrics.
+
+Computes growth and risk statistics (total/annualised return, volatility,
+Sharpe/Sortino, max drawdown) from the snapshot-derived portfolio value
+series, and returns a normalized growth curve that is directly comparable
+to the rebased benchmark series used elsewhere.
+
+The pure ``compute_performance_metrics`` function is deterministic and
+DB-free so the statistics can be unit tested against synthetic series.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import math
+import statistics
+from collections import defaultdict
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.models import HoldingSnapshot, ImportBatch, Instrument
+from app.services.market_data_service import fetch_history
+
+# Period -> trailing day count. ``ALL`` means "from the first snapshot".
+# ``YTD`` is resolved relative to the window end (Jan 1 of that year).
+PERIOD_OPTIONS: dict[str, int | None] = {
+    "1M": 30,
+    "3M": 91,
+    "6M": 183,
+    "1Y": 365,
+    "YTD": None,  # handled specially
+    "ALL": None,
+}
+
+TRADING_DAYS_PER_YEAR = 365.25
+
+
+def resolve_period_start(period: str, reference: dt.date) -> dt.date | None:
+    """Resolve the inclusive window start for a period label.
+
+    Returns ``None`` for ``ALL`` (use the earliest available point).
+    """
+    if period == "ALL":
+        return None
+    if period == "YTD":
+        return dt.date(reference.year, 1, 1)
+    days = PERIOD_OPTIONS.get(period)
+    if days is None:
+        raise ValueError(f"Unknown period: {period}")
+    return reference - dt.timedelta(days=days)
+
+
+def _annualisation_factor(dates: list[dt.date]) -> float:
+    """Average annualization multiplier from the mean period length.
+
+    For N dated points there are N-1 return periods spanning ``total_days``.
+    The number of such periods that fit in a year is ``365.25 / avg_period``.
+    """
+    if len(dates) < 2:
+        return 1.0
+    total_days = (dates[-1] - dates[0]).days
+    if total_days <= 0:
+        return 1.0
+    avg_period_days = total_days / (len(dates) - 1)
+    if avg_period_days <= 0:
+        return 1.0
+    return TRADING_DAYS_PER_YEAR / avg_period_days
+
+
+def compute_performance_metrics(
+    points: list[tuple[dt.date, float]],
+    *,
+    risk_free_annual_pct: float = 0.0,
+) -> dict:
+    """Compute growth + risk statistics from dated portfolio value points.
+
+    ``points`` is a chronologically ordered list of ``(date, value_gbp)``.
+    Returns a dict matching ``PerformanceSummary`` (minus growth/benchmarks).
+    """
+    base: dict = {
+        "period_start": None,
+        "period_end": None,
+        "start_value_gbp": None,
+        "end_value_gbp": None,
+        "total_return_pct": None,
+        "annualised_return_pct": None,
+        "annualised_volatility_pct": None,
+        "sharpe_ratio": None,
+        "sortino_ratio": None,
+        "max_drawdown_pct": None,
+        "best_period_return_pct": None,
+        "worst_period_return_pct": None,
+        "num_periods": 0,
+        "annualisation_factor": None,
+        "risk_free_annual_pct": risk_free_annual_pct,
+        "method": "arithmetic period returns on snapshot-derived portfolio value",
+        "notes": [],
+    }
+    if not points:
+        base["notes"].append("No dated portfolio values are available.")
+        return base
+    if len(points) < 2:
+        base["period_start"] = points[0][0]
+        base["period_end"] = points[0][0]
+        base["start_value_gbp"] = points[0][1]
+        base["end_value_gbp"] = points[0][1]
+        base["notes"].append("At least two dated portfolio values are required for return metrics.")
+        return base
+
+    dates = [p[0] for p in points]
+    values = [p[1] for p in points]
+    start_value = values[0]
+    end_value = values[-1]
+
+    base.update(
+        period_start=dates[0],
+        period_end=dates[-1],
+        start_value_gbp=round(start_value, 2),
+        end_value_gbp=round(end_value, 2),
+    )
+
+    # Simple total return on the value series.
+    if start_value > 0:
+        base["total_return_pct"] = round((end_value / start_value - 1.0) * 100.0, 4)
+    else:
+        base["notes"].append("Starting value is not positive, so total return is unavailable.")
+
+    # Geometric annualised return.
+    total_days = (dates[-1] - dates[0]).days
+    years = total_days / TRADING_DAYS_PER_YEAR
+    if start_value > 0 and end_value > 0 and years > 0:
+        base["annualised_return_pct"] = round(
+            ((end_value / start_value) ** (1.0 / years) - 1.0) * 100.0, 4
+        )
+    elif years <= 0:
+        base["notes"].append("Annualised return is unavailable for a zero-length window.")
+
+    # Period returns.
+    period_returns: list[float] = []
+    for i in range(1, len(values)):
+        prev = values[i - 1]
+        if prev <= 0:
+            continue
+        period_returns.append(values[i] / prev - 1.0)
+    n = len(period_returns)
+    base["num_periods"] = n
+
+    if n == 0:
+        base["notes"].append("No positive prior value available to form period returns.")
+        return base
+
+    ann_factor = _annualisation_factor(dates)
+    base["annualisation_factor"] = round(ann_factor, 4)
+    mean_r = statistics.fmean(period_returns)
+    base["best_period_return_pct"] = round(max(period_returns) * 100.0, 4)
+    base["worst_period_return_pct"] = round(min(period_returns) * 100.0, 4)
+
+    # Max drawdown on the value series (peak-to-trough, in percent).
+    peak = values[0]
+    max_dd = 0.0
+    for v in values:
+        if v > peak:
+            peak = v
+        if peak > 0:
+            dd = (v - peak) / peak
+            if dd < max_dd:
+                max_dd = dd
+    base["max_drawdown_pct"] = round(max_dd * 100.0, 4)
+
+    # Risk metrics require a variance estimate (>= 2 periods).
+    rf_per_period = (risk_free_annual_pct / 100.0) / ann_factor if ann_factor > 0 else 0.0
+    if n < 2:
+        base["notes"].append(
+            "At least two period returns are required for volatility and risk ratios."
+        )
+        return base
+
+    std_r = statistics.stdev(period_returns)
+    sqrt_ann = math.sqrt(ann_factor)
+    if std_r == 0.0:
+        base["annualised_volatility_pct"] = 0.0
+        base["notes"].append("Period returns have zero variance, so Sharpe is undefined.")
+        return base
+
+    base["annualised_volatility_pct"] = round(std_r * sqrt_ann * 100.0, 4)
+    sharpe = ((mean_r - rf_per_period) / std_r) * sqrt_ann
+    base["sharpe_ratio"] = round(sharpe, 4)
+
+    # Sortino: downside deviation relative to the per-period risk-free hurdle.
+    downside = [min(r - rf_per_period, 0.0) for r in period_returns]
+    downside_dev = math.sqrt(statistics.fmean([d * d for d in downside]))
+    if downside_dev > 0:
+        sortino = ((mean_r - rf_per_period) / downside_dev) * sqrt_ann
+        base["sortino_ratio"] = round(sortino, 4)
+    else:
+        base["notes"].append("No downside periods in the window, so Sortino is undefined.")
+    return base
+
+
+async def build_value_series(
+    session: AsyncSession,
+    *,
+    account_name: str | None = None,
+) -> tuple[list[dict], dt.date | None]:
+    """Reconstruct the portfolio value after each snapshot batch.
+
+    Returns ``(points, coverage_start)`` where each point is
+    ``{"as_of_date": dt.date, "value_gbp": float}`` in date order, and
+    ``coverage_start`` is the first snapshot date on which *every* account in
+    the selection had already been observed (``None`` when a single account is
+    selected or no accounts were found).
+
+    Carrying each account's last snapshot forward is how the app defines
+    portfolio value (see ``portfolio_value_timeseries``). For the all-account
+    view a value is only "complete" once all accounts have coverage, which is
+    what ``coverage_start`` encodes.
+    """
+    batches_result = await session.execute(
+        select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
+    )
+    batches = list(batches_result.scalars().all())
+    if not batches:
+        return [], None
+
+    snapshot_query = (
+        select(HoldingSnapshot)
+        .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
+        .options(selectinload(HoldingSnapshot.instrument))
+        .order_by(HoldingSnapshot.import_batch_id)
+    )
+    if account_name is not None:
+        snapshot_query = snapshot_query.where(Instrument.account_name == account_name)
+    snapshots_result = await session.execute(snapshot_query)
+
+    by_batch: dict[int, list[HoldingSnapshot]] = defaultdict(list)
+    all_account_names: set[str] = set()
+    for snapshot in snapshots_result.scalars().all():
+        by_batch[snapshot.import_batch_id].append(snapshot)
+        all_account_names.add(snapshot.instrument.account_name)
+
+    # ``all_account_names`` is the full set of accounts in the selection, so
+    # the coverage anchor is judged against every account (not those seen so far).
+    current_by_instrument: dict[int, HoldingSnapshot] = {}
+    points: list[dict] = []
+    covered_accounts: set[str] = set()
+    coverage_start: dt.date | None = None
+
+    for batch in batches:
+        for snapshot in by_batch.get(batch.id, []):
+            current_by_instrument[snapshot.instrument_id] = snapshot
+        for closed in (batch.diff_summary or {}).get("closed", []):
+            instrument_id = closed.get("instrument_id")
+            if instrument_id is not None:
+                current_by_instrument.pop(int(instrument_id), None)
+
+        if not current_by_instrument:
+            continue
+        covered_accounts |= {s.instrument.account_name for s in current_by_instrument.values()}
+        if (
+            coverage_start is None
+            and len(all_account_names) > 1
+            and covered_accounts == all_account_names
+        ):
+            coverage_start = batch.as_of_date
+
+        total_value = sum(s.value_gbp or 0.0 for s in current_by_instrument.values())
+        points.append({"as_of_date": batch.as_of_date, "value_gbp": float(total_value)})
+    return points, coverage_start
+
+
+async def get_portfolio_performance(
+    session: AsyncSession,
+    *,
+    account_name: str | None = None,
+    period: str = "ALL",
+    risk_free_annual_pct: float = 0.0,
+    benchmark_symbols: list[str] | None = None,
+) -> dict:
+    """Assemble the performance payload for a period window.
+
+    Reuses the snapshot-derived value series (the authoritative account
+    value) and, when network access is available, rebased benchmark
+    series for visual comparison. Benchmark failures never fail the call.
+    """
+    if period not in PERIOD_OPTIONS:
+        raise ValueError(f"Unknown period: {period}")
+
+    series, coverage_start = await build_value_series(session, account_name=account_name)
+    if not series:
+        return {
+            "period": period,
+            "period_start": None,
+            "period_end": None,
+            "start_value_gbp": None,
+            "end_value_gbp": None,
+            "total_return_pct": None,
+            "annualised_return_pct": None,
+            "annualised_volatility_pct": None,
+            "sharpe_ratio": None,
+            "sortino_ratio": None,
+            "max_drawdown_pct": None,
+            "best_period_return_pct": None,
+            "worst_period_return_pct": None,
+            "num_periods": 0,
+            "annualisation_factor": None,
+            "risk_free_annual_pct": risk_free_annual_pct,
+            "method": "arithmetic period returns on snapshot-derived portfolio value",
+            "notes": ["No portfolio snapshots are available for this selection."],
+            "coverage_start": None,
+            "growth_curve": [],
+            "benchmarks": [],
+        }
+
+    all_points: list[tuple[dt.date, float]] = [(p["as_of_date"], p["value_gbp"]) for p in series]
+    all_points.sort(key=lambda p: p[0])
+
+    # All-account growth is only meaningful once every account has been
+    # observed; anchor the window to that coverage date when it is available.
+    reference = all_points[-1][0]
+    window_start = resolve_period_start(period, reference)
+    if coverage_start is not None:
+        window_start = (
+            max(window_start, coverage_start) if window_start is not None else coverage_start
+        )
+
+    window = all_points if window_start is None else [p for p in all_points if p[0] >= window_start]
+    if not window:
+        window = [all_points[-1]]
+
+    metrics = compute_performance_metrics(
+        window,
+        risk_free_annual_pct=risk_free_annual_pct,
+    )
+    if (
+        coverage_start is not None
+        and window
+        and window[0][0] == coverage_start
+        and period in ("1M", "3M", "6M", "1Y", "YTD")
+    ):
+        metrics["notes"].insert(
+            0,
+            "The window starts at the first date every selected account had snapshot coverage, "
+            "so growth reflects complete-portfolio returns.",
+        )
+
+    # Normalized growth curve: 100 at the window start.
+    base_value = window[0][1] or 0.0
+    growth_curve: list[dict] = []
+    for d, v in window:
+        normalized = (v / base_value * 100.0) if base_value > 0 else None
+        growth_curve.append(
+            {
+                "as_of_date": d,
+                "value_gbp": round(v, 2),
+                "normalized_value": round(normalized, 4) if normalized is not None else None,
+            }
+        )
+
+    benchmarks: list[dict] = []
+    if benchmark_symbols:
+        for symbol in benchmark_symbols:
+            try:
+                rows = await fetch_history(symbol, start=window_start, base_value=100.0)
+            except Exception:  # noqa: BLE001 - network/parse failures are non-fatal
+                continue
+            for row in rows:
+                benchmarks.append(
+                    {
+                        "date": row["date"],
+                        "symbol": row["symbol"],
+                        "value": round(float(row["rebased_value"]), 4),
+                    }
+                )
+    benchmarks.sort(key=lambda r: (r["date"], r["symbol"]))
+
+    payload = {
+        "period": period,
+        "coverage_start": coverage_start,
+        **metrics,
+        "growth_curve": growth_curve,
+        "benchmarks": benchmarks,
+    }
+    return payload

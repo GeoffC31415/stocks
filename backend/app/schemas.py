@@ -330,6 +330,42 @@ class BenchmarkPoint(BaseModel):
     rebased_value: float
 
 
+class PerformancePoint(BaseModel):
+    as_of_date: dt.date
+    value_gbp: float
+    normalized_value: float | None = None
+
+
+class PerformanceBenchmarkPoint(BaseModel):
+    date: dt.date
+    symbol: str
+    value: float
+
+
+class PerformanceSummary(BaseModel):
+    period: str
+    coverage_start: dt.date | None = None
+    period_start: dt.date | None
+    period_end: dt.date | None
+    start_value_gbp: float | None
+    end_value_gbp: float | None
+    total_return_pct: float | None
+    annualised_return_pct: float | None
+    annualised_volatility_pct: float | None
+    sharpe_ratio: float | None
+    sortino_ratio: float | None
+    max_drawdown_pct: float | None
+    best_period_return_pct: float | None
+    worst_period_return_pct: float | None
+    num_periods: int
+    annualisation_factor: float | None
+    risk_free_annual_pct: float
+    method: str
+    notes: list[str] = Field(default_factory=list)
+    growth_curve: list[PerformancePoint] = Field(default_factory=list)
+    benchmarks: list[PerformanceBenchmarkPoint] = Field(default_factory=list)
+
+
 class InstrumentQuoteOut(BaseModel):
     instrument_id: int
     ticker: str

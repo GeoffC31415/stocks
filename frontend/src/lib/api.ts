@@ -247,6 +247,42 @@ export type BenchmarkPoint = {
   rebased_value: number;
 };
 
+export type PerformancePoint = {
+  as_of_date: string;
+  value_gbp: number;
+  normalized_value: number | null;
+};
+
+export type PerformanceBenchmarkPoint = {
+  date: string;
+  symbol: string;
+  value: number;
+};
+
+export type PerformanceSummary = {
+  period: string;
+  coverage_start: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  start_value_gbp: number | null;
+  end_value_gbp: number | null;
+  total_return_pct: number | null;
+  annualised_return_pct: number | null;
+  annualised_volatility_pct: number | null;
+  sharpe_ratio: number | null;
+  sortino_ratio: number | null;
+  max_drawdown_pct: number | null;
+  best_period_return_pct: number | null;
+  worst_period_return_pct: number | null;
+  num_periods: number;
+  annualisation_factor: number | null;
+  risk_free_annual_pct: number;
+  method: string;
+  notes: string[];
+  growth_curve: PerformancePoint[];
+  benchmarks: PerformanceBenchmarkPoint[];
+};
+
 export type InstrumentQuote = {
   instrument_id: number;
   ticker: string;
@@ -563,6 +599,22 @@ const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
 
 export const api = {
   getSummary: () => requestJson<PortfolioSummary>("/api/portfolio/summary"),
+  getPerformance: (
+    accountName?: string | null,
+    period = "ALL",
+    benchmarks: string[] = ["spx.us", "vwrl.uk"],
+    includeBenchmarks = true,
+  ) => {
+    const params = new URLSearchParams();
+    if (accountName) params.set("account_name", accountName);
+    params.set("period", period);
+    if (includeBenchmarks) {
+      for (const symbol of benchmarks) params.append("benchmark", symbol);
+    } else {
+      params.set("include_benchmarks", "false");
+    }
+    return requestJson<PerformanceSummary>(`/api/portfolio/performance?${params.toString()}`);
+  },
   getSnapshotAttribution: (
     accountName?: string | null,
     fromBatchId?: number | null,
