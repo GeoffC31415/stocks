@@ -9,12 +9,14 @@ from app.database import get_session
 from app.schemas import (
     BenchmarkPoint,
     InstrumentOut,
+    PerformanceSummary,
     PortfolioReturnSummary,
     PortfolioSummary,
     SnapshotAttributionResponse,
 )
 from app.services.attribution_service import get_snapshot_attribution
 from app.services.market_data_service import fetch_history
+from app.services.performance_service import get_portfolio_performance
 from app.services.portfolio_service import (
     build_instrument_out,
     build_portfolio_summary,
@@ -73,6 +75,31 @@ async def returns(
         to_date=to_date,
     )
     return PortfolioReturnSummary(**data)
+
+
+@router.get("/performance", response_model=PerformanceSummary)
+async def performance(
+    account_name: str | None = None,
+    period: str = "ALL",
+    risk_free_annual_pct: float = 0.0,
+    benchmark: list[str] = Query(default=["spx.us", "vwrl.uk"]),
+    include_benchmarks: bool = True,
+    session: AsyncSession = Depends(get_session),
+) -> PerformanceSummary:
+    """Period-scoped growth + risk metrics and a normalized growth curve.
+
+    ``period`` is one of ``1M/3M/6M/1Y/YTD/ALL``. Benchmarks are rebased to
+    100 at the window start and are fetched live (best effort) for a clean
+    "am I beating the market?" comparison.
+    """
+    data = await get_portfolio_performance(
+        session,
+        account_name=account_name,
+        period=period,
+        risk_free_annual_pct=risk_free_annual_pct,
+        benchmark_symbols=benchmark if include_benchmarks else None,
+    )
+    return PerformanceSummary(**data)
 
 
 @router.get("/attribution", response_model=SnapshotAttributionResponse)

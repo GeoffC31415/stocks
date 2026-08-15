@@ -448,6 +448,43 @@ RETURN_METHOD = "Modified Dietz"
 MIN_ANNUALISATION_DAYS = 365
 
 
+def classify_external_flows(orders: Sequence[Order]) -> tuple[float, float, list[tuple[dt.date, float]]]:
+    """Classify orders into signed external cashflows for Modified Dietz.
+
+    Returns ``(contributions, withdrawals, signed_flows)`` where
+    ``signed_flows`` is a list of ``(order_date, signed_amount)``.
+
+    The classification is the single source of truth shared by the returns
+    card and the performance/risk metrics, so the two can never disagree:
+
+    * **Buy, non-DRIP** → external **contribution** (+). A manual cash
+      injection / new order.
+    * **Buy, DRIP**      → **excluded** (internal: portfolio cash moved into
+      the holding; the money was already in the account).
+    * **Sell**           → external **withdrawal** (−). Sale proceeds leave the
+      account; the source cannot tell retained cash from a withdrawal.
+
+    ``None`` GBP values are skipped (unmatched / missing price).
+    """
+    contributions = 0.0
+    withdrawals = 0.0
+    signed_flows: list[tuple[dt.date, float]] = []
+    for order in orders:
+        if order.cost_proceeds_gbp is None:
+            continue
+        amount = abs(float(order.cost_proceeds_gbp))
+        side = order.side.lower()
+        if side == "buy":
+            if order.is_drip:
+                continue
+            contributions += amount
+            signed_flows.append((order.order_date.date(), amount))
+        elif side == "sell":
+            withdrawals += amount
+            signed_flows.append((order.order_date.date(), -amount))
+    return contributions, withdrawals, signed_flows
+
+
 def _unavailable_return_summary(notes: list[str]) -> dict:
     return {
         "period_start": None,
@@ -582,20 +619,7 @@ async def get_portfolio_return_summary(
     if account_name is not None:
         orders_query = orders_query.where(Order.account_name == account_name)
     orders_result = await session.execute(orders_query.order_by(Order.order_date))
-    contributions = 0.0
-    withdrawals = 0.0
-    signed_flows: list[tuple[dt.date, float]] = []
-    for order in orders_result.scalars().all():
-        if order.cost_proceeds_gbp is None:
-            continue
-        amount = abs(float(order.cost_proceeds_gbp))
-        side = order.side.lower()
-        if side == "buy" and not order.is_drip:
-            contributions += amount
-            signed_flows.append((order.order_date.date(), amount))
-        elif side == "sell":
-            withdrawals += amount
-            signed_flows.append((order.order_date.date(), -amount))
+    contributions, withdrawals, signed_flows = classify_external_flows(orders_result.scalars().all())
 
     total_days = (period_end - period_start).days
     net_external_flow = contributions - withdrawals
