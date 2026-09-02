@@ -78,6 +78,21 @@ describe("AttributionSummaryCard", () => {
       "href",
       "/diff?from=4&to=5",
     );
+    // Waterfall wired into the card above the stat tiles.
+    expect(screen.getByRole("heading", { name: "Value walk" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Exact reconciliation before display rounding."),
+    ).toBeInTheDocument();
+  });
+
+  it("surfaces a non-zero reconciliation difference in the waterfall", () => {
+    render(
+      <AttributionSummaryCard
+        attribution={{ ...attribution, reconciliation_difference_gbp: 5 }}
+      />,
+    );
+    expect(screen.getByText("Reconciliation difference")).toBeInTheDocument();
+    expect(screen.getByText(/Unreconciled difference £5/)).toBeInTheDocument();
   });
 
   it("shows an explicit unavailable state instead of zeroes", () => {

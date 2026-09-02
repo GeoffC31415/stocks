@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Layers3, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
+import { AllocationDonut } from "./AllocationDonut";
 import {
   calculateAllocation,
   type AllocationDimension,
@@ -88,23 +89,13 @@ export function AllocationAnalysisPanel() {
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="glass rounded-2xl p-5">
           <h2 className="text-sm font-semibold text-white">By {dimensionLabel}</h2>
-          <div className="mt-4 space-y-3">
-            {analysis.categories.map((row) => (
-              <div key={row.label}>
-                <div className="flex items-center justify-between gap-3 text-xs">
-                  <span className={row.label === "Unclassified" ? "text-amber-200" : "text-slate-200"}>
-                    {row.label} <span className="text-slate-600">· {row.count}</span>
-                  </span>
-                  <span className="tabular text-slate-400">{row.weightPct.toFixed(1)}% · {toGbp(row.value)}</span>
-                </div>
-                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-                  <div
-                    className={row.label === "Unclassified" ? "h-full rounded-full bg-amber-400" : "h-full rounded-full bg-aurora-accent"}
-                    style={{ width: `${Math.min(row.weightPct, 100)}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+          <div className="mt-4">
+            <AllocationDonut
+              categories={analysis.categories}
+              totalValue={analysis.totalValue}
+              hhi={analysis.hhi}
+              dimension={dimension}
+            />
           </div>
         </section>
 

@@ -1,6 +1,7 @@
 import type { SnapshotAttribution, SnapshotAttributionInstrument } from "../lib/api";
 import { formatSnapshotDateIso } from "../lib/api";
 import { toGbp } from "../lib/formatters";
+import { AttributionWaterfall } from "./AttributionWaterfall";
 
 const signedGbp = (value: number): string => `${value > 0 ? "+" : ""}${toGbp(value)}`;
 
@@ -53,6 +54,7 @@ export function AttributionSummaryCard({
 
       {available ? (
         <>
+          <AttributionWaterfall attribution={attribution} />
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <AttributionStat
               label="Net external flows"
@@ -60,22 +62,17 @@ export function AttributionSummaryCard({
               detail={`${toGbp(attribution.contributions_gbp)} in · ${toGbp(attribution.withdrawals_gbp)} out`}
             />
             <AttributionStat
-              label="DRIP proxy"
+              label="DRIP"
               value={toGbp(attribution.drip_proxy_gbp)}
               detail="Internal reinvested income"
             />
             <AttributionStat
               label="Estimated market movement"
-              value={signedGbp(marketMovement ?? 0)}
+              value={toGbp(marketMovement ?? 0)}
               detail="Residual after observed flows"
               tone={(marketMovement ?? 0) >= 0 ? "pos" : "neg"}
             />
           </div>
-          <p className="mt-2 text-[10px] text-slate-600">
-            {Math.abs(attribution.reconciliation_difference_gbp ?? 0) < 0.005
-              ? "Exact reconciliation before display rounding."
-              : `Unreconciled difference ${toGbp(attribution.reconciliation_difference_gbp)}`}
-          </p>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
             <MoverList title="Top contributors" rows={attribution.top_contributors} />
             <MoverList title="Top detractors" rows={attribution.top_detractors} />
