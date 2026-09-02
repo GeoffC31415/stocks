@@ -10,6 +10,7 @@ python-calamine>=0.6.0
 pytest>=8.3.0
 pytest-asyncio
 alembic>=1.13.0
+numpy>=1.26.0
 
 # Dev dependencies
 ruff>=0.15.0

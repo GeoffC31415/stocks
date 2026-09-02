@@ -123,9 +123,10 @@ async def benchmarks(
     symbols: list[str] = Query(default=["spx.us", "vwrl.uk"]),
     start: dt.date | None = None,
     base_value: float = 100.0,
+    session: AsyncSession = Depends(get_session),
 ) -> list[BenchmarkPoint]:
     rows: list[dict] = []
     for symbol in symbols:
-        rows.extend(await fetch_history(symbol, start=start, base_value=base_value))
+        rows.extend(await fetch_history(session, symbol, start=start, base_value=base_value))
     rows.sort(key=lambda row: (row["date"], row["symbol"]))
     return [BenchmarkPoint(**row) for row in rows]

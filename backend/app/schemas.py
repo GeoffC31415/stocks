@@ -328,6 +328,7 @@ class BenchmarkPoint(BaseModel):
     symbol: str
     close: float
     rebased_value: float
+    currency: str | None = None
 
 
 class PerformancePoint(BaseModel):
@@ -712,3 +713,45 @@ class CGTTaxYearTotals(BaseModel):
 class CGTSummaryResponse(BaseModel):
     instruments: list[CGTInstrumentSummary] = Field(default_factory=list)
     tax_year_totals: list[CGTTaxYearTotals] = Field(default_factory=list)
+
+
+class MarketDataRefreshRequest(BaseModel):
+    symbols: list[str] = Field(default_factory=list)
+    fx_pairs: list[str] = Field(default_factory=lambda: ["GBPUSD"])
+    start: dt.date | None = None
+    concurrency: int = 2
+    timeout_s: float = 20.0
+
+
+class MarketDataRefreshResponse(BaseModel):
+    ok: list[str]
+    failed: dict[str, str]
+    points_stored: int
+    partial: bool
+
+
+class MarketCoverageInstrument(BaseModel):
+    instrument_id: int
+    identifier: str
+    ticker: str | None
+    value_gbp: float
+    currency: str | None
+    last_date: dt.date | None
+    stale: bool
+    status: str
+    reason: str | None
+
+
+class MarketCoverageResponse(BaseModel):
+    as_of: dt.date | None
+    total_value_gbp: float
+    covered_value_gbp: float
+    uncovered_value_gbp: float
+    coverage_pct: float | None
+    gate_met: bool
+    gate_threshold_pct: float
+    duplicates: dict[str, list[int]]
+    aligned_dates: dict[str, dt.date | int | None]
+    fx: dict[str, dict[str, object] | None]
+    stale_series: list[MarketCoverageInstrument]
+    instruments: list[MarketCoverageInstrument]

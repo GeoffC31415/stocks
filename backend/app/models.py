@@ -194,6 +194,51 @@ class InstrumentQuote(Base):
     )
 
 
+class MarketPricePoint(Base):
+    """Durable market-history cache, keyed by (source, symbol, date).
+
+    Raw provider close plus adjusted close when the provider supplies it,
+    in the provider's source currency. FX is stored separately in
+    ``market_fx_points``; conversion to GBP happens at read time, never by
+    assuming a close is GBP.
+    """
+
+    __tablename__ = "market_price_points"
+    __table_args__ = (UniqueConstraint("source", "symbol", "date", name="uq_market_price_point"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    symbol: Mapped[str] = mapped_column(String(64), index=True)
+    date: Mapped[dt.date] = mapped_column(Date, index=True)
+    close: Mapped[float] = mapped_column(Float)
+    adjusted_close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    currency: Mapped[str] = mapped_column(String(16))
+    fetched_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
+    )
+
+
+class MarketFxPoint(Base):
+    """Durable FX-rate cache, keyed by (source, pair, date).
+
+    ``pair`` is the Yahoo-style quote-per-base code with the ``=X`` suffix
+    stripped (e.g. ``GBPUSD`` = 1 GBP quoted in USD). Converting a USD value
+    to GBP therefore divides by the latest ``GBPUSD`` rate.
+    """
+
+    __tablename__ = "market_fx_points"
+    __table_args__ = (UniqueConstraint("source", "pair", "date", name="uq_market_fx_point"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    pair: Mapped[str] = mapped_column(String(16), index=True)
+    date: Mapped[dt.date] = mapped_column(Date, index=True)
+    rate: Mapped[float] = mapped_column(Float)
+    fetched_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
+    )
+
+
 class AccountAlias(Base):
     """Map source account names to canonical account names for deterministic matching."""
 

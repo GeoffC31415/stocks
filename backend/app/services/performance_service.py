@@ -702,7 +702,7 @@ async def get_portfolio_performance(
     if benchmark_symbols:
         for symbol in benchmark_symbols:
             try:
-                rows = await fetch_history(symbol, start=window_start, base_value=100.0)
+                rows = await fetch_history(session, symbol, start=window_start, base_value=100.0)
             except Exception:  # noqa: BLE001 - network/parse failures are non-fatal
                 continue
             for row in rows:

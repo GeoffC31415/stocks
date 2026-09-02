@@ -13,6 +13,7 @@ from app.routers.fetch import router as fetch_router
 from app.routers.groups import router as groups_router
 from app.routers.imports import router as imports_router
 from app.routers.instruments import router as instruments_router
+from app.routers.market_data import router as market_data_router
 from app.routers.matching import router as matching_router
 from app.routers.orders import router as orders_router
 from app.routers.portfolio import router as portfolio_router
@@ -45,6 +46,7 @@ app.include_router(portfolio_router)
 app.include_router(instruments_router)
 app.include_router(groups_router)
 app.include_router(matching_router)
+app.include_router(market_data_router)
 
 
 @app.get("/api/health")
