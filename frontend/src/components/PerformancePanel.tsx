@@ -1,8 +1,23 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Area, AreaChart, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { Info, Loader2 } from "lucide-react";
-import { api, type PerformanceBenchmarkPoint } from "../lib/api";
+import {
+  api,
+  type PerformanceBenchmarkPoint,
+  type PerformanceDrawdownPoint,
+  type PerformanceFlowAdjustedPoint,
+} from "../lib/api";
 import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/chartDates";
 import { SegmentedControl } from "./SegmentedControl";
 
@@ -48,8 +63,8 @@ const METRIC_INFO: Record<string, { definition: string; typical: string }> = {
   },
   maxDrawdown: {
     definition:
-      "The largest peak-to-trough decline in the account value over the window. It measures how deep a bad stretch got — a key comfort metric for how bearable the ride is.",
-    typical: "≈-10% to -20% in mild corrections; equities can see -30% to -50% in a full bear market (e.g. 2008, 2022). A small value means a smooth ride.",
+      "The largest peak-to-trough decline in the flow-adjusted wealth index over the window. It measures how deep a bad stretch got on a cash-flow-neutral basis, so contributions don't flatten it. A small value means a smooth ride.",
+    typical: "≈-10% to -20% in mild corrections; equities can see -30% to -50% in a full bear market (e.g. 2008, 2022). The raw-value drawdown is shown alongside it for reference.",
   },
 };
 
@@ -139,6 +154,9 @@ function PerformanceTooltip({
 
 export function PerformancePanel({ accountName }: { accountName?: string }) {
   const [period, setPeriod] = useState<Period>("ALL");
+  // Raw account value is an optional overlay, off by default, so the primary
+  // line (flow-adjusted) cannot be mistaken for investment return.
+  const [showRaw, setShowRaw] = useState(false);
 
   const perfQ = useQuery({
     queryKey: ["performance", accountName, period],
@@ -151,9 +169,15 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
   const chartData = useMemo(() => {
     if (!perf) return { rows: [] as Array<Record<string, number | null>>, benchSymbols: [] as string[] };
     const rows: Array<Record<string, number | null>> = [];
+    // Primary line: the chain-linked flow-adjusted wealth index.
+    const flowRows: PerformanceFlowAdjustedPoint[] = perf.flow_adjusted_curve ?? [];
+    for (const p of flowRows) {
+      rows.push({ chartTime: chartUtcMs(p.date), flowAdjusted: p.index });
+    }
+    // Raw value index, only surfaced when the overlay is toggled on.
     for (const p of perf.growth_curve) {
       if (p.normalized_value == null) continue;
-      rows.push({ chartTime: chartUtcMs(p.as_of_date), portfolio: p.normalized_value });
+      rows.push({ chartTime: chartUtcMs(p.as_of_date), rawValue: p.normalized_value });
     }
     const benchSymbols = Array.from(new Set((perf.benchmarks ?? []).map((b) => b.symbol)));
     for (const b of perf.benchmarks ?? []) {
@@ -161,6 +185,17 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
     }
     rows.sort((a, b) => (a.chartTime ?? 0) - (b.chartTime ?? 0));
     return { rows, benchSymbols };
+  }, [perf]);
+
+  // Flow-adjusted drawdown area (negative, filled below 0).
+  const drawdownData = useMemo(() => {
+    if (!perf) return [] as Array<Record<string, number | null>>;
+    const rows = (perf.drawdown_curve ?? []).map((p: PerformanceDrawdownPoint) => ({
+      chartTime: chartUtcMs(p.date),
+      drawdown: p.drawdown_pct,
+    }));
+    rows.sort((a, b) => (a.chartTime ?? 0) - (b.chartTime ?? 0));
+    return rows;
   }, [perf]);
 
   const benchmarkReturns = useMemo(() => {
@@ -306,12 +341,28 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           infoKey="maxDrawdown"
           label="Max drawdown"
           value={fmtPct(perf.max_drawdown_pct)}
-          sub="Peak to trough"
+          sub={
+            perf.max_drawdown_raw_pct != null
+              ? `flow-adjusted · raw ${fmtPct(perf.max_drawdown_raw_pct)}`
+              : "flow-adjusted, peak to trough"
+          }
           tone={perf.max_drawdown_pct == null ? "muted" : perf.max_drawdown_pct < 0 ? "neg" : "muted"}
         />
       </div>
 
-      <div className="mt-4 h-64">
+      <div className="mt-4 flex items-center gap-2">
+        <label className="flex cursor-pointer items-center gap-2 text-[11px] text-slate-400">
+          <input
+            type="checkbox"
+            checked={showRaw}
+            onChange={(e) => setShowRaw(e.target.checked)}
+            className="h-3.5 w-3.5 accent-cyan-400"
+          />
+          Show raw account value (dashed)
+        </label>
+      </div>
+
+      <div className="mt-2 h-64">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData.rows}>
             <defs>
@@ -347,12 +398,25 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
             />
             <Area
               type="monotone"
-              dataKey="portfolio"
+              dataKey="flowAdjusted"
               stroke="#22d3ee"
               strokeWidth={2.5}
               fill="url(#perfVal)"
-              name="Portfolio (raw value)"
+              name="Flow-adjusted (index, 100 = start)"
+              connectNulls
             />
+            {showRaw ? (
+              <Line
+                type="monotone"
+                dataKey="rawValue"
+                stroke="#94a3b8"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                dot={false}
+                connectNulls
+                name="Raw account value (index)"
+              />
+            ) : null}
             {chartData.benchSymbols.map((symbol, index) => (
               <Line
                 key={symbol}
@@ -370,10 +434,66 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
         </ResponsiveContainer>
       </div>
 
+      {drawdownData.length > 0 ? (
+        <div className="mt-3">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Flow-adjusted drawdown
+          </p>
+          <div className="h-28">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={drawdownData}>
+                <defs>
+                  <linearGradient id="drawdownVal" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f87171" stopOpacity={0.4} />
+                    <stop offset="100%" stopColor="#f87171" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis
+                  dataKey="chartTime"
+                  type="number"
+                  scale="time"
+                  domain={["dataMin", "dataMax"]}
+                  stroke="#64748b"
+                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  tickFormatter={formatChartDayTick}
+                  minTickGap={32}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  stroke="#64748b"
+                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
+                  tickLine={false}
+                  axisLine={false}
+                  width={44}
+                  reversed
+                />
+                <ReferenceLine y={0} stroke="rgba(148,163,184,0.4)" strokeDasharray="3 3" />
+                <Area
+                  type="monotone"
+                  dataKey="drawdown"
+                  stroke="#f87171"
+                  strokeWidth={1.5}
+                  fill="url(#drawdownVal)"
+                  name="Drawdown"
+                  connectNulls
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
         <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-cyan-400" /> Portfolio value (index, 100 = window start)
+          <span className="h-2 w-2 rounded-full bg-cyan-400" /> Flow-adjusted (index, 100 = window start)
         </span>
+        {showRaw ? (
+          <span className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-slate-400" /> Raw account value (index, optional)
+          </span>
+        ) : null}
         {benchmarkReturns.map((b) => (
           <span key={b.symbol} className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-amber-400" />
@@ -382,8 +502,8 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           </span>
         ))}
         <span className="text-slate-600">
-          The chart shows raw account value (so cash-in jumps are visible); the KPI tiles
-          above are flow-adjusted.
+          The primary line is flow-adjusted, so cash you added or withdrew is netted out. Toggle
+          the dashed raw value to see the unadjusted account curve.
         </span>
       </div>
     </div>

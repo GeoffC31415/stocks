@@ -259,6 +259,18 @@ export type PerformanceBenchmarkPoint = {
   value: number;
 };
 
+export type PerformanceFlowAdjustedPoint = {
+  date: string;
+  index: number;
+};
+
+export type PerformanceDrawdownPoint = {
+  date: string;
+  index: number;
+  drawdown_pct: number;
+  at_peak: boolean;
+};
+
 export type PerformanceSummary = {
   period: string;
   coverage_start: string | null;
@@ -272,6 +284,8 @@ export type PerformanceSummary = {
   sharpe_ratio: number | null;
   sortino_ratio: number | null;
   max_drawdown_pct: number | null;
+  // Raw-value drawdown, distinct from the primary flow-adjusted max_drawdown_pct.
+  max_drawdown_raw_pct: number | null;
   best_period_return_pct: number | null;
   worst_period_return_pct: number | null;
   num_periods: number;
@@ -281,6 +295,9 @@ export type PerformanceSummary = {
   notes: string[];
   growth_curve: PerformancePoint[];
   benchmarks: PerformanceBenchmarkPoint[];
+  // Chain-linked flow-adjusted wealth index (100 = window start) + its drawdown.
+  flow_adjusted_curve: PerformanceFlowAdjustedPoint[];
+  drawdown_curve: PerformanceDrawdownPoint[];
   // Flow-adjusted (Modified Dietz) metrics — external cashflows netted out.
   flow_adjusted?: {
     contributions_gbp: number;
@@ -295,6 +312,9 @@ export type PerformanceSummary = {
     annualisation_factor: number | null;
     method: string;
     notes: string[];
+    flow_adjusted_curve: PerformanceFlowAdjustedPoint[];
+    drawdown_curve: PerformanceDrawdownPoint[];
+    max_drawdown_pct: number | null;
   };
 };
 

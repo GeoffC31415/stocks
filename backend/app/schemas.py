@@ -342,6 +342,22 @@ class PerformanceBenchmarkPoint(BaseModel):
     value: float
 
 
+class PerformanceFlowAdjustedPoint(BaseModel):
+    """One point on the chain-linked flow-adjusted wealth index (100 = start)."""
+
+    date: dt.date
+    index: float
+
+
+class PerformanceDrawdownPoint(BaseModel):
+    """Flow-adjusted drawdown of the wealth index (percent, <= 0 at a trough)."""
+
+    date: dt.date
+    index: float
+    drawdown_pct: float
+    at_peak: bool
+
+
 class PerformanceFlowAdjusted(BaseModel):
     """Flow-adjusted (Modified Dietz) growth + risk for a window.
 
@@ -362,6 +378,11 @@ class PerformanceFlowAdjusted(BaseModel):
     annualisation_factor: float | None
     method: str
     notes: list[str] = Field(default_factory=list)
+    # Chain-linked flow-adjusted wealth index (100 = window start) and its
+    # drawdown, so the headline KPI and the main curve share one interval series.
+    flow_adjusted_curve: list[PerformanceFlowAdjustedPoint] = Field(default_factory=list)
+    drawdown_curve: list[PerformanceDrawdownPoint] = Field(default_factory=list)
+    max_drawdown_pct: float | None = None
 
 
 class PerformanceSummary(BaseModel):
@@ -386,6 +407,12 @@ class PerformanceSummary(BaseModel):
     notes: list[str] = Field(default_factory=list)
     growth_curve: list[PerformancePoint] = Field(default_factory=list)
     benchmarks: list[PerformanceBenchmarkPoint] = Field(default_factory=list)
+    # Raw-value drawdown (distinct from the primary flow-adjusted max_drawdown_pct).
+    max_drawdown_raw_pct: float | None = None
+    # Chain-linked flow-adjusted wealth index + its drawdown (one interval series
+    # shared by the headline KPI and the primary chart line).
+    flow_adjusted_curve: list[PerformanceFlowAdjustedPoint] = Field(default_factory=list)
+    drawdown_curve: list[PerformanceDrawdownPoint] = Field(default_factory=list)
     flow_adjusted: PerformanceFlowAdjusted | None = None
 
 

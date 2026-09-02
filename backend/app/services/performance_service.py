@@ -161,7 +161,10 @@ def compute_performance_metrics(
     base["best_period_return_pct"] = round(max(period_returns) * 100.0, 4)
     base["worst_period_return_pct"] = round(min(period_returns) * 100.0, 4)
 
-    # Max drawdown on the value series (peak-to-trough, in percent).
+    # Max drawdown on the *raw* value series (peak-to-trough, in percent).
+    # The payload overlays the flow-adjusted drawdown as the primary value and
+    # keeps this as ``max_drawdown_raw_pct``; a raw drawdown is distorted by
+    # cash being added or taken out of the account.
     peak = values[0]
     max_dd = 0.0
     for v in values:
@@ -227,6 +230,104 @@ def _dietz_interval_return(
     if denominator <= 0:
         return None
     return (value_next - (value_prev + raw_flow)) / denominator
+
+
+def _interval_dietz_returns(
+    points: list[tuple[dt.date, float]],
+    signed_flows: list[tuple[dt.date, float]],
+) -> list[tuple[dt.date, float | None]]:
+    """Per-interval Modified Dietz returns, one entry per usable snapshot interval.
+
+    Returns ``[(date_of_interval_end, dietz_return | None), ...]`` where the
+    return is ``None`` for an interval whose prior value or denominator is
+    non-positive (unusable). A flow on the interval start date is already part
+    of the start value, so it is excluded from that interval's numerator.
+    """
+    dates = [p[0] for p in points]
+    values = [p[1] for p in points]
+    out: list[tuple[dt.date, float | None]] = []
+    for i in range(1, len(values)):
+        span_start = dates[i - 1]
+        span_end = dates[i]
+        interval_days = (span_end - span_start).days
+        if interval_days <= 0:
+            continue
+        raw_flow = 0.0
+        weighted_flow = 0.0
+        for flow_date, amount in signed_flows:
+            if span_start < flow_date <= span_end:
+                raw_flow += amount
+                weighted_flow += amount * ((span_end - flow_date).days / interval_days)
+        out.append(
+            (
+                span_end,
+                _dietz_interval_return(values[i - 1], values[i], raw_flow, weighted_flow),
+            )
+        )
+    return out
+
+
+def build_flow_adjusted_curve(
+    points: list[tuple[dt.date, float]],
+    signed_flows: list[tuple[dt.date, float]],
+) -> list[dict]:
+    """Chain-link valid interval Modified Dietz returns into a wealth index.
+
+    The index starts at 100 on the first snapshot date. Each usable interval
+    multiplies the running index by ``(1 + dietz_return)``; an unusable
+    interval holds the previous value (no market movement is assumed, so a
+    pure cash contribution with no market gain keeps the index flat while the
+    raw value rises). Deterministic and DB-free.
+    """
+    if len(points) < 2:
+        return []
+    curve: list[dict] = [{"date": points[0][0], "index": 100.0}]
+    index = 100.0
+    for date, interval_return in _interval_dietz_returns(points, signed_flows):
+        if interval_return is not None:
+            index = index * (1.0 + interval_return)
+        curve.append({"date": date, "index": round(index, 4)})
+    return curve
+
+
+def build_drawdown_curve(curve: list[dict]) -> list[dict]:
+    """Drawdown (in percent, <= 0) of a flow-adjusted wealth index.
+
+    Each point carries ``date``, ``index``, ``drawdown_pct`` and ``at_peak``.
+    ``drawdown_pct`` is ``(index - running_peak) / running_peak * 100`` and is
+    0.0 whenever the index is at or above its running peak. A drawdown
+    "recovers" (returns to 0.0) once the index reaches a new peak.
+    """
+    out: list[dict] = []
+    peak = 0.0
+    for point in curve:
+        index = point["index"]
+        if index > peak:
+            peak = index
+        at_peak = peak > 0 and index >= peak
+        drawdown_pct = (index - peak) / peak * 100.0 if peak > 0 else 0.0
+        out.append(
+            {
+                "date": point["date"],
+                "index": index,
+                "drawdown_pct": round(drawdown_pct, 4),
+                "at_peak": at_peak,
+            }
+        )
+    return out
+
+
+def max_flow_adjusted_drawdown(curve: list[dict]) -> float | None:
+    """Deepest flow-adjusted drawdown (most negative percent) across the index.
+
+    Returns ``None`` when the curve is empty. A monotonic or flat index yields 0.0.
+    """
+    if not curve:
+        return None
+    values = [p["drawdown_pct"] for p in build_drawdown_curve(curve)]
+    if not values:
+        return None
+    return round(min(values), 4)
 
 
 def compute_flow_adjusted_metrics(
@@ -470,6 +571,9 @@ async def _flow_adjusted_block(
         "annualisation_factor": None,
         "method": "Modified Dietz (flow-adjusted) on snapshot-derived portfolio value",
         "notes": ["Flow-adjusted metrics are unavailable for this window."],
+        "flow_adjusted_curve": [],
+        "drawdown_curve": [],
+        "max_drawdown_pct": None,
     }
     try:
         orders_query = select(Order).where(
@@ -485,13 +589,21 @@ async def _flow_adjusted_block(
     except Exception:  # noqa: BLE001 - a flow query failure should not kill the panel
         return unavailable
 
-    return compute_flow_adjusted_metrics(
+    block = compute_flow_adjusted_metrics(
         points,
         signed_flows,
         contributions=contributions,
         withdrawals=withdrawals,
         risk_free_annual_pct=risk_free_annual_pct,
     )
+
+    # Chain-linked flow-adjusted wealth index + its drawdown, so the KPI max
+    # drawdown and the main curve agree on the same interval series.
+    flow_curve = build_flow_adjusted_curve(points, signed_flows)
+    block["flow_adjusted_curve"] = flow_curve
+    block["drawdown_curve"] = build_drawdown_curve(flow_curve)
+    block["max_drawdown_pct"] = max_flow_adjusted_drawdown(flow_curve)
+    return block
 
 
 async def get_portfolio_performance(
@@ -535,6 +647,10 @@ async def get_portfolio_performance(
             "coverage_start": None,
             "growth_curve": [],
             "benchmarks": [],
+            "max_drawdown_raw_pct": None,
+            "flow_adjusted_curve": [],
+            "drawdown_curve": [],
+            "flow_adjusted": None,
         }
 
     all_points: list[tuple[dt.date, float]] = [(p["as_of_date"], p["value_gbp"]) for p in series]
@@ -618,8 +734,21 @@ async def get_portfolio_performance(
         "period": period,
         "coverage_start": coverage_start,
         **metrics,
+        # The raw-value drawdown is kept under a distinct name so the primary
+        # max_drawdown_pct can be the flow-adjusted one (cash flows no longer
+        # distort the displayed drawdown).
+        "max_drawdown_raw_pct": metrics.get("max_drawdown_pct"),
         "growth_curve": growth_curve,
         "benchmarks": benchmarks,
         "flow_adjusted": flow_adjusted,
+        # Chain-linked flow-adjusted index + drawdown, mirrored at top level so
+        # the UI's primary line and headline KPI share one interval series.
+        "flow_adjusted_curve": flow_adjusted.get("flow_adjusted_curve", []),
+        "drawdown_curve": flow_adjusted.get("drawdown_curve", []),
+        "max_drawdown_pct": (
+            flow_adjusted.get("max_drawdown_pct")
+            if flow_adjusted.get("max_drawdown_pct") is not None
+            else metrics.get("max_drawdown_pct")
+        ),
     }
     return payload

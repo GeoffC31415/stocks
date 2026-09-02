@@ -7,8 +7,11 @@ import pytest
 
 from app.services.performance_service import (
     _annualisation_factor,
+    build_drawdown_curve,
+    build_flow_adjusted_curve,
     compute_flow_adjusted_metrics,
     compute_performance_metrics,
+    max_flow_adjusted_drawdown,
     resolve_period_start,
 )
 from app.services.portfolio_service import classify_external_flows
@@ -168,6 +171,63 @@ async def test_coverage_start_anchors_all_account_window(monkeypatch) -> None:
     assert any("coverage" in note for note in six_month["notes"])
 
 
+async def test_performance_payload_exposes_flow_adjusted_curves(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.services import performance_service
+
+    async def fake_build_value_series(session, *, account_name=None):
+        return (
+            [
+                {"as_of_date": dt.date(2026, 1, 1), "value_gbp": 100.0},
+                {"as_of_date": dt.date(2026, 2, 1), "value_gbp": 200.0},
+            ],
+            None,
+        )
+
+    async def fake_fetch_history(symbol, *, start=None, base_value=100.0):
+        return []
+
+    # A single non-DRIP buy on Jan 15 = a 100 contribution mid-interval, so
+    # the flow-adjusted index is flat while the raw value doubles.
+    fake_order = SimpleNamespace(
+        side="buy",
+        cost_proceeds_gbp=100.0,
+        order_date=dt.datetime(2026, 1, 15),
+        is_drip=False,
+    )
+
+    class _FakeScalars:
+        def all(self):
+            return [fake_order]
+
+    class _FakeResult:
+        def scalars(self):
+            return _FakeScalars()
+
+    class _FakeSession:
+        async def execute(self, query):
+            return _FakeResult()
+
+    monkeypatch.setattr(performance_service, "build_value_series", fake_build_value_series)
+    monkeypatch.setattr(performance_service, "fetch_history", fake_fetch_history)
+
+    result = await performance_service.get_portfolio_performance(
+        _FakeSession(), period="ALL"
+    )
+    # Top-level curve + drawdown arrays are present and non-empty.
+    assert len(result["flow_adjusted_curve"]) == 2
+    assert len(result["drawdown_curve"]) == 2
+    assert result["flow_adjusted_curve"][0]["index"] == 100.0
+    # A pure contribution (no market gain) keeps the flow-adjusted index flat,
+    # so its max drawdown is 0; the raw value only rose, so its is 0 too — but
+    # the two are now distinct, named fields.
+    assert result["flow_adjusted"]["contributions_gbp"] == 100.0
+    assert result["max_drawdown_pct"] == 0.0
+    assert result["max_drawdown_raw_pct"] == 0.0
+    assert result["flow_adjusted"]["flow_adjusted_curve"] == result["flow_adjusted_curve"]
+
+
 async def test_get_performance_no_benchmarks_is_safe(monkeypatch) -> None:
     from app.services import performance_service
 
@@ -312,3 +372,90 @@ def test_flow_adjusted_interval_dietz_hand_check() -> None:
     fa = compute_flow_adjusted_metrics(points, flows, contributions=100.0, withdrawals=0.0)
     # numerator 200-(100+100)=0 -> 0% real return despite doubling value.
     assert fa["total_return_pct"] == pytest.approx(0.0, abs=1e-9)
+
+
+# --- Flow-adjusted wealth index + drawdown curve (Task 1) -------------------
+
+
+def test_flow_adjusted_curve_starts_at_100_and_chains() -> None:
+    # 100 -> 110 -> 105 (no flows): interval returns [0.10, -0.0454545].
+    # index: 100 -> 110 -> 110 * (1 - 0.0454545) = 105.0
+    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 110.0), (dt.date(2026, 3, 1), 105.0)]
+    curve = build_flow_adjusted_curve(points, [])
+    assert [p["index"] for p in curve] == [100.0, pytest.approx(110.0, abs=1e-6), pytest.approx(105.0, abs=1e-3)]
+    assert [p["date"] for p in curve] == [dt.date(2026, 1, 1), dt.date(2026, 2, 1), dt.date(2026, 3, 1)]
+
+
+def test_flow_adjusted_curve_flat_on_pure_contribution() -> None:
+    # 100 -> (contribute 100 mid-interval) -> 200. No market gain, so the
+    # flow-adjusted index stays flat at 100 even though the raw value doubled.
+    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 200.0)]
+    flows = [(dt.date(2026, 1, 15), 100.0)]
+    curve = build_flow_adjusted_curve(points, flows)
+    assert [p["index"] for p in curve] == [100.0, pytest.approx(100.0, abs=1e-6)]
+    # Contrast: the raw value index would read 200.
+    raw_last = 200.0 / 100.0 * 100.0
+    assert raw_last == pytest.approx(200.0)
+
+
+def test_flow_adjusted_curve_real_gain_moves_index() -> None:
+    # 100 -> (contribute 100 on Jan 15) -> 250 on Feb 1. Hold-weighted flow =
+    # 100 * (17/31) = 54.84; dietz = (250 - 200) / (100 + 54.84) = 32.29% ->
+    # index 100 * 1.3229 = 132.29. The raw value index would read 250.
+    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 250.0)]
+    flows = [(dt.date(2026, 1, 15), 100.0)]
+    curve = build_flow_adjusted_curve(points, flows)
+    assert curve[-1]["index"] == pytest.approx(132.2917, abs=1e-3)
+
+
+def test_flow_adjusted_curve_single_point_empty() -> None:
+    assert build_flow_adjusted_curve([(dt.date(2026, 1, 1), 100.0)], []) == []
+
+
+def test_drawdown_curve_known_peak_trough_recovery() -> None:
+    # index 100 -> 120 -> 108: peak 120, trough 108 => -10% drawdown;
+    # recovery to 120 (new peak) resets to 0%.
+    curve = [
+        {"date": dt.date(2026, 1, 1), "index": 100.0},
+        {"date": dt.date(2026, 2, 1), "index": 120.0},
+        {"date": dt.date(2026, 3, 1), "index": 108.0},
+        {"date": dt.date(2026, 4, 1), "index": 120.0},
+    ]
+    dd = build_drawdown_curve(curve)
+    assert dd[0]["drawdown_pct"] == 0.0
+    assert dd[1]["drawdown_pct"] == 0.0
+    assert dd[1]["at_peak"] is True
+    assert dd[2]["drawdown_pct"] == pytest.approx(-10.0, abs=1e-6)
+    assert dd[2]["at_peak"] is False
+    assert dd[3]["drawdown_pct"] == pytest.approx(0.0, abs=1e-6)  # recovered to a new peak
+    assert dd[3]["at_peak"] is True
+
+
+def test_max_flow_adjusted_drawdown_matches_curve_trough() -> None:
+    curve = [
+        {"date": dt.date(2026, 1, 1), "index": 100.0},
+        {"date": dt.date(2026, 2, 1), "index": 120.0},
+        {"date": dt.date(2026, 3, 1), "index": 108.0},
+    ]
+    assert max_flow_adjusted_drawdown(curve) == pytest.approx(-10.0, abs=1e-6)
+
+
+def test_max_flow_adjusted_drawdown_monotonic_is_zero() -> None:
+    curve = [
+        {"date": dt.date(2026, 1, 1), "index": 100.0},
+        {"date": dt.date(2026, 2, 1), "index": 110.0},
+        {"date": dt.date(2026, 3, 1), "index": 120.0},
+    ]
+    assert max_flow_adjusted_drawdown(curve) == 0.0
+
+
+def test_max_flow_adjusted_drawdown_empty_is_none() -> None:
+    assert max_flow_adjusted_drawdown([]) is None
+
+
+def test_pure_contribution_yields_zero_flow_adjusted_drawdown() -> None:
+    # Pure cash contribution with no market gain: index is flat at 100, so the
+    # flow-adjusted max drawdown is 0 even though the raw value moved.
+    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 200.0)]
+    flows = [(dt.date(2026, 1, 15), 100.0)]
+    assert max_flow_adjusted_drawdown(build_flow_adjusted_curve(points, flows)) == 0.0
