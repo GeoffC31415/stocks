@@ -218,7 +218,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T02 — Render truthful metric, empty, and error states
 
-**Status:** [ ] Planned. **Dependencies:** T01. **Review coverage:** 13, 15, 16, 34.
+**Status:** [x] Truthful UI metric/loading/error/empty states implemented. [Evidence](../verification/portfolio-experience.md#t02--truthful-ui-states): 253 backend / 69 frontend tests and frontend typecheck pass. **Dependencies:** T01. **Review coverage:** 13, 15, 16, 34.
 
 **Files:** Modify `frontend/src/lib/api.ts`, `frontend/src/components/PerformancePanel.tsx`, `frontend/src/components/PortfolioReturnCard.tsx`, `frontend/src/routes/Overview.tsx`; create `frontend/src/components/AnalysisStatus.tsx`, `frontend/src/components/__tests__/AnalysisStatus.test.tsx`; extend `frontend/src/components/__tests__/PerformancePanel.test.tsx` and create `frontend/src/routes/__tests__/Overview.test.tsx`.
 

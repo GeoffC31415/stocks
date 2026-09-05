@@ -12,6 +12,7 @@ import { PerformersSection } from "../components/PerformersSection";
 import { PortfolioReturnCard } from "../components/PortfolioReturnCard";
 import { AttributionSummaryCard } from "../components/AttributionSummaryCard";
 import { PerformancePanel } from "../components/PerformancePanel";
+import { AnalysisStatus } from "../components/AnalysisStatus";
 
 export function Overview() {
   const navigate = useNavigate();
@@ -192,7 +193,7 @@ export function Overview() {
     }));
   }, [cashflowQ.data]);
 
-  if (summaryQ.isLoading) {
+  if (summaryQ.isLoading || (selectedAccount && instrumentsQ.isLoading)) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center text-slate-400">
         <Loader2 size={20} className="mr-2 animate-spin" />
@@ -201,7 +202,17 @@ export function Overview() {
     );
   }
 
-  if (!summary || summary.total_value_gbp === 0) {
+  if (summaryQ.isError || (selectedAccount && instrumentsQ.isError)) {
+    return <AnalysisStatus kind="error" title="Unable to load portfolio summary. No balance is shown."
+      onRetry={() => { void summaryQ.refetch(); if (selectedAccount) void instrumentsQ.refetch(); }} />;
+  }
+
+  if (selectedAccount && summary && filteredInstruments.length === 0) {
+    return <AnalysisStatus kind="empty" title="No holdings for the selected account."
+      reasons={[{ code: "empty_account", message: "Choose another account or import a snapshot for this account.", action_href: "/data?tab=import" }]} />;
+  }
+
+  if (!summary || (summary.as_of_date == null && filteredInstruments.length === 0)) {
     return (
       <div className="glass mx-auto max-w-xl rounded-2xl p-8 text-center">
         <Sparkles className="mx-auto text-aurora-cyan" size={28} />
@@ -240,12 +251,20 @@ export function Overview() {
         latestAsOfDate={accountFilter === "all" ? snapshotDateRange.latest : null}
       />
 
-      <AttributionSummaryCard attribution={attributionQ.data ?? null} />
+      {instrumentsQ.isError && <AnalysisStatus kind="warning" title="Holding details are unavailable; the summary balance is still shown." />}
+      {analyticsQ.isError && <AnalysisStatus kind="error" title="Unable to load order analysis." onRetry={() => void analyticsQ.refetch()} />}
+      {timeseriesQ.isError && <AnalysisStatus kind="error" title="Unable to load snapshot history." onRetry={() => void timeseriesQ.refetch()} />}
+      {cashflowQ.isError && <AnalysisStatus kind="error" title="Unable to load cash-flow history." onRetry={() => void cashflowQ.refetch()} />}
+      {estimatedQ.isError && <AnalysisStatus kind="error" title="Unable to load order-derived reconstruction." onRetry={() => void estimatedQ.refetch()} />}
+      {attributionQ.isError
+        ? <AnalysisStatus kind="error" title="Unable to load snapshot attribution." onRetry={() => void attributionQ.refetch()} />
+        : <AttributionSummaryCard attribution={attributionQ.data ?? null} />}
 
       <PerformancePanel accountName={selectedAccount} />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <PortfolioReturnCard summary={returnsQ.data} />
+        <PortfolioReturnCard summary={returnsQ.data} loading={returnsQ.isLoading}
+          error={returnsQ.isError} onRetry={() => void returnsQ.refetch()} />
         <StatCard
           label="Portfolio P&L"
           value={toGbp(summary.total_pnl_gbp)}

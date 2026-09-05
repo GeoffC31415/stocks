@@ -1,6 +1,7 @@
 import { Percent } from "lucide-react";
 import type { PortfolioReturnSummary } from "../lib/api";
 import { StatCard } from "./StatCard";
+import { AnalysisStatus } from "./AnalysisStatus";
 
 const formatDate = (value: string): string => {
   const [year, month, day] = value.split("-").map(Number);
@@ -12,7 +13,14 @@ const formatDate = (value: string): string => {
   }).format(new Date(year, month - 1, day));
 };
 
-export function PortfolioReturnCard({ summary }: { summary: PortfolioReturnSummary | undefined }) {
+export function PortfolioReturnCard({ summary, loading = false, error = false, onRetry }: {
+  summary: PortfolioReturnSummary | undefined;
+  loading?: boolean;
+  error?: boolean;
+  onRetry?: () => void;
+}) {
+  if (error) return <AnalysisStatus kind="error" title="Unable to load estimated money-weighted return." onRetry={onRetry} />;
+  if (loading) return <AnalysisStatus kind="loading" title="Loading estimated money-weighted return…" />;
   const returnPct = summary?.modified_dietz_return_pct;
   if (summary == null || returnPct == null) {
     const notes = summary?.notes ?? [];

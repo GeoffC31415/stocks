@@ -76,10 +76,40 @@ function renderPanel(ui: React.ReactNode, perfOverride?: PerformanceSummary) {
 }
 
 describe("PerformancePanel", () => {
+  it("honours unavailable metadata even when legacy payload contains curves and numbers", async () => {
+    renderPanel(<PerformancePanel />, {
+      ...basePerf,
+      metrics: { total_return_pct: {
+        status: "unavailable", value: null, unit: "percent", method: "Chain-linked Dietz",
+        start_date: "2026-01-01", end_date: "2026-02-01", observations: 2,
+        reasons: [{ code: "invalid_return_chain", message: "A correction left an unusable interval.", action_href: null }],
+      } },
+    });
+    await screen.findByText("Performance");
+    expect(screen.getAllByText("A correction left an unusable interval.").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("region", { name: "Snapshot performance chart" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Flow-adjusted drawdown")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+  });
+
+  it("explains missing annualisation separately without hiding a valid cumulative chart", async () => {
+    renderPanel(<PerformancePanel />, {
+      ...basePerf,
+      metrics: { annualised_return_pct: {
+        status: "unavailable", value: null, unit: "percent", method: "Dietz",
+        start_date: "2026-01-01", end_date: "2026-02-01", observations: 2,
+        reasons: [{ code: "short_window", message: "Annualisation needs 365 days.", action_href: null }],
+      } },
+    });
+    expect(await screen.findByText("Annualisation needs 365 days.")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Snapshot performance chart" })).toBeInTheDocument();
+    expect(screen.queryByText(/Typical:/)).not.toBeInTheDocument();
+  });
+
   it("never substitutes raw metrics when flow-adjusted metrics are unavailable", async () => {
     renderPanel(<PerformancePanel />, { ...basePerf, annualised_return_pct: 123, annualised_volatility_pct: 45, sharpe_ratio: 6, sortino_ratio: 7, flow_adjusted_curve: [], drawdown_curve: [], flow_adjusted: { ...basePerf.flow_adjusted!, total_return_pct: null, annualised_return_pct: null, annualised_volatility_pct: null, sharpe_ratio: null, sortino_ratio: null, flow_adjusted_curve: [], drawdown_curve: [] } });
     await screen.findByText("Performance");
-    for (const label of ["Total return", "Annualised", "Volatility", "Sharpe", "Sortino"]) {
+    for (const label of ["Snapshot investment return", "Annualised", "Volatility", "Sharpe", "Sortino", "Max drawdown"]) {
       const tile = screen.getByText(label).parentElement!.parentElement!;
       expect(tile.querySelector("p.tabular")).toHaveTextContent("—");
     }

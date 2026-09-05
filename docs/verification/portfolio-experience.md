@@ -116,5 +116,28 @@ services are small and single-purpose; portfolio service shrank by removing
 three duplicate reconstruction loops. `git diff --check` passed. UI geometry is
 not claimed fixed by this backend change. No schema migration/deployment.
 
+## T02 — Truthful UI states
+
+The two new PerformancePanel tests first failed because unavailable metadata
+was ignored and short-window reasons were hidden. They now pass: metadata wins
+over populated legacy curves/numbers; broken chains suppress adjusted plots and
+drawdown; short annualisation alone leaves cumulative performance visible.
+`AnalysisStatus` exposes reasons, actual supplied repair links and fetch-error-only
+retry actions. All six performance metrics have per-metric unavailable reasons;
+method, observed period, sampling, coverage warnings and backend notes are visible.
+Generic typical ranges/ratings were removed. Definitions now use keyboard/touch
+native disclosure instead of inaccessible hover-only text (T07 will unify these).
+
+Overview tests distinguish pending, fetch failure, successful empty selection,
+empty selected account, valid dated zero balance and partial secondary failures.
+Summary/return fetch failures do not become welcome/import prompts or stale numbers.
+Account aggregate rebuilding remains explicitly T09; this task only prevents it
+from publishing a zero balance when its instrument query fails or is pending.
+
+Verification: full backend **253 passed**; frontend **69 passed in 25 files**;
+frontend typecheck and diff whitespace check passed. No backend/static changes in
+this slice. Chart geometry and compact dashboard budgets remain T03/T10. No live
+build, database or service was changed.
+
 Remaining release tasks are tracked only in the implementation plan. This is
 verification evidence, not a second progress ledger. R1–R3 are not released.

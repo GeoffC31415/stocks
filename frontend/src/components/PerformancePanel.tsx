@@ -20,6 +20,9 @@ import {
 } from "../lib/api";
 import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/chartDates";
 import { SegmentedControl } from "./SegmentedControl";
+import { AnalysisStatus } from "./AnalysisStatus";
+import { performanceMetric, type PerformanceMetricKey } from "../lib/analysisState";
+import type { MetricReason } from "../lib/api";
 
 type Period = "1M" | "3M" | "6M" | "1Y" | "YTD" | "ALL";
 const PERIODS: { key: Period; label: string }[] = [
@@ -33,38 +36,37 @@ const PERIODS: { key: Period; label: string }[] = [
 
 const benchKey = (symbol: string) => `bench_${symbol.replace(/[^a-z0-9]/gi, "_")}`;
 
-/** Tooltip copy for each metric: what it is + what typical values look like. */
-const METRIC_INFO: Record<string, { definition: string; typical: string }> = {
+/** Method explanations, not generic ratings or investment recommendations. */
+const METRIC_INFO: Record<string, { definition: string; limitations: string }> = {
   totalReturn: {
     definition:
       "Chain-linked interval Modified Dietz return over the window. It removes the effect of cash you added or withdrew, so it measures how the money already in the account performed — not how much you put in.",
-    typical:
-      "A diversified stock portfolio averages roughly +7–12%/yr over the long run. Much higher or lower in any single window; a big positive number that mostly reflects a cash injection is a red flag.",
+    limitations: "Snapshot observations are irregular. Order-derived external-flow assumptions can affect this estimate.",
   },
   annualised: {
     definition:
       "The flow-adjusted return compounded to a per-year rate (CAGR). Useful for comparing returns over different window lengths on the same footing.",
-    typical: "≈ the long-run market average of ~7–12%/yr for equities. Only shown for windows of 365 days or more (it is unreliable on short windows).",
+    limitations: "Only reported for windows of at least 365 days; it is not a forecast.",
   },
   volatility: {
     definition:
       "Annualised volatility (standard deviation of period returns). Higher means bigger swings — both up and down. Flow-adjusted so cash in/out don't inflate it.",
-    typical: "≈15–25%/yr for a diversified equity portfolio; ~5–10%/yr for a bond-heavy one; near 0 for cash. Above ~30% is unusually jumpy for a diversified book.",
+    limitations: "Annualisation uses the mean snapshot interval. Sparse snapshots do not measure daily market risk.",
   },
   sharpe: {
     definition:
       "Return earned per unit of total risk (excess return ÷ volatility), flow-adjusted. A higher Sharpe means you got more return for the risk taken.",
-    typical: "≈1 is good, 0.5–1 is solid, below 0.5 is weak, and a negative value means it underperformed the (zero) risk-free rate for the risk taken.",
+    limitations: "The default risk-free rate is assumed to be zero, not a measured savings rate. No automatic good/weak rating applies.",
   },
   sortino: {
     definition:
       "Like the Sharpe, but it only punishes downside risk (how bad the bad periods were), ignoring the upside. Flow-adjusted.",
-    typical: "Usually higher than the Sharpe for a portfolio that has few, mild drawdowns. >1 is strong. It can be undefined if there were no losing periods.",
+    limitations: "Undefined when downside deviation is zero. Irregular snapshot sampling limits comparisons.",
   },
   maxDrawdown: {
     definition:
-      "The largest peak-to-trough decline in the flow-adjusted wealth index over the window. It measures how deep a bad stretch got on a cash-flow-neutral basis, so contributions don't flatten it. A small value means a smooth ride.",
-    typical: "≈-10% to -20% in mild corrections; equities can see -30% to -50% in a full bear market (e.g. 2008, 2022). The raw-value drawdown is shown alongside it for reference.",
+      "The largest peak-to-trough decline in the flow-adjusted wealth index over the window. It measures how deep a bad stretch got on a cash-flow-neutral basis, so contributions don't flatten it. Snapshot sampling may miss deeper declines between observations.",
+    limitations: "Observed between snapshots; deeper declines between observations may be missed. Raw-value drawdown is a separate measure.",
   },
 };
 
@@ -89,12 +91,14 @@ function MetricTile({
   sub,
   tone = "muted",
   infoKey,
+  reasons = [],
 }: {
   label: string;
   value: string;
   sub?: string;
   tone?: Tone;
   infoKey: string;
+  reasons?: MetricReason[];
 }) {
   const info = METRIC_INFO[infoKey];
   return (
@@ -103,21 +107,17 @@ function MetricTile({
         <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
           {label}
         </p>
-        <Info size={12} className="text-slate-500 opacity-60 transition group-hover:opacity-100" />
+
       </div>
       <p className={`mt-1 tabular text-lg font-semibold ${TONE_TEXT[tone]}`}>{value}</p>
       {sub ? <p className="mt-0.5 text-[11px] text-slate-500">{sub}</p> : null}
 
-      {/* Tooltip: definition + typical values */}
-      <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-64 max-w-full -translate-x-1/2 rounded-xl border border-white/10 bg-aurora-base/95 p-3 text-left opacity-0 shadow-glass backdrop-blur-md transition duration-150 group-hover:opacity-100">
-        <p className="text-xs font-semibold text-white">
-          {info.definition}
-        </p>
-        <p className="mt-2 text-[11px] leading-relaxed text-slate-300">
-          <span className="font-semibold text-slate-200">Typical: </span>
-          {info.typical}
-        </p>
-      </div>
+      {reasons.map((reason) => <p key={reason.code} className="mt-2 text-xs text-amber-200">{reason.message}</p>)}
+      <details className="mt-2 text-xs text-slate-300">
+        <summary className="cursor-pointer focus-visible:outline"><Info size={12} className="mr-1 inline" />About {label}</summary>
+        <p className="mt-2">{info.definition}</p>
+        <p className="mt-2">{info.limitations}</p>
+      </details>
     </div>
   );
 }
@@ -164,13 +164,15 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
   });
   const perf = perfQ.data;
   const flow = perf?.flow_adjusted;
+  const chainMetric = perf ? performanceMetric(perf, "total_return_pct") : null;
+  const chainAvailable = chainMetric?.status === "available" && chainMetric.value != null && Number.isFinite(chainMetric.value);
   const hasFlow = flow != null && ((flow.contributions_gbp ?? 0) > 0 || (flow.withdrawals_gbp ?? 0) > 0);
 
   const chartData = useMemo(() => {
     if (!perf) return { rows: [] as Array<Record<string, number | null>>, benchSymbols: [] as string[] };
     const rows: Array<Record<string, number | null>> = [];
     // Primary line: the chain-linked flow-adjusted wealth index.
-    const flowRows: PerformanceFlowAdjustedPoint[] = perf.flow_adjusted_curve ?? [];
+    const flowRows: PerformanceFlowAdjustedPoint[] = chainAvailable ? perf.flow_adjusted_curve ?? [] : [];
     for (const p of flowRows) {
       rows.push({ chartTime: chartUtcMs(p.date), flowAdjusted: p.index });
     }
@@ -179,27 +181,28 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
       if (p.normalized_value == null) continue;
       rows.push({ chartTime: chartUtcMs(p.as_of_date), rawValue: p.normalized_value });
     }
-    const benchSymbols = Array.from(new Set((perf.benchmarks ?? []).map((b) => b.symbol)));
-    for (const b of perf.benchmarks ?? []) {
+    const benchmarks = chainAvailable ? perf.benchmarks ?? [] : [];
+    const benchSymbols = Array.from(new Set(benchmarks.map((b) => b.symbol)));
+    for (const b of benchmarks) {
       rows.push({ chartTime: chartUtcMs(b.date), [benchKey(b.symbol)]: b.value });
     }
     rows.sort((a, b) => (a.chartTime ?? 0) - (b.chartTime ?? 0));
     return { rows, benchSymbols };
-  }, [perf]);
+  }, [perf, chainAvailable]);
 
   // Flow-adjusted drawdown area (negative, filled below 0).
   const drawdownData = useMemo(() => {
-    if (!perf) return [] as Array<Record<string, number | null>>;
+    if (!perf || !chainAvailable) return [] as Array<Record<string, number | null>>;
     const rows = (perf.drawdown_curve ?? []).map((p: PerformanceDrawdownPoint) => ({
       chartTime: chartUtcMs(p.date),
       drawdown: p.drawdown_pct,
     }));
     rows.sort((a, b) => (a.chartTime ?? 0) - (b.chartTime ?? 0));
     return rows;
-  }, [perf]);
+  }, [perf, chainAvailable]);
 
   const benchmarkReturns = useMemo(() => {
-    if (!perf) return [] as Array<{ symbol: string; returnPct: number }>;
+    if (!perf || !chainAvailable) return [] as Array<{ symbol: string; returnPct: number }>;
     const lastBySymbol = new Map<string, number>();
     for (const b of (perf.benchmarks ?? []) as PerformanceBenchmarkPoint[]) {
       lastBySymbol.set(b.symbol, b.value);
@@ -208,7 +211,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
       symbol,
       returnPct: value / 100 - 1,
     }));
-  }, [perf]);
+  }, [perf, chainAvailable]);
 
   if (perfQ.isLoading) {
     return (
@@ -246,11 +249,15 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
   const fmtRatio = (v: number | null) => (v == null ? "—" : v.toFixed(2));
 
   // Missing flow-adjusted metrics must never be replaced with raw account returns.
-  const headlineReturn = flow?.total_return_pct ?? null;
-  const headlineAnn = flow?.annualised_return_pct ?? null;
-  const headlineVol = flow?.annualised_volatility_pct ?? null;
-  const headlineSharpe = flow?.sharpe_ratio ?? null;
-  const headlineSortino = flow?.sortino_ratio ?? null;
+  const metric = (key: PerformanceMetricKey) => performanceMetric(perf, key);
+  const value = (key: PerformanceMetricKey) => chainAvailable && metric(key).status === "available" ? metric(key).value : null;
+  const reasons = (key: PerformanceMetricKey) => !chainAvailable ? chainMetric?.reasons ?? [] : metric(key).reasons;
+  const headlineReturn = value("total_return_pct");
+  const headlineAnn = value("annualised_return_pct");
+  const headlineVol = value("annualised_volatility_pct");
+  const headlineSharpe = value("sharpe_ratio");
+  const headlineSortino = value("sortino_ratio");
+  const headlineDrawdown = value("max_drawdown_pct");
 
   const windowLabel =
     perf.period_start && perf.period_end
@@ -309,12 +316,20 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
         </div>
       )}
 
-      {!perf.flow_adjusted_curve?.length && <p role="status" className="mt-4 rounded-lg border border-amber-400/20 p-3 text-sm text-amber-200">Flow-adjusted performance unavailable for this window. Raw account values are not a substitute for investment returns.</p>}
+      <div className="mt-4 space-y-2">
+        {!chainAvailable && <AnalysisStatus kind="unavailable"
+          title="Flow-adjusted performance unavailable for this window. Raw account values are not a substitute for investment returns."
+          reasons={chainMetric?.reasons} />}
+        {perf.scope?.warnings.map((warning) => <p key={warning} className="text-sm text-amber-200">{warning}</p>)}
+        {(flow?.notes ?? []).filter((note) => note !== "flow-adjusted").map((note) => <p key={note} className="text-xs text-slate-300">{note}</p>)}
+        <p className="text-xs text-slate-400">{flow?.method ?? "Chain-linked interval Modified Dietz"} · {perf.growth_curve.length} snapshot observations · {windowLabel}. Risk-free assumption: {perf.risk_free_annual_pct}%.</p>
+      </div>
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <MetricTile
           infoKey="totalReturn"
-          label="Total return"
+          label="Snapshot investment return"
           value={fmtPct(headlineReturn)}
+          reasons={reasons("total_return_pct")}
           sub={
             flow && perf.total_return_pct != null
               ? `raw ${fmtPct(perf.total_return_pct)}`
@@ -326,6 +341,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           infoKey="annualised"
           label="Annualised"
           value={fmtPct(headlineAnn)}
+          reasons={reasons("annualised_return_pct")}
           sub="CAGR over window"
           tone={sign(headlineAnn)}
         />
@@ -333,6 +349,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           infoKey="volatility"
           label="Volatility"
           value={fmtPct(headlineVol)}
+          reasons={reasons("annualised_volatility_pct")}
           sub="Annualised std. dev."
           tone="muted"
         />
@@ -340,26 +357,29 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           infoKey="sharpe"
           label="Sharpe"
           value={fmtRatio(headlineSharpe)}
-          sub="Risk-free 0%"
+          reasons={reasons("sharpe_ratio")}
+          sub={`Risk-free assumption ${perf.risk_free_annual_pct}%`}
           tone={sign(headlineSharpe)}
         />
         <MetricTile
           infoKey="sortino"
           label="Sortino"
           value={fmtRatio(headlineSortino)}
+          reasons={reasons("sortino_ratio")}
           sub="Downside-adjusted"
           tone={sign(headlineSortino)}
         />
         <MetricTile
           infoKey="maxDrawdown"
           label="Max drawdown"
-          value={fmtPct(perf.max_drawdown_pct)}
+          value={fmtPct(headlineDrawdown)}
+          reasons={reasons("max_drawdown_pct")}
           sub={
             perf.max_drawdown_raw_pct != null
               ? `flow-adjusted · raw ${fmtPct(perf.max_drawdown_raw_pct)}`
               : "flow-adjusted, peak to trough"
           }
-          tone={perf.max_drawdown_pct == null ? "muted" : perf.max_drawdown_pct < 0 ? "neg" : "muted"}
+          tone={sign(headlineDrawdown)}
         />
       </div>
 
@@ -375,7 +395,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
         </label>
       </div>
 
-      <div className="mt-2 h-64">
+      {(chainAvailable || showRaw) && <div role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chartData.rows}>
             <defs>
@@ -409,7 +429,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
               content={<PerformanceTooltip />}
               cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
             />
-            <Area
+            {chainAvailable && <Area
               type="monotone"
               dataKey="flowAdjusted"
               stroke="#22d3ee"
@@ -417,7 +437,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
               fill="url(#perfVal)"
               name="Flow-adjusted (index, 100 = start)"
               connectNulls
-            />
+            />}
             {showRaw ? (
               <Line
                 type="monotone"
@@ -445,7 +465,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
             ))}
           </AreaChart>
         </ResponsiveContainer>
-      </div>
+      </div>}
 
       {drawdownData.length > 0 ? (
         <div className="mt-3">
@@ -499,9 +519,9 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
       ) : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
-        <span className="flex items-center gap-1.5">
+        {chainAvailable && <span className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-cyan-400" /> Flow-adjusted (index, 100 = window start)
-        </span>
+        </span>}
         {showRaw ? (
           <span className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-slate-400" /> Raw account value (index, optional)
