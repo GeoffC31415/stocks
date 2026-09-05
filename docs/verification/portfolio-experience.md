@@ -139,5 +139,25 @@ frontend typecheck and diff whitespace check passed. No backend/static changes i
 this slice. Chart geometry and compact dashboard budgets remain T03/T10. No live
 build, database or service was changed.
 
+## T03 — Snapshot chart geometry
+
+`performanceChart.ts` joins named series without duplicate timestamps or
+punctuation-based benchmark-key collisions. Missing values are not replaced with
+zero. Sparse ticks use available pixel/calendar distance, date formatting is UTC,
+index extent includes 100 and extrema, and snapshot lines are linear with visible
+observation dots. The reversed drawdown axis is removed. Unavailable adjusted
+chains remain suppressed; raw values require explicit opt-in and do not connect
+across missing observations.
+
+Verification: full frontend **73 passed in 26 files**, frontend typecheck passed;
+harness safety/geometry **6 passed**. Isolated build succeeded at
+`/tmp/stocks-experience-dist` (existing chunk-size warning). The 28-view browser
+rehearsal now finds **no duplicate/overlapping date ticks, inverted drawdown, missing
+observation markers or clipped observation extents at any width**. It measured
+15 actual performance observation dots and four drawdown ticks at each width.
+Nine route/width combinations still fail on T04's known overflow/clipped-control
+issues, so the overall browser command correctly remains nonzero. Screenshots
+captured; visual styling acceptance still outstanding, not inferred from geometry.
+
 Remaining release tasks are tracked only in the implementation plan. This is
 verification evidence, not a second progress ledger. R1–R3 are not released.

@@ -152,6 +152,14 @@ def verify_view(browser, base: str, view: str, width: int, output: Path) -> dict
         measurement = measure_page(page)
         result["measurement"] = measurement
         result["failures"].extend(geometry_failures(measurement))
+        if view == "overview":
+            valid_curve = response.json().get("flow_adjusted_curve", [])
+            if valid_curve and len(measurement["performanceDots"]) < len(valid_curve):
+                result["failures"].append("missing-snapshot-observation-markers")
+            if valid_curve and (not measurement["axes"] or any(not axis["ticks"] for axis in measurement["axes"])):
+                result["failures"].append("missing-chart-axis-labels")
+            if not valid_curve and measurement["performanceDots"]:
+                result["failures"].append("unavailable-curve-plotted")
         if errors or blocked or any(r["status"] >= 400 for r in responses):
             result["failures"].append("browser-or-api-errors")
     except Exception as exc:

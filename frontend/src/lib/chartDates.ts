@@ -25,23 +25,27 @@ export function chartYearStartUtcMs(year: number): number {
 }
 
 const tickDayFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
   day: "numeric",
   month: "short",
   year: "2-digit",
 });
 
 const tickMonthFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
   month: "short",
   year: "numeric",
 });
 
 const tooltipDayFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
   day: "numeric",
   month: "long",
   year: "numeric",
 });
 
 const tooltipMonthFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
   month: "long",
   year: "numeric",
 });

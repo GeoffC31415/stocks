@@ -234,7 +234,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T03 — Repair performance and drawdown chart geometry
 
-**Status:** [ ] Planned. **Dependencies:** T01–T02. **Review coverage:** initial chart defects; 11, 17.
+**Status:** [x] Chart joining, sparse ticks, observation markers and drawdown geometry corrected. [Evidence](../verification/portfolio-experience.md#t03--snapshot-chart-geometry): 73 frontend tests; chart geometry passes at 320/390/768/1440px (T04 layout failures remain). **Dependencies:** T01–T02. **Review coverage:** initial chart defects; 11, 17.
 
 **Files:** Modify `frontend/src/components/PerformancePanel.tsx`, `frontend/src/lib/chartDates.ts`; create `frontend/src/lib/performanceChart.ts`, `frontend/src/lib/__tests__/performanceChart.test.ts`; extend `frontend/src/components/__tests__/PerformancePanel.test.tsx` and `scripts/verify_analysis_ui.py`.
 

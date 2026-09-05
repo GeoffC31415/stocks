@@ -90,8 +90,14 @@ def measure_page(page) -> dict:
           return false;
         }).map(e=>e.textContent?.trim()).filter(Boolean);
       const performance=[...document.querySelectorAll('h2')].find(e=>e.textContent==='Performance');
+      const plot=document.querySelector('[aria-label="Snapshot performance chart"]');
+      const performanceDots=plot ? [...plot.querySelectorAll('.recharts-area-dot')].map(box) : [];
+      const plotBox=plot ? box(plot) : null;
+      const clippedObservations=plotBox && performanceDots.some(dot=>
+        dot.top<plotBox.top || dot.bottom>plotBox.bottom || dot.left<plotBox.left || dot.right>plotBox.right);
       return {viewport:innerWidth, document:document.documentElement.scrollWidth,
-        height:document.documentElement.scrollHeight, axes, invertedDrawdown,
+        height:document.documentElement.scrollHeight, axes, invertedDrawdown, drawdownAxes,
+        performanceDots, clippedObservations,
         clippedControls, performanceTop:performance ? box(performance).top+scrollY : null};
     }""")
 
@@ -108,4 +114,6 @@ def geometry_failures(measurement: dict) -> list[str]:
         failures.append("inverted-drawdown")
     if measurement["clippedControls"]:
         failures.append("clipped-controls")
+    if measurement.get("clippedObservations"):
+        failures.append("clipped-observations")
     return failures

@@ -16,13 +16,13 @@ import {
   api,
   type PerformanceBenchmarkPoint,
   type PerformanceDrawdownPoint,
-  type PerformanceFlowAdjustedPoint,
 } from "../lib/api";
 import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/chartDates";
 import { SegmentedControl } from "./SegmentedControl";
 import { AnalysisStatus } from "./AnalysisStatus";
 import { performanceMetric, type PerformanceMetricKey } from "../lib/analysisState";
 import type { MetricReason } from "../lib/api";
+import { benchmarkKey as benchKey, joinPerformanceSeries, performanceIndexDomain, sparseDateTicks } from "../lib/performanceChart";
 
 type Period = "1M" | "3M" | "6M" | "1Y" | "YTD" | "ALL";
 const PERIODS: { key: Period; label: string }[] = [
@@ -33,8 +33,6 @@ const PERIODS: { key: Period; label: string }[] = [
   { key: "YTD", label: "YTD" },
   { key: "ALL", label: "All" },
 ];
-
-const benchKey = (symbol: string) => `bench_${symbol.replace(/[^a-z0-9]/gi, "_")}`;
 
 /** Method explanations, not generic ratings or investment recommendations. */
 const METRIC_INFO: Record<string, { definition: string; limitations: string }> = {
@@ -157,6 +155,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
   // Raw account value is an optional overlay, off by default, so the primary
   // line (flow-adjusted) cannot be mistaken for investment return.
   const [showRaw, setShowRaw] = useState(false);
+  const [chartWidth, setChartWidth] = useState(320);
 
   const perfQ = useQuery({
     queryKey: ["performance", accountName, period],
@@ -170,24 +169,12 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
 
   const chartData = useMemo(() => {
     if (!perf) return { rows: [] as Array<Record<string, number | null>>, benchSymbols: [] as string[] };
-    const rows: Array<Record<string, number | null>> = [];
-    // Primary line: the chain-linked flow-adjusted wealth index.
-    const flowRows: PerformanceFlowAdjustedPoint[] = chainAvailable ? perf.flow_adjusted_curve ?? [] : [];
-    for (const p of flowRows) {
-      rows.push({ chartTime: chartUtcMs(p.date), flowAdjusted: p.index });
-    }
-    // Raw value index, only surfaced when the overlay is toggled on.
-    for (const p of perf.growth_curve) {
-      if (p.normalized_value == null) continue;
-      rows.push({ chartTime: chartUtcMs(p.as_of_date), rawValue: p.normalized_value });
-    }
     const benchmarks = chainAvailable ? perf.benchmarks ?? [] : [];
-    const benchSymbols = Array.from(new Set(benchmarks.map((b) => b.symbol)));
-    for (const b of benchmarks) {
-      rows.push({ chartTime: chartUtcMs(b.date), [benchKey(b.symbol)]: b.value });
-    }
-    rows.sort((a, b) => (a.chartTime ?? 0) - (b.chartTime ?? 0));
-    return { rows, benchSymbols };
+    return {
+      rows: joinPerformanceSeries({ flow: chainAvailable ? perf.flow_adjusted_curve : [],
+        raw: perf.growth_curve, benchmarks }),
+      benchSymbols: Array.from(new Set(benchmarks.map((b) => b.symbol))),
+    };
   }, [perf, chainAvailable]);
 
   // Flow-adjusted drawdown area (negative, filled below 0).
@@ -200,6 +187,13 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
     rows.sort((a, b) => (a.chartTime ?? 0) - (b.chartTime ?? 0));
     return rows;
   }, [perf, chainAvailable]);
+
+  const ticks = sparseDateTicks(chartData.rows.map((row) => row.chartTime as number), chartWidth - 100);
+  const drawdownTicks = sparseDateTicks(drawdownData.map((row) => row.chartTime as number), chartWidth - 100);
+  const indexDomain = performanceIndexDomain(chartData.rows.flatMap((row) => [
+    row.flowAdjusted, ...(showRaw ? [row.rawValue] : []),
+    ...chartData.benchSymbols.map((symbol) => row[benchKey(symbol)]),
+  ]));
 
   const benchmarkReturns = useMemo(() => {
     if (!perf || !chainAvailable) return [] as Array<{ symbol: string; returnPct: number }>;
@@ -396,7 +390,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
       </div>
 
       {(chainAvailable || showRaw) && <div role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer width="100%" height="100%" onResize={(width) => setChartWidth(width)}>
           <AreaChart data={chartData.rows}>
             <defs>
               <linearGradient id="perfVal" x1="0" y1="0" x2="0" y2="1">
@@ -413,7 +407,8 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
               stroke="#64748b"
               tick={{ fontSize: 11, fill: "#64748b" }}
               tickFormatter={formatChartDayTick}
-              minTickGap={32}
+              ticks={ticks}
+              interval={0}
               tickLine={false}
               axisLine={false}
             />
@@ -421,6 +416,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
               stroke="#64748b"
               tick={{ fontSize: 11, fill: "#64748b" }}
               tickFormatter={(v) => indexFmt.format(Number(v))}
+              domain={indexDomain}
               tickLine={false}
               axisLine={false}
               width={48}
@@ -429,8 +425,11 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
               content={<PerformanceTooltip />}
               cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
             />
+            <ReferenceLine y={100} stroke="#94a3b8" strokeDasharray="3 3" />
             {chainAvailable && <Area
-              type="monotone"
+              type="linear"
+              dot={{ r: 3 }}
+              isAnimationActive={false}
               dataKey="flowAdjusted"
               stroke="#22d3ee"
               strokeWidth={2.5}
@@ -440,21 +439,23 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
             />}
             {showRaw ? (
               <Line
-                type="monotone"
+                type="linear"
                 dataKey="rawValue"
+                isAnimationActive={false}
                 stroke="#94a3b8"
                 strokeWidth={1.5}
                 strokeDasharray="4 3"
-                dot={false}
-                connectNulls
+                dot={{ r: 2 }}
+                connectNulls={false}
                 name="Raw account value (index)"
               />
             ) : null}
             {chartData.benchSymbols.map((symbol, index) => (
               <Line
                 key={symbol}
-                type="monotone"
+                type="linear"
                 dataKey={benchKey(symbol)}
+                isAnimationActive={false}
                 stroke={index === 0 ? "#fbbf24" : "#f87171"}
                 strokeWidth={1.5}
                 strokeDasharray="4 3"
@@ -489,7 +490,8 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
                   stroke="#64748b"
                   tick={{ fontSize: 10, fill: "#64748b" }}
                   tickFormatter={formatChartDayTick}
-                  minTickGap={32}
+                  ticks={drawdownTicks}
+                  interval={0}
                   tickLine={false}
                   axisLine={false}
                 />
@@ -500,12 +502,14 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
                   tickLine={false}
                   axisLine={false}
                   width={44}
-                  reversed
+                  domain={[Math.min(-1, ...drawdownData.map((row) => row.drawdown ?? 0)), 0]}
                 />
                 <ReferenceLine y={0} stroke="rgba(148,163,184,0.4)" strokeDasharray="3 3" />
                 <Area
-                  type="monotone"
+                  type="linear"
                   dataKey="drawdown"
+                  dot={{ r: 2 }}
+                  isAnimationActive={false}
                   stroke="#f87171"
                   strokeWidth={1.5}
                   fill="url(#drawdownVal)"
