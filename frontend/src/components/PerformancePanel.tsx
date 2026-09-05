@@ -30,15 +30,8 @@ import { performanceMetric, type PerformanceMetricKey } from "../lib/analysisSta
 import type { MetricReason } from "../lib/api";
 import { benchmarkKey as benchKey, joinPerformanceSeries, performanceIndexDomain, sparseDateTicks } from "../lib/performanceChart";
 
-type Period = "1M" | "3M" | "6M" | "1Y" | "YTD" | "ALL";
-const PERIODS: { key: Period; label: string }[] = [
-  { key: "1M", label: "1M" },
-  { key: "3M", label: "3M" },
-  { key: "6M", label: "6M" },
-  { key: "1Y", label: "1Y" },
-  { key: "YTD", label: "YTD" },
-  { key: "ALL", label: "All" },
-];
+import { PERIODS, useAnalysisScope } from "../state/useAnalysisScope";
+const PERIOD_SEGMENTS = PERIODS.map((key) => ({ key, label: key === "ALL" ? "All" : key }));
 
 type Tone = "pos" | "neg" | "muted" | "accent";
 const TONE_TEXT: Record<Tone, string> = {
@@ -85,7 +78,7 @@ function MetricTile({
 }
 
 export function PerformancePanel({ accountName }: { accountName?: string }) {
-  const [period, setPeriod] = useState<Period>("ALL");
+  const { period, setPeriod } = useAnalysisScope();
   // Raw account value is an optional overlay, off by default, so the primary
   // line (flow-adjusted) cannot be mistaken for investment return.
   const [showRaw, setShowRaw] = useState(false);
@@ -197,7 +190,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
       <SectionHeader title="Performance"
         description={<>Growth and risk for {windowLabel || "the selected period"}. Returns and risk ratios are flow-adjusted, using observed snapshots and order-derived flow assumptions.</>}
         actions={<SegmentedControl layoutId="perf-period-pill" size="sm" value={period}
-          onChange={(p) => setPeriod(p)} segments={PERIODS} />} />
+          onChange={(p) => setPeriod(p)} segments={PERIOD_SEGMENTS} />} />
 
       {/* Cash-flow strip: the money that moved during the window */}
       {flow && flow.contributions_gbp != null && flow.withdrawals_gbp != null && flow.net_external_flow_gbp != null && (

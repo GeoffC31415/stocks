@@ -3,11 +3,13 @@ import { WorkspaceTabs } from "../components/WorkspaceTabs";
 import { ClassificationQueue } from "../components/ClassificationQueue";
 import { ImportPage } from "./Import";
 import { MatchingWorkspace } from "./MatchingWorkspace";
+import { AnalysisSettings } from "../components/AnalysisSettings";
 
 const TABS = [
   { key: "import", label: "Import & refresh" },
   { key: "classifications", label: "Classifications" },
   { key: "matching", label: "Matching" },
+  { key: "settings", label: "Analysis settings" },
 ];
 
 export function DataWorkspace() {
@@ -17,7 +19,7 @@ export function DataWorkspace() {
   return (
     <div className="space-y-5">
       <WorkspaceTabs label="Data views" tabs={TABS} />
-      {tab === "matching" ? (
+      {tab === "settings" ? <AnalysisSettings /> : tab === "matching" ? (
         <MatchingWorkspace />
       ) : tab === "classifications" ? (
         <ClassificationQueue />

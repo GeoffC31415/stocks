@@ -47,5 +47,9 @@ describe("Topbar", () => {
     const selector = await screen.findByRole("combobox", { name: "Account" });
     expect(selector).toHaveValue("all");
     expect(screen.getByRole("button", { name: /refresh data/i })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Performance period" })).toHaveValue("ALL");
+    expect(screen.getByRole("button", { name: "Analysis settings" })).toBeInTheDocument();
+    expect(screen.queryByText("DRIP threshold")).not.toBeInTheDocument();
+    expect(screen.queryByText("£1,000")).not.toBeInTheDocument();
   });
 });

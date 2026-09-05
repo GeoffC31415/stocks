@@ -8,7 +8,8 @@ import {
   Scale,
   Wallet,
 } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
+import { scopedNavigationUrl } from "../routing";
 
 type NavItem = {
   to: string;
@@ -26,6 +27,7 @@ export const PRIMARY_NAV: NavItem[] = [
 ];
 
 export function Sidebar() {
+  const location = useLocation();
   return (
     <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-white/[0.06] bg-aurora-base/60 backdrop-blur-xl lg:flex">
       <div className="flex items-center gap-3 px-5 py-5">
@@ -43,7 +45,7 @@ export function Sidebar() {
           {PRIMARY_NAV.map((item) => (
             <li key={item.to}>
               <NavLink
-                to={item.to}
+                to={scopedNavigationUrl(item.to, location.search)}
                 end={item.to === "/"}
                 className={({ isActive }) =>
                   `group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${

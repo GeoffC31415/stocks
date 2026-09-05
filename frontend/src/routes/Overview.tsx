@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { scopedNavigationUrl } from "../routing";
+import { useAnalysisScope } from "../state/useAnalysisScope";
 import { CalendarClock, Loader2, Sparkles, Wallet, Banknote } from "lucide-react";
 import { api, formatSnapshotDateIso, type AllocationRow } from "../lib/api";
 import { toGbp } from "../lib/formatters";
@@ -16,13 +18,15 @@ import { AnalysisStatus } from "../components/AnalysisStatus";
 
 export function Overview() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { period } = useAnalysisScope();
   const { dripThreshold, accountFilter } = usePreferences();
   const selectedAccount = accountFilter === "all" ? undefined : accountFilter;
 
   const summaryQ = useQuery({ queryKey: ["summary"], queryFn: api.getSummary });
   const returnsQ = useQuery({
-    queryKey: ["portfolio-returns", accountFilter],
-    queryFn: () => api.getPortfolioReturns(selectedAccount),
+    queryKey: ["portfolio-returns", accountFilter, period],
+    queryFn: () => api.getPortfolioReturns(selectedAccount, undefined, undefined, period),
   });
   const instrumentsQ = useQuery({ queryKey: ["instruments"], queryFn: api.getInstruments });
   const timeseriesQ = useQuery({
@@ -236,6 +240,9 @@ export function Overview() {
 
   return (
     <div className="space-y-6">
+      <p className="text-xs text-slate-400">Performance and portfolio return use the selected period, ending at the latest covered valuation.
+        Current holdings use latest snapshots; order summaries and reconstruction use all recorded history.
+        Attribution is the latest snapshot comparison, independent of the performance period.</p>
       <HeroKpi
         label="Portfolio value"
         value={summary.total_value_gbp}
@@ -325,7 +332,7 @@ export function Overview() {
         <PerformersSection
           worst={(summary.worst_pct ?? []).slice(0, 5)}
           best={(summary.best_pct ?? []).slice(0, 5)}
-          onSelect={(id) => navigate(`/holdings?inst=${id}`)}
+          onSelect={(id) => navigate(scopedNavigationUrl(`/holdings?inst=${id}`, location.search))}
         />
       </div>
     </div>

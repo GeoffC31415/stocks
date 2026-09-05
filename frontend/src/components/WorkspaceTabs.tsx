@@ -21,7 +21,7 @@ export function WorkspaceTabs({
   const select = (key: string) => {
     const next = new URLSearchParams(params);
     next.set(param, key);
-    setParams(next, { replace: true });
+    setParams(next);
   };
 
   return (

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
+from app.routers.analysis_scope import validate_analysis_scope
 from app.schemas import (
     AllocationDimension,
     AllocationResponse,
@@ -20,7 +21,11 @@ from app.schemas import (
 from app.services.allocation_service import get_allocation
 from app.services.attribution_service import get_snapshot_attribution
 from app.services.market_data_service import fetch_history
-from app.services.performance_service import get_portfolio_performance
+from app.services.performance_service import (
+    build_value_series,
+    get_portfolio_performance,
+    resolve_period_start,
+)
 from app.services.portfolio_risk_service import portfolio_risk_analysis
 from app.services.portfolio_service import (
     build_instrument_out,
@@ -79,13 +84,23 @@ async def timeseries(
     return await portfolio_value_timeseries(session, account_name=account_name)
 
 
-@router.get("/returns", response_model=PortfolioReturnSummary)
+@router.get("/returns", response_model=PortfolioReturnSummary, dependencies=[Depends(validate_analysis_scope)])
 async def returns(
     account_name: str | None = None,
     from_date: dt.date | None = None,
     to_date: dt.date | None = None,
+    period: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> PortfolioReturnSummary:
+    if from_date is not None and to_date is not None and from_date > to_date:
+        raise HTTPException(422, "Return start date must not follow end date.")
+    if period is not None:
+        series, coverage_start = await build_value_series(session, account_name=account_name)
+        if series:
+            to_date = series[-1]["as_of_date"]
+            from_date = resolve_period_start(period, to_date)
+            if coverage_start is not None:
+                from_date = max(from_date, coverage_start) if from_date else coverage_start
     data = await get_portfolio_return_summary(
         session,
         account_name=account_name,
@@ -95,7 +110,7 @@ async def returns(
     return PortfolioReturnSummary(**data)
 
 
-@router.get("/performance", response_model=PerformanceSummary)
+@router.get("/performance", response_model=PerformanceSummary, dependencies=[Depends(validate_analysis_scope)])
 async def performance(
     account_name: str | None = None,
     period: str = "ALL",
@@ -107,8 +122,8 @@ async def performance(
     """Period-scoped growth + risk metrics and a normalized growth curve.
 
     ``period`` is one of ``1M/3M/6M/1Y/YTD/ALL``. Benchmarks are rebased to
-    100 at the window start and are fetched live (best effort) for a clean
-    "am I beating the market?" comparison.
+    100 at the window start using cached history only. Unsupported scope
+    parameters are rejected rather than silently widening the analysis.
     """
     data = await get_portfolio_performance(
         session,

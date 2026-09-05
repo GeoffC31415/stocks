@@ -255,3 +255,61 @@ the ignored live-served output; no deployment/restart/provider refresh occurred.
 
 Remaining release tasks are tracked only in the implementation plan. This is
 verification evidence, not a second progress ledger. R1–R3 are not released.
+
+## T08 — URL-first analysis scope
+
+Account and performance period now come from the URL, with validated stored
+preferences used only for missing defaults. Defaults are materialised into the
+current history entry; explicit selections and workspace tabs push history so
+Back/Forward restores the investigation. Primary navigation and legacy redirects
+retain encoded identifiers and unrelated filters. Unknown accounts, repeated
+scope parameters, malformed dates and unsupported custom dates show an explicit
+invalid-scope state instead of silently broadening the analysis. Custom dates
+remain disabled; transaction date filters retain their separate meaning.
+
+Performance and the portfolio return card include account/period in query keys
+and API requests. Both resolve the period relative to the latest valuation,
+not wall-clock time. The existing performance contract exposes requested and
+effective dates, account valuation dates and coverage warnings. API validation
+returns 422 for unsupported/ambiguous scope and reversed explicit return dates.
+Current snapshots, lifetime holding returns, latest snapshot comparisons,
+transaction filters and today-based Income explicitly disclose their exceptions.
+The Topbar no longer labels a selected account with another account's latest
+date; authoritative selected-account freshness remains the T09 deliverable.
+DRIP threshold editing moved to Data → Analysis settings, with the proxy
+qualification and a scoped link back to Income.
+
+Safety: a new consistent SQLite online backup was created and integrity/logical
+contents verified outside the repository before DB-related work. Tests use
+synthetic in-memory databases without application lifespan. The original DB's
+SHA-256 is unchanged; the rehearsal report confirms its read-only copy is
+unchanged. No schema migration, personal-data edit, provider refresh, installation,
+service restart or deployment was performed.
+
+Evidence:
+- RED: the new API regression selection initially returned **9 semantic failures,
+  1 pass**: invalid scope was ignored or produced 500, and the return card ignored
+  the requested period. Fixture setup was corrected before recording that result.
+- `.venv/bin/pytest -q`: **264 passed**.
+- `npm --prefix frontend test -- --run`: **104 passed** in 35 files, including
+  encoded account/identifier preservation, invalid/custom dates, URL precedence,
+  history restoration, contextual settings and removal of old plotted metrics
+  while another account/period request is pending.
+- `npm --prefix frontend run typecheck`: passed.
+- `make lint` / `make typecheck`: still **101 inherited ruff / 32 inherited mypy**
+  diagnostics; filename/code/message identity comparison found **zero new**.
+- Isolated build: `/tmp/stocks-t08-dist`; live `frontend/dist` was not overwritten.
+- Expanded isolated browser harness: **80 cases, 0 failures** at
+  320/390/720/768/1440px. At 390/1440px it additionally changes period/account,
+  verifies response scope and URL agreement, and exercises Back/Forward.
+  Evidence and screenshots: `/tmp/stocks-t08-ui`. An initial desktop test used
+  an accessibility locator for a deliberately hidden mobile select; the fixture
+  locator was corrected, then the complete matrix rerun successfully.
+- Screenshots captured; image/manual visual approval remains outstanding.
+
+Review: URL parsing is isolated from financial services; backend remains the
+source of period dates and calculations. No new financial calculation was added
+in React. Scope controls reuse existing preferences and tabs rather than adding
+another state store or UI framework. New implementation modules remain under
+110 lines; the API type/client file only gains the additive period parameter.
+T09–T23 and the deferred extensions remain unchecked and unimplemented here.

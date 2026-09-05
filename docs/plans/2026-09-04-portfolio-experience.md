@@ -314,7 +314,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T08 — Share account/period scope and persist investigation state
 
-**Status:** [ ] Planned. **Dependencies:** T01–T02. **Review coverage:** 4, 16, 31.
+**Status:** [x] URL-first account/performance-period scope, validation, history preservation and contextual Income settings implemented. [Evidence](../verification/portfolio-experience.md#t08--url-first-analysis-scope): 264 backend / 104 frontend tests; 80 browser cases including scoped requests and Back/Forward at 390/1440px. **Dependencies:** T01–T02. **Review coverage:** 4, 16, 31.
 
 **Files:** Modify `frontend/src/layout/Topbar.tsx`, `frontend/src/layout/AppShell.tsx`, `frontend/src/state/usePreferences.ts`, `frontend/src/routing.tsx`, `frontend/src/lib/api.ts`, `backend/app/routers/portfolio.py`, `backend/app/schemas.py`; create `frontend/src/state/useAnalysisScope.ts`, `frontend/src/state/__tests__/useAnalysisScope.test.tsx`; extend `frontend/src/__tests__/routing.test.ts` and `backend/tests/test_experience_contracts.py`.
 

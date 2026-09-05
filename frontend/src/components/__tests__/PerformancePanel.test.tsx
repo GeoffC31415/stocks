@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { api, type PerformanceSummary } from "../../lib/api";
 import { PerformancePanel } from "../PerformancePanel";
+import { AnalysisScopeContext } from "../../state/useAnalysisScope";
 
 // Recharts renders SVG in jsdom (no layout); assert on the text we control.
 
@@ -76,6 +77,23 @@ function renderPanel(ui: React.ReactNode, perfOverride?: PerformanceSummary) {
 }
 
 describe("PerformancePanel", () => {
+  it("keys requests by shared period and account and hides old metrics while the next scope loads", async () => {
+    const request = vi.spyOn(api, "getPerformance").mockResolvedValue(basePerf);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const panel = (account: string, period: "ALL" | "1M") => <QueryClientProvider client={client}>
+      <AnalysisScopeContext.Provider value={{ period, setPeriod: vi.fn() }}>
+        <PerformancePanel accountName={account} />
+      </AnalysisScopeContext.Provider>
+    </QueryClientProvider>;
+    const view = render(panel("ISA", "ALL"));
+    await screen.findByText("Performance");
+    expect(request).toHaveBeenLastCalledWith("ISA", "ALL");
+    request.mockImplementation(() => new Promise(() => {}));
+    view.rerender(panel("Trading", "1M"));
+    await screen.findByText("Crunching performance…");
+    expect(request).toHaveBeenLastCalledWith("Trading", "1M");
+    expect(screen.queryByRole("region", { name: "Snapshot performance chart" })).not.toBeInTheDocument();
+  });
   it("honours unavailable metadata even when legacy payload contains curves and numbers", async () => {
     renderPanel(<PerformancePanel />, {
       ...basePerf,

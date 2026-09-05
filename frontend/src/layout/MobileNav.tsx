@@ -1,7 +1,9 @@
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
+import { scopedNavigationUrl } from "../routing";
 import { PRIMARY_NAV } from "./Sidebar";
 
 export function MobileNav() {
+  const location = useLocation();
   return (
     <nav
       aria-label="Mobile"
@@ -11,7 +13,7 @@ export function MobileNav() {
         {PRIMARY_NAV.map((item) => (
           <li key={item.to}>
             <NavLink
-              to={item.to}
+              to={scopedNavigationUrl(item.to, location.search)}
               end={item.to === "/"}
               className={({ isActive }) =>
                 `flex min-h-12 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-medium transition-colors ${

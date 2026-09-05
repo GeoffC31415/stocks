@@ -716,11 +716,13 @@ export const api = {
     accountName?: string | null,
     fromDate?: string | null,
     toDate?: string | null,
+    period?: string,
   ) => {
     const params = new URLSearchParams();
     if (accountName) params.set("account_name", accountName);
     if (fromDate) params.set("from_date", fromDate);
     if (toDate) params.set("to_date", toDate);
+    if (period) params.set("period", period);
     return requestJson<PortfolioReturnSummary>(`/api/portfolio/returns?${params.toString()}`);
   },
   getTimeseries: (accountName?: string | null) => {

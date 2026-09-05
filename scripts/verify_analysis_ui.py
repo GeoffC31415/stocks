@@ -23,6 +23,7 @@ import urllib.request
 
 from ui_contracts import ROUTES, allowed_gets, geometry_failures, measure_page, request_allowed
 from ui_fixtures import EMPTY_SUMMARY, focus_controls, long_names, verify_accessibility
+from ui_scope_contracts import verify_scope_navigation
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -200,6 +201,8 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
                     result["failures"].append("allocation-legend-colour-mismatch:" + label)
                 result["failures"].extend(geometry_failures(measure_page(page)))
                 page.get_by_role("button", name="Show rounded values", exact=True).click()
+        if view == "overview" and scenario == "default" and width in (390, 1440):
+            result["scope_navigation"] = verify_scope_navigation(page, width)
         result["accessibility"] = verify_accessibility(page, touch=width <= 390)
         focus = focus_controls(page)
         result["focus"] = focus
