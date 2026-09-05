@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Order
 from app.services.data_quality_market import cached_prerequisites
+from app.services.order_scope_service import order_account_scope
 from app.services.performance_service import get_portfolio_performance
 from app.services.portfolio_service import build_portfolio_summary, get_current_snapshots
 
@@ -27,7 +28,7 @@ async def get_data_confidence(
                    func.sum(case((Order.instrument_id.is_(None), 1), else_=0)),
                    func.sum(case((Order.match_status == "auto_review", 1), else_=0)))
     if account_name is not None:
-        query = query.where(Order.account_name == account_name)
+        query = query.where(order_account_scope(account_name))
     count, first, last, unmatched, review = (await session.execute(query)).one()
     transactions = {"count": count, "first_date": first.date() if first else None,
                     "last_date": last.date() if last else None, "unmatched_count": unmatched or 0,

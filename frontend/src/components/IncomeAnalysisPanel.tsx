@@ -1,184 +1,35 @@
-import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Coins, Info } from "lucide-react";
-import { api } from "../lib/api";
-import { calculateDripAnalysis } from "../lib/dripAnalysis";
-import { toGbp } from "../lib/formatters";
+import { Link, useSearchParams } from "react-router-dom";
+import { getIncomeAnalysis, type IncomeDriver } from "../lib/incomeApi";
+import { toGbp, signedGbp } from "../lib/formatters";
 import { usePreferences } from "../state/usePreferences";
-import { MetricInfo } from "./MetricInfo";
+import { ordersLink } from "../lib/investigationLinks";
+import { MetricCard } from "./MetricCard";
 
 export function IncomeAnalysisPanel() {
-  const { dripThreshold, accountFilter } = usePreferences();
-  const accountName = accountFilter === "all" ? undefined : accountFilter;
-  const ordersQ = useQuery({
-    queryKey: ["orders", dripThreshold, accountFilter],
-    queryFn: () => api.getOrders(dripThreshold, accountName),
-  });
-  const positionsQ = useQuery({
-    queryKey: ["positions", dripThreshold, accountFilter],
-    queryFn: () => api.getOrderPositions(dripThreshold, accountName),
-  });
-  const analysisAsOf = useMemo(() => new Date(), []);
-  const analysis = useMemo(
-    () => calculateDripAnalysis(ordersQ.data ?? [], analysisAsOf),
-    [analysisAsOf, ordersQ.data],
-  );
-  const positions = useMemo(
-    () => new Map((positionsQ.data ?? []).map((position) => [position.security_name, position])),
-    [positionsQ.data],
-  );
-  const maxYear = Math.max(1, ...analysis.byYear.map((row) => row.total));
-  const trailingStart = new Date(
-    Date.UTC(
-      analysisAsOf.getUTCFullYear() - 1,
-      analysisAsOf.getUTCMonth(),
-      analysisAsOf.getUTCDate(),
-    ),
-  );
-  const priorStart = new Date(
-    Date.UTC(
-      analysisAsOf.getUTCFullYear() - 2,
-      analysisAsOf.getUTCMonth(),
-      analysisAsOf.getUTCDate(),
-    ),
-  );
-  const dateLabel = (date: Date) =>
-    date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  const topInstruments = analysis.byInstrument.slice(0, 10);
-  const otherInstruments = analysis.byInstrument.slice(10);
-  const otherTotal = otherInstruments.reduce((sum, row) => sum + row.total, 0);
-  const otherCount = otherInstruments.reduce((sum, row) => sum + row.count, 0);
-
-  return (
-    <div className="space-y-5">
-      <div>
-        <div className="flex items-center gap-2">
-          <Coins size={18} className="text-amber-300" />
-          <h1 className="text-2xl font-semibold text-white">DRIP purchase proxy</h1>
-        </div>
-        <p className="mt-1 text-sm text-slate-500">
-          Buys below {toGbp(dripThreshold)} are classified retrospectively as DRIP for the selected account.
-        </p>
+  const {accountFilter}=usePreferences();
+  const account=accountFilter==="all"?null:accountFilter;
+  const [params]=useSearchParams();
+  const asOf=params.get("income_as_of");
+  const query=useQuery({queryKey:["income",account,asOf],queryFn:()=>getIncomeAnalysis(account,asOf)});
+  const data=query.data;
+  const purchases=(row:IncomeDriver,prior=false)=>{
+    if(row.instrument_id!==null)return ordersLink(params.toString(),{account:row.navigation_account??row.account_name,instrumentId:row.instrument_id,kind:"drip",fromDate:prior?data!.prior_start:data!.current_start,toDate:prior?data!.prior_end:data!.as_of});
+    const p=new URLSearchParams(params);p.set("tab","source");p.set("source","order");p.set("record",String(row.order_ids[0]));p.set("account",row.navigation_account??"all");return `/activity?${p}`;
+  };
+  return <div className="space-y-5 min-w-0">
+    <h1 className="text-2xl font-semibold text-white">DRIP purchase proxy</h1>
+    <p className="text-sm text-slate-300">Recorded reinvestment purchases, not declared or cash dividends. Import-time classification is retained; the current import threshold never reclassifies historical purchases.</p>
+    {query.isError?<p role="alert">Unable to load Income analysis. <button onClick={()=>void query.refetch()}>Retry income</button></p>:!data?<p role="status">Loading Income analysis…</p>:<>
+      <section aria-label="Income limitations" className="text-sm text-amber-200 space-y-2">{data.warnings.map(w=><p key={w}>{w}</p>)}</section>
+      <p className="text-sm text-slate-300">Recorded transaction coverage: {data.first_transaction_date??"Not recorded"} – {data.latest_transaction_date??"Not recorded"}. Completeness: {data.completeness}.</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MetricCard label="Current calendar-period purchases" value={toGbp(data.current_recorded_gbp)}><p>{data.current_start} – {data.as_of}</p><p>{data.current_count} recorded proxy purchases</p></MetricCard>
+        <MetricCard label="Same period last year" value={toGbp(data.prior_recorded_gbp)}><p>{data.prior_start} – {data.prior_end}</p><p>{data.prior_count} recorded proxy purchases</p></MetricCard>
+        <MetricCard label="Recorded-purchase change" value={signedGbp(data.change_gbp)}><p>Not a measured dividend growth rate.</p></MetricCard>
       </div>
-
-      <div className="flex items-start gap-3 rounded-xl border border-cyan-400/15 bg-cyan-400/[0.04] px-4 py-3">
-        <Info size={15} className="mt-0.5 shrink-0 text-aurora-cyan" />
-        <p className="text-xs leading-5 text-slate-400">
-          This is a reinvested-income proxy, not a dividend ledger. The source records DRIP purchases but not declared or cash dividends.
-        </p>
-      </div>
-
-      <MetricInfo label="DRIP reinvestment proxy" topic="drip" context={`Today-based trailing view · threshold ${toGbp(dripThreshold)}`} />
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Metric
-          label="Trailing 12 months"
-          value={toGbp(analysis.trailing12m)}
-          note={`${dateLabel(trailingStart)} – ${dateLabel(analysisAsOf)}`}
-          tone="amber"
-        />
-        <Metric
-          label="Previous 12 months"
-          value={toGbp(analysis.prior12m)}
-          note={`${dateLabel(priorStart)} – ${dateLabel(trailingStart)}`}
-        />
-        <Metric
-          label="12-month change"
-          value={analysis.growthPct == null ? "Not available" : `${analysis.growthPct >= 0 ? "+" : ""}${analysis.growthPct.toFixed(1)}%`}
-          tone={analysis.growthPct != null && analysis.growthPct >= 0 ? "pos" : "default"}
-        />
-        <Metric label="All recorded DRIP" value={toGbp(analysis.total)} note={`${analysis.count} purchases`} />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section className="glass min-w-0 rounded-2xl p-5">
-          <h2 className="text-sm font-semibold text-white">Annual DRIP proxy</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Calendar-year purchases; {analysisAsOf.getUTCFullYear()} is year to date. Display values are rounded.
-          </p>
-          <div className="mt-4 space-y-3">
-            {analysis.byYear.map((row) => (
-              <div key={row.year}>
-                <div className="flex items-center justify-between text-xs">
-                  <span className="tabular text-slate-300">
-                    {row.year}{row.year === analysisAsOf.getUTCFullYear() ? " YTD" : ""}
-                  </span>
-                  <span className="tabular text-amber-200">{toGbp(row.total)} · {row.count}</span>
-                </div>
-                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-white/[0.06]">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-300"
-                    style={{ width: `${(row.total / maxYear) * 100}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-            {analysis.byYear.length === 0 ? (
-              <p className="py-8 text-center text-xs text-slate-500">No DRIP-classified orders.</p>
-            ) : null}
-          </div>
-        </section>
-
-        <section className="glass min-w-0 rounded-2xl p-5">
-          <h2 className="text-sm font-semibold text-white">By holding</h2>
-          <p className="mt-1 text-xs text-slate-500">Largest recorded reinvestment totals.</p>
-          <div className="mt-3 space-y-2">
-            {topInstruments.map((row) => {
-              const position = positions.get(row.name);
-              return (
-                <div key={row.name} className="rounded-xl bg-white/[0.02] px-3 py-2.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="min-w-0 truncate text-xs font-medium text-slate-200" title={row.name}>
-                      {row.name}
-                    </p>
-                    <p className="tabular shrink-0 text-xs font-semibold text-amber-200">{toGbp(row.total)}</p>
-                  </div>
-                  <div className="mt-1 flex flex-wrap gap-3 text-[10px] text-slate-600">
-                    <span>{row.count} purchases</span>
-                    {position?.trailing_drip_yield_pct != null ? (
-                      <span>Trailing proxy yield {position.trailing_drip_yield_pct.toFixed(2)}%</span>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-            {otherInstruments.length > 0 ? (
-              <div className="rounded-xl border border-white/[0.05] bg-white/[0.015] px-3 py-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-medium text-slate-400">
-                    Other holdings ({otherInstruments.length})
-                  </p>
-                  <p className="tabular text-xs font-semibold text-amber-200">
-                    {toGbp(otherTotal)}
-                  </p>
-                </div>
-                <p className="mt-1 text-[10px] text-slate-600">{otherCount} purchases</p>
-              </div>
-            ) : null}
-          </div>
-        </section>
-      </div>
-    </div>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  note,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  note?: string;
-  tone?: "default" | "amber" | "pos";
-}) {
-  const color = tone === "amber" ? "text-amber-200" : tone === "pos" ? "text-pos" : "text-white";
-  return (
-    <div className="glass min-w-0 rounded-xl p-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className={`tabular mt-1 text-xl font-semibold ${color}`}>{value}</p>
-      {note ? <p className="mt-1 text-[10px] text-slate-600">{note}</p> : null}
-    </div>
-  );
+      <section className="glass min-w-0 rounded-2xl p-4 space-y-3"><h2 className="text-lg font-semibold">Monthly timing</h2><p className="text-sm text-slate-300">No recorded purchases is shown as a dash, not confirmed zero income. The last month ends on the displayed comparison date in each year.</p><div className="overflow-auto" role="region" aria-label="Monthly proxy results" tabIndex={0}><table aria-label="Monthly recorded reinvestment proxy" className="w-full text-sm text-slate-300"><thead><tr><th className="text-left p-2">Month</th><th>Current period</th><th>Prior period</th></tr></thead><tbody>{data.months.map(m=><tr key={m.month}><th className="text-left p-2">{m.month}</th><td className="text-right tabular p-2">{toGbp(m.current_recorded_gbp)} · {m.current_count} recorded</td><td className="text-right tabular p-2">{toGbp(m.prior_recorded_gbp)} · {m.prior_count} recorded</td></tr>)}</tbody></table></div></section>
+      <section className="glass min-w-0 rounded-2xl p-4 space-y-3"><h2 className="text-lg font-semibold">Holding contributions to the change</h2><p className="text-sm text-slate-300">Current/closed status uses the latest snapshot, separately from the comparison dates. Unlinked records remain separate.</p>{data.drivers.length===0?<p>No classified purchases recorded in either comparison period.</p>:<ul className="space-y-3">{data.drivers.map(row=><li key={row.key} className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-3"><div className="min-w-0 flex-1 basis-48 [overflow-wrap:anywhere]"><Link className="text-cyan-200 underline" aria-label={`${row.name} matching purchases`} to={purchases(row)}>{row.name}</Link><p className="text-xs text-slate-300">{row.account_name} · {row.holding_status}</p>{row.instrument_id!==null&&<Link className="text-xs text-cyan-200 underline" to={purchases(row,true)}>Prior-period purchases</Link>}</div><div className="text-right text-sm tabular"><p>{toGbp(row.prior_recorded_gbp)} → {toGbp(row.current_recorded_gbp)}</p><p>Change {signedGbp(row.change_gbp)}</p></div></li>)}</ul>}</section>
+    </>}
+  </div>;
 }

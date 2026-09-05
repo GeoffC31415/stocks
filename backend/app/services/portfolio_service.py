@@ -17,6 +17,7 @@ from app.models import (
     Order,
 )
 from app.schemas import InstrumentOut
+from app.services.order_scope_service import order_account_scope
 from app.services.valuation_service import valuation_states
 
 
@@ -550,7 +551,7 @@ async def get_portfolio_return_summary(
         Order.order_date <= dt.datetime.combine(period_end, dt.time.max),
     )
     if account_name is not None:
-        orders_query = orders_query.where(Order.account_name == account_name)
+        orders_query = orders_query.where(order_account_scope(account_name))
     orders_result = await session.execute(orders_query.order_by(Order.order_date))
     contributions, withdrawals, signed_flows = classify_external_flows(orders_result.scalars().all())
 

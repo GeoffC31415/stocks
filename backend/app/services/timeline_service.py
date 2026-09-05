@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
+from app.services.order_scope_service import order_account_scope
 from app.services.performance_service import build_value_series, resolve_period_start
 
 NOTES = [
@@ -101,7 +102,7 @@ async def get_timeline(
         query = select(Order).where(Order.order_date >= dt.datetime.combine(effective_start, dt.time.min),
                                     Order.order_date <= dt.datetime.combine(end, dt.time.max))
         if account_name is not None:
-            query = query.where(Order.account_name == account_name)
+            query = query.where(order_account_scope(account_name))
         if instrument_id is not None:
             query = query.where(Order.instrument_id == instrument_id)
         events.extend(order_event(order, account_name, period) for order in (await session.scalars(query.order_by(Order.order_date, Order.id))).all())

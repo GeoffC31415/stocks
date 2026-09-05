@@ -24,7 +24,7 @@ export function PortfolioWorkspace() {
     <div className="space-y-5">
       <WorkspaceTabs label="Portfolio views" tabs={TABS} />
       <p className="text-xs text-slate-400">{tab === "performance" ? "Performance uses the shared period and disclosed covered valuation dates." : tab === "income"
-        ? "Income uses a today-based trailing window, not the performance period. Recorded transactions do not prove complete dividend coverage."
+        ? "Income compares calendar year to date with the same calendar period last year, not the performance period. Recorded purchases do not prove complete dividend coverage."
         : tab === "returns" ? "Holding returns use recorded lifetime transactions and current values, not the performance period."
         : "Current holdings, allocation and groups use latest account snapshots, not the performance period."}</p>
       {tab === "performance" ? <PerformanceWorkspace /> : tab === "returns" ? (

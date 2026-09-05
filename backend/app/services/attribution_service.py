@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 
 from app.models import HoldingSnapshot, ImportBatch, Instrument, Order
+from app.services.order_scope_service import order_account_scope
 from app.services.valuation_service import valuation_state_at_batch
 
 if TYPE_CHECKING:
@@ -154,7 +155,7 @@ async def get_snapshot_attribution(
 
     history_query = select(Order)
     if account_name is not None:
-        history_query = history_query.where(Order.account_name == account_name)
+        history_query = history_query.where(order_account_scope(account_name))
     has_order_history = (
         await session.execute(history_query.limit(1))
     ).scalar_one_or_none() is not None
@@ -176,7 +177,7 @@ async def get_snapshot_attribution(
         Order.order_date <= dt.datetime.combine(to_batch.as_of_date, dt.time.max),
     )
     if account_name is not None:
-        orders_query = orders_query.where(Order.account_name == account_name)
+        orders_query = orders_query.where(order_account_scope(account_name))
     orders = list((await session.execute(orders_query.order_by(Order.order_date))).scalars().all())
 
     contributions = withdrawals = drip_proxy = 0.0

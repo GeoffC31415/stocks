@@ -10,8 +10,8 @@ export function AnalysisSettings() {
   const location = useLocation();
   return <section className="surface-card space-y-3 p-5">
     <h2 className="text-lg font-semibold">Income proxy settings</h2>
-    <p className="text-sm text-slate-300">Small purchases below this threshold are treated as a reinvestment proxy, not proven dividends.
-      This local preference changes the heuristic, not the imported transactions.</p>
+    <p className="text-sm text-slate-300">At import time, purchases below the chosen threshold can be classified as a reinvestment proxy, not proven dividends.
+      This local preference is used for future imports only. Income and Orders retain stored classifications; existing transactions are never reclassified by changing this setting.</p>
     <form className="flex flex-wrap items-end gap-3" onSubmit={(event) => {
       event.preventDefault();
       const value = Number(draft);

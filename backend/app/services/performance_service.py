@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Order
 from app.services.market_data_service import fetch_history
+from app.services.order_scope_service import order_account_scope
 from app.services.performance_metadata import with_performance_metadata
 from app.services.portfolio_service import (
     MIN_ANNUALISATION_DAYS,
@@ -535,7 +536,7 @@ async def _flow_adjusted_block(
             Order.order_date <= dt.datetime.combine(window_end, dt.time.max),
         )
         if account_name is not None:
-            orders_query = orders_query.where(Order.account_name == account_name)
+            orders_query = orders_query.where(order_account_scope(account_name))
         orders_result = await session.execute(orders_query.order_by(Order.order_date))
         contributions, withdrawals, signed_flows = classify_external_flows(
             orders_result.scalars().all()

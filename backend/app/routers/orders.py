@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 - FastAPI runtime
 from sqlalchemy.orm import joinedload
 
 from app.database import get_session
+from app.income_schemas import IncomeAnalysis
 from app.models import Order
 from app.order_page_schemas import OrderPage
 from app.routers.analysis_scope import validate_analysis_scope
@@ -23,6 +24,7 @@ from app.schemas import (
     PositionSummary,
     UnlinkedOrdersResponse,
 )
+from app.services.income_service import get_income_analysis
 from app.services.instrument_matcher import link_orders_to_instruments
 from app.services.order_pagination_service import drip_predicate, get_order_page
 from app.services.order_service import (
@@ -112,6 +114,17 @@ async def import_hl_orders(
         filename=batch.filename,
         row_count=batch.row_count,
     )
+
+
+@router.get("/income", response_model=IncomeAnalysis, dependencies=[Depends(validate_analysis_scope)])
+async def income_analysis(
+    account_name: str | None = None,
+    as_of: dt.date | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> IncomeAnalysis:
+    if as_of and (as_of.year < 2 or as_of >= dt.date(9999,12,31)):
+        raise HTTPException(422,"Comparison date is outside supported bounds.")
+    return await get_income_analysis(session, account_name=account_name, as_of=as_of)
 
 
 @router.get("/analytics", response_model=OrderAnalytics)
@@ -204,11 +217,7 @@ async def list_unlinked_orders(
             quantity=o.quantity,
             cost_proceeds_gbp=o.cost_proceeds_gbp,
             country=o.country,
-            is_drip=(
-                o.side.lower() == "buy"
-                and o.cost_proceeds_gbp is not None
-                and o.cost_proceeds_gbp < drip_threshold
-            ),
+            is_drip=bool(o.is_drip and o.side.lower() == "buy"),
         )
         for o in rows_result.scalars().all()
     ]
@@ -269,11 +278,7 @@ async def list_orders(
 
     out: list[OrderOut] = []
     for o in orders:
-        computed_drip = (
-            o.side.lower() == "buy"
-            and o.cost_proceeds_gbp is not None
-            and o.cost_proceeds_gbp < drip_threshold
-        )
+        computed_drip = bool(o.is_drip and o.side.lower() == "buy")
         if side is not None and o.side.lower() != side.lower():
             continue
         if is_drip is not None and computed_drip != is_drip:

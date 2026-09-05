@@ -133,11 +133,7 @@ async def get_instrument_orders(
             quantity=o.quantity,
             cost_proceeds_gbp=o.cost_proceeds_gbp,
             country=o.country,
-            is_drip=(
-                o.side.lower() == "buy"
-                and o.cost_proceeds_gbp is not None
-                and o.cost_proceeds_gbp < drip_threshold
-            ),
+            is_drip=bool(o.is_drip and o.side.lower() == "buy"),
         )
         for o in orders
     ]

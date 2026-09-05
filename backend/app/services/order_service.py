@@ -20,6 +20,7 @@ from app.services.barclays_order_parser import ParsedOrderRow, parse_barclays_or
 from app.services.hl_parser import parse_hl_activity_csv_bytes
 from app.services.instrument_matcher import link_orders_to_instruments
 from app.services.order_fingerprint import order_fingerprint
+from app.services.order_scope_service import order_account_scope
 
 
 class DuplicateOrderImportError(Exception):
@@ -92,30 +93,6 @@ def _modified_dietz_annualised(
         return ((1.0 + period_return) ** (1.0 / years) - 1.0) * 100.0
     except (ValueError, ZeroDivisionError, OverflowError):
         return None
-
-
-def _trailing_drip_yield_pct(
-    orders: list[Order],
-    *,
-    average_value_gbp: float | None,
-    end_date: datetime.date,
-    drip_threshold_gbp: float,
-) -> float | None:
-    if average_value_gbp is None or average_value_gbp <= 0:
-        return None
-    start_date = end_date - datetime.timedelta(days=365)
-    drip_total = 0.0
-    for order in orders:
-        cost = order.cost_proceeds_gbp or 0.0
-        if (
-            start_date <= order.order_date.date() <= end_date
-            and order.side.lower() == "buy"
-            and cost < drip_threshold_gbp
-        ):
-            drip_total += cost
-    if drip_total <= 0:
-        return None
-    return (drip_total / average_value_gbp) * 100.0
 
 
 async def import_order_history(
@@ -237,7 +214,7 @@ async def get_order_analytics(
 ) -> dict:
     q = select(Order).order_by(Order.order_date)
     if account_name:
-        q = q.where(Order.account_name == account_name)
+        q = q.where(order_account_scope(account_name))
     r = await session.execute(q)
     orders = list(r.scalars().all())
 
@@ -313,7 +290,7 @@ async def get_cashflow_timeseries(
     """Monthly cumulative cash-flow breakdown from order history."""
     q = select(Order).order_by(Order.order_date)
     if account_name:
-        q = q.where(Order.account_name == account_name)
+        q = q.where(order_account_scope(account_name))
     r = await session.execute(q)
     orders = list(r.scalars().all())
     if not orders:
@@ -434,7 +411,7 @@ async def get_order_positions(
     """
     q = select(Order).order_by(Order.order_date)
     if account_name:
-        q = q.where(Order.account_name == account_name)
+        q = q.where(order_account_scope(account_name))
     r = await session.execute(q)
     orders = list(r.scalars().all())
     if not orders:
@@ -482,24 +459,11 @@ async def get_order_positions(
     from app.services.portfolio_service import get_current_snapshots
 
     instrument_values: dict[int, float] = {}
-    average_values: dict[int, float] = {}
     current_snapshots = await get_current_snapshots(session)
     if current_snapshots:
         for s in current_snapshots:
             if not s.instrument.is_cash and s.value_gbp is not None:
                 instrument_values[s.instrument_id] = s.value_gbp
-        history_result = await session.execute(
-            select(HoldingSnapshot).join(Instrument).where(Instrument.is_cash.is_(False))
-        )
-        value_samples: dict[int, list[float]] = defaultdict(list)
-        for s in history_result.scalars().all():
-            if s.value_gbp is not None:
-                value_samples[s.instrument_id].append(s.value_gbp)
-        average_values = {
-            instrument_id: sum(values) / len(values)
-            for instrument_id, values in value_samples.items()
-            if values
-        }
 
     today = datetime.date.today()
     result: list[dict] = []
@@ -551,26 +515,8 @@ async def get_order_positions(
                 "annualised_return_pct": round(annualised_return_pct, 1)
                 if annualised_return_pct is not None
                 else None,
-                "trailing_drip_yield_pct": (
-                    round(
-                        _trailing_drip_yield_pct(
-                            p["orders"],
-                            average_value_gbp=average_values.get(iid) if iid is not None else None,
-                            end_date=today,
-                            drip_threshold_gbp=drip_threshold_gbp,
-                        ),
-                        2,
-                    )
-                    if iid is not None
-                    and _trailing_drip_yield_pct(
-                        p["orders"],
-                        average_value_gbp=average_values.get(iid),
-                        end_date=today,
-                        drip_threshold_gbp=drip_threshold_gbp,
-                    )
-                    is not None
-                    else None
-                ),
+                "trailing_drip_yield_pct": None,
+                "trailing_drip_yield_reason": "Unavailable: a same-window valuation denominator and transaction completeness are not validated.",
                 "realized_pnl_gbp": round(realized_pnl, 2) if realized_pnl is not None else None,
                 "is_closed": is_closed,
             }
@@ -589,6 +535,7 @@ async def get_group_performance(
     session: AsyncSession,
     *,
     drip_threshold_gbp: float = 1000.0,
+    account_name: str | None = None,
 ) -> list[dict]:
     """Per-group performance: combined value, P&L, CAGR, snapshot history and member breakdown.
 
@@ -603,7 +550,10 @@ async def get_group_performance(
     if not groups:
         return []
 
-    members_result = await session.execute(select(InstrumentGroupMember))
+    membership_query = select(InstrumentGroupMember).join(Instrument)
+    if account_name is not None:
+        membership_query = membership_query.where(Instrument.account_name == account_name)
+    members_result = await session.execute(membership_query)
     members_by_group: dict[int, list[int]] = defaultdict(list)
     for m in members_result.scalars().all():
         members_by_group[m.group_id].append(m.instrument_id)
