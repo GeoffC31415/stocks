@@ -10,7 +10,7 @@
 
 **Repository:** `/home/geoff/code/stocks`.
 
-**Status:** Planned, not implemented by this document. This is the single replacement for the former root-level improvement plan and progress ledger. Existing code is a starting point, not proof that any acceptance criterion below has passed.
+**Status:** Implementation in progress on `feature/portfolio-experience`; see task evidence below. This is the single replacement for the former root-level improvement plan and progress ledger. Existing code is a starting point, not proof that any acceptance criterion below has passed.
 
 ---
 
@@ -183,7 +183,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T00 — Establish a safe, reproducible baseline
 
-**Status:** [ ] Planned. **Dependencies:** none. **Review coverage:** cross-cutting.
+**Status:** [x] Baseline established; defects reproduced, not release-approved. See [verification evidence](../verification/portfolio-experience.md#t00--safe-baseline) for fresh gates, safety checks and the failing 28-view browser matrix. **Dependencies:** none. **Review coverage:** cross-cutting.
 
 **Objective:** Preserve the dirty tree and reproduce the review issues in isolated, repeatable tests.
 

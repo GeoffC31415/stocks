@@ -1,16 +1,15 @@
-"""Rehearse analysis pages with an isolated read-only database and built UI.
+"""Rehearse seven analytical routes against a read-only SQLite copy.
 
-Run from the repo root:
-  .venv/bin/python scripts/verify_analysis_ui.py --database portfolio.db \
-      --dist /tmp/stocks-final-dist --output /tmp/stocks-ui-check
-
-Requires the existing Playwright Python package and Google Chrome. Never runs
-application lifespan/migrations, modifies the supplied database, or deploys.
+Requires the existing Playwright package and Chrome; no installs, migrations,
+provider refresh, deployment, or normal application startup. Reports include
+private screenshots: keep --output outside the repository. Any failed contract
+exits nonzero *after* saving evidence; loading/empty/error pages cannot pass.
 """
 from __future__ import annotations
 
 import argparse
 from contextlib import closing
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,39 +21,145 @@ import tempfile
 import time
 import urllib.request
 
+from ui_contracts import ROUTES, allowed_gets, geometry_failures, measure_page, request_allowed
+
 REPO = Path(__file__).resolve().parents[1]
 
 
-def serve(database: Path, dist: Path, port: int) -> None:
-    os.environ["PORTFOLIO_DATABASE_URL"] = (
-        f"sqlite+aiosqlite:///{database.as_uri()}?mode=ro&uri=true"
-    )
+def create_app(database: Path, dist: Path):
+    """Copy only audited GET routes, never the live application's lifespan."""
     sys.path.insert(0, str(REPO / "backend"))
-    import uvicorn
-    from fastapi import FastAPI, HTTPException
-    from fastapi.responses import FileResponse
+    from fastapi import APIRouter, FastAPI, HTTPException
+    from fastapi.responses import FileResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from app.database import get_session
     from app.main import app as original
 
-    app = FastAPI()
-    allowed = {
-        "/api/health", "/api/portfolio/allocation", "/api/portfolio/summary",
-        "/api/portfolio/returns", "/api/portfolio/timeseries", "/api/portfolio/attribution",
-        "/api/portfolio/performance", "/api/portfolio/benchmarks", "/api/instruments",
-        "/api/orders/analytics", "/api/orders/cashflow-timeseries", "/api/orders/estimated-timeseries",
-    }
+    engine = create_async_engine(f"sqlite+aiosqlite:///{database.as_uri()}?mode=ro&uri=true")
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def read_only_session():
+        async with sessions() as session:
+            yield session
+
+    app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+    app.dependency_overrides[get_session] = read_only_session
+
+    @app.middleware("http")
+    async def block_mutation(request, call_next):
+        if request.method != "GET":
+            return JSONResponse({"detail": "Read-only rehearsal"}, status_code=405)
+        return await call_next(request)
+
+    selected = APIRouter()
     for route in original.routes:
-        if getattr(route, "path", "") in allowed and "GET" in getattr(route, "methods", set()):
-            app.router.routes.append(route)
+        if getattr(route, "path", "") in allowed_gets() and "GET" in getattr(route, "methods", set()):
+            selected.routes.append(route)
+    # include_router clones API routes with this app's dependency provider.
+    # Appending original routes directly would retain the live DB dependency.
+    app.include_router(selected)
     app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
 
     @app.get("/{path:path}")
     async def spa(path: str):
-        if path.startswith("api/"):
+        if path == "api" or path.startswith("api/"):
             raise HTTPException(status_code=404)
         return FileResponse(dist / "index.html")
 
-    uvicorn.run(app, host="127.0.0.1", port=port, lifespan="off")
+    return app, engine
+
+
+def serve(database: Path, dist: Path, port: int) -> None:
+    import asyncio
+    import uvicorn
+
+    app, engine = create_app(database, dist)
+
+    async def run():
+        try:
+            await uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, lifespan="off")).serve()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def wait_ready(server, base: str, *, timeout: float = 10) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if server.poll() is not None:
+            raise RuntimeError("QA server exited; see server.log")
+        try:
+            with urllib.request.urlopen(base + "/api/health", timeout=min(1, max(.01, deadline-time.monotonic()))) as response:
+                if json.load(response).get("status") == "ok":
+                    return
+        except (OSError, ValueError):
+            pass
+        time.sleep(.05)
+    raise TimeoutError("QA server readiness deadline exceeded; see server.log")
+
+
+def copy_database(database: Path, copy: Path) -> None:
+    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as source:
+        with closing(sqlite3.connect(copy)) as destination:
+            source.backup(destination)
+            if destination.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+                raise RuntimeError("Copied SQLite database failed integrity check")
+
+
+def verify_view(browser, base: str, view: str, width: int, output: Path) -> dict:
+    contract = ROUTES[view]
+    page = browser.new_page(viewport={"width": width, "height": 1000}, reduced_motion="reduce")
+    page.set_default_timeout(8000)
+    errors, blocked, responses = [], [], []
+    result = {"page": view, "width": width, "errors": errors, "blocked": blocked, "requests": responses, "failures": []}
+    page.on("pageerror", lambda error: errors.append(str(error)))
+
+    def guard(route):
+        request = route.request
+        if request_allowed(request.method, request.url, base, view):
+            route.continue_()
+        elif request.url.startswith("https://fonts.googleapis.com/") and request.method == "GET":
+            # Deterministic offline system fonts, not an external network request.
+            route.fulfill(status=200, content_type="text/css", body="")
+        else:
+            blocked.append({"method": request.method, "url": request.url})
+            route.abort()
+
+    def response_received(response):
+        if "/api/" in response.url:
+            responses.append({"url": response.url, "status": response.status})
+
+    page.route("**/*", guard)
+    page.on("response", response_received)
+    try:
+        with page.expect_response(lambda r: r.url.split("?")[0] == base + contract["required"]) as pending:
+            page.goto(base + contract["url"], wait_until="networkidle", timeout=20000)
+        response = pending.value
+        if response.status != 200 or not response.json():
+            raise AssertionError("Required analytics response failed or was empty")
+        if view == "overview":
+            payload = response.json()
+            if not payload.get("growth_curve"):
+                raise AssertionError("No snapshot fixture loaded")
+            if payload.get("flow_adjusted", {}).get("total_return_pct") is None and payload.get("flow_adjusted_curve"):
+                result["failures"].append("invalid-performance-publishes-curve")
+            attribution = page.get_by_role("region", name="Attribution waterfall", exact=True)
+            if attribution.locator("svg").count():
+                result["failures"].append("removed-value-walk-returned")
+        page.get_by_role("heading", name=contract["heading"], exact=True).wait_for()
+        measurement = measure_page(page)
+        result["measurement"] = measurement
+        result["failures"].extend(geometry_failures(measurement))
+        if errors or blocked or any(r["status"] >= 400 for r in responses):
+            result["failures"].append("browser-or-api-errors")
+    except Exception as exc:
+        result["failures"].append(f"readiness-or-contract: {exc}")
+    finally:
+        page.screenshot(path=str(output / f"{view}-{width}.png"), full_page=True)
+        page.close()
+    return result
 
 
 def verify(database: Path, dist: Path, output: Path) -> None:
@@ -62,76 +167,36 @@ def verify(database: Path, dist: Path, output: Path) -> None:
 
     if not database.is_file() or not (dist / "index.html").is_file():
         raise ValueError("An existing database and built frontend index.html are required")
-    output.mkdir(parents=True, exist_ok=True)
+    if output.is_relative_to(REPO) or dist.is_relative_to(REPO):
+        raise ValueError("Rehearsal output and built UI must be outside the repository")
+    output.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.TemporaryDirectory(prefix="stocks-ui-") as temporary:
         copy = Path(temporary) / "portfolio.db"
-        with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as source:
-            with closing(sqlite3.connect(copy)) as destination:
-                source.backup(destination)
-                assert destination.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        copy_database(database, copy)
+        copy_hash = hashlib.sha256(copy.read_bytes()).hexdigest()
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         base = f"http://127.0.0.1:{port}"
+        report = {"views": [], "read_only_copy": True, "visual_inspection": "outstanding"}
         with (output / "server.log").open("w") as log:
             server = subprocess.Popen(
                 [sys.executable, str(Path(__file__).resolve()), "--database", str(copy),
                  "--dist", str(dist), "--serve", str(port)], stdout=log, stderr=subprocess.STDOUT,
+                env={**os.environ, "PORTFOLIO_DATABASE_URL": "sqlite+aiosqlite:///:memory:"},
             )
             try:
-                deadline = time.monotonic() + 10
-                while True:
-                    if server.poll() is not None:
-                        raise RuntimeError("QA server exited; see server.log")
-                    try:
-                        with urllib.request.urlopen(base + "/api/health", timeout=1) as response:
-                            assert json.load(response)["status"] == "ok"
-                        break
-                    except OSError:
-                        if time.monotonic() >= deadline:
-                            raise
-                        time.sleep(0.05)
-                report = {"views": [], "source_database": str(database), "read_only_copy": True}
+                wait_ready(server, base)
                 with sync_playwright() as p:
                     browser = p.chromium.launch(executable_path="/usr/bin/google-chrome", headless=True, args=["--no-sandbox"])
                     try:
-                        for width in (390, 1440):
-                            page = browser.new_page(viewport={"width": width, "height": 1000})
-                            errors: list[str] = []
-                            page.on("pageerror", lambda error: errors.append(str(error)))
-                            page.goto(base + "/portfolio?tab=allocation", wait_until="networkidle")
-                            page.get_by_role("heading", name="Allocation & concentration").wait_for()
-                            page.get_by_text("Invested value", exact=True).wait_for()
-                            page.get_by_role("button", name="Refresh data", exact=True).wait_for(timeout=3000)
-                            for label in ("Account", "Source currency", "Asset class"):
-                                button = page.get_by_role("button", name=label, exact=True)
-                                button.focus()
-                                button.press("Enter")
-                                page.wait_for_load_state("networkidle")
-                                page.get_by_text("Invested value", exact=True).wait_for()
-                                assert page.get_by_role("button", name=label, exact=True).get_attribute("aria-pressed") == "true"
-                            size = page.evaluate("({viewport:innerWidth, document:document.documentElement.scrollWidth})")
-                            assert size["document"] <= size["viewport"], size
-                            assert not errors, errors
-                            page.screenshot(path=str(output / f"allocation-{width}.png"), full_page=True)
-                            report["views"].append({"page": "allocation", "width": width, "size": size, "errors": list(errors)})
-                            page.goto(base + "/", wait_until="networkidle")
-                            page.get_by_role("heading", name="Performance", exact=True).wait_for()
-                            attribution = page.get_by_role("region", name="Attribution waterfall", exact=True)
-                            assert attribution.locator("svg").count() == 0
-                            assert attribution.locator('[data-testid="waterfall-step"]').count() == 6
-                            size = page.evaluate("({viewport:innerWidth, document:document.documentElement.scrollWidth})")
-                            if size["document"] > size["viewport"]:
-                                print(json.dumps(page.evaluate("[...document.querySelectorAll('main *')].map(e=>({tag:e.tagName,cls:e.getAttribute('class'),text:e.innerText?.slice(0,80),right:e.getBoundingClientRect().right,width:e.getBoundingClientRect().width})).filter(e=>e.right>innerWidth).slice(0,25)"), indent=2))
-                            assert size["document"] <= size["viewport"], size
-                            assert not errors, errors
-                            page.screenshot(path=str(output / f"overview-{width}.png"), full_page=True)
-                            report["views"].append({"page": "overview", "width": width, "size": size, "errors": list(errors)})
-                            page.close()
+                        for width in (320, 390, 768, 1440):
+                            for view in ROUTES:
+                                if server.poll() is not None:
+                                    raise RuntimeError("QA server exited during browser checks")
+                                report["views"].append(verify_view(browser, base, view, width, output))
                     finally:
                         browser.close()
-                (output / "report.json").write_text(json.dumps(report, indent=2))
-                print(json.dumps(report, indent=2))
             finally:
                 server.terminate()
                 try:
@@ -139,6 +204,12 @@ def verify(database: Path, dist: Path, output: Path) -> None:
                 except subprocess.TimeoutExpired:
                     server.kill()
                     server.wait(timeout=5)
+                report["copy_unchanged"] = hashlib.sha256(copy.read_bytes()).hexdigest() == copy_hash
+                (output / "report.json").write_text(json.dumps(report, indent=2))
+        failures = sum(bool(view["failures"]) for view in report["views"])
+        print(f"{len(report['views'])} route/width checks, {failures} failed; evidence: {output}")
+        if failures or not report["copy_unchanged"]:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":
