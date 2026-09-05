@@ -463,3 +463,43 @@ Ruff/mypy retain **101 / 32 inherited diagnostics** after adding the intentional
 non-strict adjacent-point zip declaration. Final backend run had no warnings.
 Review: pure episode extraction is a small module, shared metadata gates it,
 and chart zoom does not recalculate authoritative financial metrics.
+
+## T14 — Source-backed timeline events
+
+`/api/portfolio/timeline` uses the shared account and valuation-anchored period,
+with optional instrument filtering. Events retain stable source IDs and distinguish
+recorded orders, explicitly typed deposits/withdrawals, snapshot valuations, and
+snapshot/transaction file import timestamps. A buy/sell is never re-labelled as a
+proven cash deposit/withdrawal. Administrative import events are not economic
+transactions; timestamps outside the covered window are not moved onto the chart.
+
+Portfolio → Performance has optional, URL-backed category controls and dated
+markers. Same-day records group together. The marker strip reserves space above
+the observations, limits marker count/spacing, and retains every event in the
+accessible date list. Instrument detail has the same scoped event list. Links open
+read-only order or import inspectors, preserving account, period and investigation
+parameters; malformed/ambiguous IDs fail explicitly. No creation/edit workflow or
+provider request is part of these endpoints.
+
+RED: the new scope/source API test initially returned 404. GREEN: **302 backend /
+124 frontend tests**, frontend typecheck/build and **110 browser cases, zero
+failures**. Browser checks at 390/1440px verify marker source counts, touch target
+size, non-overlap, no observation occlusion, touch/keyboard activation, a real
+three-event day, exact source order/import records, and Back restoration. Initial
+browser checks exposed asynchronous URL-checkbox timing; they now click and await
+the checked state rather than asserting before the router transition settles.
+Final backend run had no warnings. Ruff/mypy remain **101 / 32 inherited
+diagnostics**, with zero new diagnostic identities.
+
+Evidence: `/tmp/stocks-t14-browser` (including `timeline-390.png` and
+`timeline-1440.png`). The assistant inspected these timeline screenshots; independent
+visual/release approval remains outstanding. The rehearsal copy stayed unchanged,
+and the original database retains SHA-256
+`1fe2a985f0a12dbe72107e4e2deb185a523e4bace94c02ba6b3748f249796927`.
+
+Self-review: the 156-line backend service reads existing records and reuses the
+canonical valuation boundary. Small typed API/schema, query, marker, list and
+source-view modules keep unrelated responsibilities separate. PerformancePanel
+adds presentation geometry only (482 lines total); no alternative financial
+calculation, provider fetch, live schema change or deployed asset was introduced.
+T15–T23 remain planned; D01–D04 remain deferred.

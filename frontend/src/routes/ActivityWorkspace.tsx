@@ -3,6 +3,7 @@ import { WorkspaceTabs } from "../components/WorkspaceTabs";
 import { Diff } from "./Diff";
 import { ImportActivity } from "./ImportActivity";
 import { Orders } from "./Orders";
+import { TimelineSourceView } from "./TimelineSourceView";
 
 const TABS = [
   { key: "orders", label: "Orders" },
@@ -17,11 +18,11 @@ export function ActivityWorkspace() {
   return (
     <div className="space-y-5">
       <WorkspaceTabs label="Activity views" tabs={TABS} />
-      <p className="text-xs text-slate-400">{tab === "changes"
+      <p className="text-xs text-slate-400">{tab === "source" ? "Read-only source record for the current account scope." : tab === "changes"
         ? "Latest snapshot comparison unless explicitly selected below; independent of the performance period."
         : tab === "imports" ? "Import history shows all recorded imports, independent of account and performance period."
         : "Transactions use their own date filters below, independent of the performance period."}</p>
-      {tab === "changes" ? <Diff /> : tab === "imports" ? <ImportActivity /> : <Orders />}
+      {tab === "source" ? <TimelineSourceView /> : tab === "changes" ? <Diff /> : tab === "imports" ? <ImportActivity /> : <Orders />}
     </div>
   );
 }

@@ -25,6 +25,8 @@ import { ChartTooltip } from "./ChartTooltip";
 import { categoryColor, chartTheme } from "../lib/chartTheme";
 import { signedGbp } from "../lib/formatters";
 import { MetricInfo } from "./MetricInfo";
+import { groupTimelineEvents, type TimelineEvent } from "../lib/timelineApi";
+import { TimelineMarkerLabel } from "./TimelineMarkerLabel";
 import type { MetricTopic } from "../lib/metricGlossary";
 import { performanceMetric, type PerformanceMetricKey } from "../lib/analysisState";
 import type { MetricReason } from "../lib/api";
@@ -77,7 +79,10 @@ function MetricTile({
   );
 }
 
-export function PerformancePanel({ accountName, compact = false, focusWindow }: { accountName?: string; compact?: boolean; focusWindow?: { start: string; end: string } }) {
+export function PerformancePanel({ accountName, compact = false, focusWindow, timelineEvents = [], onEventDateSelect }: {
+  accountName?: string; compact?: boolean; focusWindow?: { start: string; end: string };
+  timelineEvents?: TimelineEvent[]; onEventDateSelect?: (date: string) => void;
+}) {
   const { period, setPeriod } = useAnalysisScope();
   // Raw account value is an optional overlay, off by default, so the primary
   // line (flow-adjusted) cannot be mistaken for investment return.
@@ -117,6 +122,14 @@ export function PerformancePanel({ accountName, compact = false, focusWindow }: 
     rows.sort((a, b) => (a.chartTime ?? 0) - (b.chartTime ?? 0));
     return rows.filter((row) => row.chartTime != null && (focusStart == null || row.chartTime >= focusStart) && (focusEnd == null || row.chartTime <= focusEnd));
   }, [perf, chainAvailable, focusStart, focusEnd]);
+
+  const eventGroups = groupTimelineEvents(timelineEvents).filter((group) =>
+    (focusStart == null || chartUtcMs(group.date) >= focusStart) && (focusEnd == null || chartUtcMs(group.date) <= focusEnd));
+  const markerDates = new Set(sparseDateTicks([
+    ...eventGroups.map((group) => chartUtcMs(group.date)),
+    ...(chartData.rows.length ? [chartData.rows[0].chartTime as number, chartData.rows[chartData.rows.length - 1].chartTime as number] : []),
+  ], Math.max(100, (chartWidth - 80) * 1.5)));
+  const markers = eventGroups.filter((group) => markerDates.has(chartUtcMs(group.date))).slice(0, 12);
 
   const ticks = sparseDateTicks(chartData.rows.map((row) => row.chartTime as number), chartWidth - 100);
   const drawdownTicks = sparseDateTicks(drawdownData.map((row) => row.chartTime as number), chartWidth - 100);
@@ -308,7 +321,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow }: 
 
       {(chainAvailable || showRaw) && <div id="performance-chart" role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
         <ResponsiveContainer width="100%" height="100%" onResize={(width) => setChartWidth(width)}>
-          <AreaChart data={chartData.rows}>
+          <AreaChart data={chartData.rows} margin={{ top: onEventDateSelect && markers.length ? 56 : 5, right: 5, bottom: 5, left: 5 }}>
             <defs>
               <linearGradient id="perfVal" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.45} />
@@ -382,6 +395,9 @@ export function PerformancePanel({ accountName, compact = false, focusWindow }: 
                 name={`${symbol.toUpperCase()} (idx)`}
               />
             ))}
+            {onEventDateSelect && markers.map((group, index) => <ReferenceLine key={group.date} x={chartUtcMs(group.date)}
+              stroke="#94a3b8" strokeOpacity={0.45} strokeDasharray="2 4" ifOverflow="discard"
+              label={<TimelineMarkerLabel date={group.date} count={group.events.length} number={index + 1} width={chartWidth} onSelect={onEventDateSelect} />} />)}
           </AreaChart>
         </ResponsiveContainer>
       </div>}

@@ -410,7 +410,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T14 — Add meaningful timeline events
 
-**Status:** [ ] Planned. **Dependencies:** T08, T10, T12. **Review coverage:** 18, 30.
+**Status:** [x] Source-backed, scope-filtered timeline events, non-obscuring chart markers and read-only source inspectors implemented. [Evidence](../verification/portfolio-experience.md#t14--source-backed-timeline-events): 302 backend / 124 frontend tests; 110 browser cases including crowded-day, source order/import and touch/keyboard navigation. **Dependencies:** T08, T10, T12. **Review coverage:** 18, 30.
 
 **Files:** Create `backend/app/services/timeline_service.py`, `backend/tests/test_timeline_service.py`, `frontend/src/components/TimelineEvents.tsx`, `frontend/src/components/__tests__/TimelineEvents.test.tsx`; modify `backend/app/routers/portfolio.py`, `backend/app/schemas.py`, `frontend/src/lib/api.ts`, `frontend/src/components/PerformancePanel.tsx`, `frontend/src/components/InstrumentDetail.tsx`.
 

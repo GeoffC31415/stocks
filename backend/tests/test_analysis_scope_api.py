@@ -45,8 +45,10 @@ async def client():
     "start=2026-02-01&end=2026-01-01", "start=2026-02-30", "start=2026-01-01",
     "period=1M&period=ALL",
 ])
-async def test_reject_invalid_scope_instead_of_ignoring_it(client, query):
-    response = await client.get(f"/api/portfolio/performance?include_benchmarks=false&{query}")
+@pytest.mark.parametrize("route", ["performance", "timeline"])
+async def test_reject_invalid_scope_instead_of_ignoring_it(client, query, route):
+    prefix = "include_benchmarks=false&" if route == "performance" else ""
+    response = await client.get(f"/api/portfolio/{route}?{prefix}{query}")
     assert response.status_code == 422
 
 
@@ -82,6 +84,19 @@ async def test_confidence_endpoint_honours_scope_and_bounds_personal_rules(clien
     assert response.json()["scope"]["account_name"] == "ISA & pension"
     assert response.json()["transactions"]["completeness"] == "unknown"
     invalid = await client.get("/api/portfolio/data-confidence", params={"stale_after_days": 0})
+    assert invalid.status_code == 422
+
+
+async def test_timeline_is_scoped_cache_only_and_sources_are_exact(client):
+    response = await client.get("/api/portfolio/timeline", params={"account_name": "ISA & pension", "period": "YTD"})
+    assert response.status_code == 200
+    assert response.json()["scope"]["effective_end"] == "2026-06-30"
+    source = await client.get("/api/portfolio/timeline/source/import/1", params={"account_name": "ISA & pension"})
+    assert source.status_code == 200
+    assert source.json()["source_id"] == 1
+    missing = await client.get("/api/portfolio/timeline/source/order/999")
+    assert missing.status_code == 404
+    invalid = await client.get("/api/portfolio/timeline", params={"instrument_id": -1})
     assert invalid.status_code == 422
 
 

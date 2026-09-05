@@ -17,11 +17,13 @@ ROUTES = {
     "performance": {
         "url": "/portfolio?tab=performance", "heading": "Performance workspace", "required": "/api/portfolio/performance",
         "gets": {"/api/portfolio/performance", "/api/portfolio/returns", "/api/portfolio/timeseries",
+                 "/api/portfolio/timeline", "/api/portfolio/timeline/source/{source}/{record_id}",
                  "/api/orders/analytics", "/api/orders/cashflow-timeseries", "/api/orders/estimated-timeseries"},
     },
     "holdings": {
         "url": "/portfolio?tab=holdings", "heading": "Holdings", "required": "/api/instruments",
         "gets": {"/api/orders/analytics", "/api/orders/positions", "/api/groups",
+                 "/api/portfolio/timeline", "/api/portfolio/timeline/source/{source}/{record_id}",
                  "/api/matching/summary", "/api/instruments/{instrument_id}/history",
                  "/api/instruments/{instrument_id}/orders"},
     },

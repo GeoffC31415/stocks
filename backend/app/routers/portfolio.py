@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.data_quality_schemas import DataConfidence
@@ -35,6 +35,8 @@ from app.services.portfolio_service import (
     get_portfolio_return_summary,
     portfolio_value_timeseries,
 )
+from app.services.timeline_service import get_timeline, get_timeline_source
+from app.timeline_schemas import TimelineEvent, TimelineResponse, TimelineSourceType
 
 router = APIRouter(prefix="/api/portfolio", tags=["portfolio"])
 
@@ -92,6 +94,29 @@ async def data_confidence(
     return DataConfidence(**await get_data_confidence(
         session, account_name=account_name, period=period, stale_after_days=stale_after_days,
     ))
+
+
+@router.get("/timeline", response_model=TimelineResponse, dependencies=[Depends(validate_analysis_scope)])
+async def timeline(
+    account_name: str | None = None,
+    period: str = "ALL",
+    instrument_id: int | None = Query(default=None, ge=1),
+    session: AsyncSession = Depends(get_session),
+) -> TimelineResponse:
+    return TimelineResponse(**await get_timeline(session, account_name=account_name, period=period, instrument_id=instrument_id))
+
+
+@router.get("/timeline/source/{source}/{record_id}", response_model=TimelineEvent)
+async def timeline_source(
+    source: TimelineSourceType,
+    record_id: int = Path(ge=1),
+    account_name: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> TimelineEvent:
+    event = await get_timeline_source(session, source, record_id, account_name)
+    if event is None:
+        raise HTTPException(404, "Source record is not available in this account scope.")
+    return TimelineEvent(**event)
 
 
 @router.get("/timeseries")

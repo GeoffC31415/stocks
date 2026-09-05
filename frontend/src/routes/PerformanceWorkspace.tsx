@@ -9,12 +9,18 @@ import { ChartPanel } from "../components/ChartPanel";
 import { AnalysisStatus } from "../components/AnalysisStatus";
 import { DrawdownEpisodes } from "../components/DrawdownEpisodes";
 import { performanceMetric } from "../lib/analysisState";
+import { useTimeline } from "../state/useTimeline";
+import { TimelineEvents } from "../components/TimelineEvents";
+import { parseEventKinds } from "../lib/timelineApi";
 
 export function PerformanceWorkspace() {
   const { accountFilter, dripThreshold } = usePreferences();
   const { period } = useAnalysisScope();
   const [params, setParams] = useSearchParams();
   const account = accountFilter === "all" ? undefined : accountFilter;
+  const showEvents = params.get("events") === "on";
+  const timelineQ = useTimeline(undefined, showEvents);
+  const eventKinds = parseEventKinds(params.get("eventKinds"));
   const perfQ = useQuery({ queryKey: ["performance", account, period], queryFn: () => api.getPerformance(account, period) });
   const episode = perfQ.data?.drawdown_episodes?.find((row) => row.id === params.get("episode"));
   const chain = perfQ.data ? performanceMetric(perfQ.data, "total_return_pct") : null;
@@ -33,7 +39,15 @@ export function PerformanceWorkspace() {
       {episode ? "Showing the selected episode's chart window." : "This episode is not available in the selected scope."}
       <button type="button" className="ml-3 min-h-9 text-cyan-200 underline" onClick={() => { const next = new URLSearchParams(params); next.delete("episode"); setParams(next); }}>Show full chart window</button>
     </div>}
-    <PerformancePanel accountName={account} focusWindow={episode ? { start: episode.peak_date, end: episode.end_date } : undefined} />
+    <label className="flex min-h-9 items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={showEvents}
+      onChange={(event) => { const next = new URLSearchParams(params);
+        if (event.target.checked) next.set("events", "on"); else { next.delete("events"); next.delete("eventDate"); }
+        setParams(next);
+      }} />Show timeline events</label>
+    <PerformancePanel accountName={account} focusWindow={episode ? { start: episode.peak_date, end: episode.end_date } : undefined}
+      timelineEvents={showEvents && !timelineQ.isError ? timelineQ.data?.events.filter((event) => eventKinds.includes(event.kind)) : undefined}
+      onEventDateSelect={(date) => { const next = new URLSearchParams(params); next.set("eventDate", date); setParams(next); }} />
+    {showEvents && <TimelineEvents />}
     {perfQ.data && <DrawdownEpisodes episodes={perfQ.data.drawdown_episodes ?? []} available={chain?.status === "available"} reasons={chain?.reasons} />}
     <div className="max-w-2xl"><PortfolioReturnCard summary={returnsQ.data} loading={returnsQ.isLoading}
       error={returnsQ.isError} onRetry={() => void returnsQ.refetch()} /></div>

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Area,
   AreaChart,
@@ -16,6 +17,7 @@ import { compactGbp } from "../lib/formatters";
 import { chartTheme } from "../lib/chartTheme";
 import { ChartTooltip } from "./ChartTooltip";
 import { OrderRow } from "./OrderRow";
+import { TimelineEvents } from "./TimelineEvents";
 
 export function InstrumentDetail({
   name,
@@ -36,6 +38,8 @@ export function InstrumentDetail({
   ordersLoading: boolean;
   hasOrders: boolean;
 }) {
+  const [params, setParams] = useSearchParams();
+  const showTimeline = params.get("events") === "on";
   const historyWithTime = useMemo(
     () =>
       history.map((h) => ({
@@ -84,6 +88,14 @@ export function InstrumentDetail({
         ) : null}
       </div>
 
+      {instrument && <>
+        <button type="button" className="min-h-9 text-left text-sm text-cyan-200 underline" aria-expanded={showTimeline} onClick={() => {
+          const next = new URLSearchParams(params);
+          if (showTimeline) next.delete("events"); else next.set("events", "on");
+          setParams(next);
+        }}>{showTimeline ? "Hide" : "Show"} instrument timeline</button>
+        {showTimeline && <TimelineEvents instrumentId={instrument.id} />}
+      </>}
       <div className="h-44 rounded-xl bg-white/[0.02] p-2">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={historyWithTime}>
