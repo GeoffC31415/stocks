@@ -130,7 +130,7 @@ function ClassificationRow({ instrument }: { instrument: Instrument }) {
 }
 
 export function ClassificationQueue() {
-  const instrumentsQ = useQuery({ queryKey: ["instruments"], queryFn: api.getInstruments });
+  const instrumentsQ = useQuery({ queryKey: ["instruments"], queryFn: () => api.getInstruments() });
   const open = useMemo(
     () => (instrumentsQ.data ?? []).filter((instrument) => !instrument.closed_at && !instrument.is_cash),
     [instrumentsQ.data],

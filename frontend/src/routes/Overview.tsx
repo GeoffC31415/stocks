@@ -23,12 +23,11 @@ export function Overview() {
   const { dripThreshold, accountFilter } = usePreferences();
   const selectedAccount = accountFilter === "all" ? undefined : accountFilter;
 
-  const summaryQ = useQuery({ queryKey: ["summary"], queryFn: api.getSummary });
+  const summaryQ = useQuery({ queryKey: ["summary", selectedAccount], queryFn: () => api.getSummary(selectedAccount) });
   const returnsQ = useQuery({
     queryKey: ["portfolio-returns", accountFilter, period],
     queryFn: () => api.getPortfolioReturns(selectedAccount, undefined, undefined, period),
   });
-  const instrumentsQ = useQuery({ queryKey: ["instruments"], queryFn: api.getInstruments });
   const timeseriesQ = useQuery({
     queryKey: ["timeseries", accountFilter],
     queryFn: () => api.getTimeseries(accountFilter === "all" ? undefined : accountFilter),
@@ -64,105 +63,9 @@ export function Overview() {
       benchmarkBaseValue != null,
   });
 
-  const rawSummary = summaryQ.data;
-  const filteredInstruments = useMemo(() => {
-    const instruments = instrumentsQ.data ?? [];
-    if (accountFilter === "all") return instruments;
-    return instruments.filter((instrument) => instrument.account_name === accountFilter);
-  }, [accountFilter, instrumentsQ.data]);
-  const summary = useMemo(() => {
-    if (!rawSummary || accountFilter === "all") return rawSummary;
-
-    const totalValue = filteredInstruments.reduce(
-      (total, instrument) => total + (instrument.latest_value_gbp ?? 0),
-      0,
-    );
-    const totalBook = filteredInstruments.reduce(
-      (total, instrument) =>
-        total + (instrument.is_cash ? 0 : (instrument.latest_book_cost_gbp ?? 0)),
-      0,
-    );
-    const totalPnl = filteredInstruments.reduce(
-      (total, instrument) => total + (instrument.pnl_gbp ?? 0),
-      0,
-    );
-    const nonCash = filteredInstruments.filter((instrument) => !instrument.is_cash);
-    const nonCashTotal = nonCash.reduce(
-      (total, instrument) => total + (instrument.latest_value_gbp ?? 0),
-      0,
-    );
-    const allocation = [...nonCash]
-      .sort((a, b) => (b.latest_value_gbp ?? 0) - (a.latest_value_gbp ?? 0))
-      .map((instrument) => ({
-        label: instrument.security_name,
-        kind: "holding",
-        value_gbp: instrument.latest_value_gbp ?? 0,
-        weight_pct:
-          nonCashTotal > 0
-            ? ((instrument.latest_value_gbp ?? 0) / nonCashTotal) * 100
-            : 0,
-        target_pct: null,
-        drift_pct: null,
-        is_concentration_risk:
-          nonCashTotal > 0 &&
-          ((instrument.latest_value_gbp ?? 0) / nonCashTotal) * 100 > 20,
-      }));
-    const withPct = nonCash.filter((instrument) => instrument.latest_pct_change != null);
-    // Compute the most recent snapshot date for the filtered account
-    let latestSnapshotDate: string | null = null;
-    for (const inst of filteredInstruments) {
-      if (inst.snapshot_as_of_date) {
-        if (!latestSnapshotDate || inst.snapshot_as_of_date > latestSnapshotDate) {
-          latestSnapshotDate = inst.snapshot_as_of_date;
-        }
-      }
-    }
-    // Filter group_allocation to only include instruments from the selected account
-    const filteredGroupAllocation = (rawSummary.group_allocation ?? []).map((group) => {
-      const memberIds = group.member_ids ?? [];
-      const filteredValue = filteredInstruments
-        .filter((inst) => memberIds.includes(inst.id))
-        .reduce((sum, inst) => sum + (inst.latest_value_gbp ?? 0), 0);
-      const weightPct = totalValue > 0 ? (filteredValue / totalValue) * 100 : 0;
-      return {
-        ...group,
-        value_gbp: Math.round(filteredValue * 100) / 100,
-        weight_pct: Math.round(weightPct * 100) / 100,
-        drift_pct:
-          group.target_pct != null
-            ? Math.round((weightPct - group.target_pct) * 100) / 100
-            : null,
-      };
-    });
-    return {
-      ...rawSummary,
-      total_value_gbp: totalValue,
-      total_book_cost_gbp: totalBook,
-      total_pnl_gbp: totalPnl,
-      allocation,
-      group_allocation: filteredGroupAllocation,
-      worst_pct: [...withPct]
-        .sort((a, b) => (a.latest_pct_change ?? 0) - (b.latest_pct_change ?? 0))
-        .slice(0, 5),
-      best_pct: [...withPct]
-        .sort((a, b) => (b.latest_pct_change ?? 0) - (a.latest_pct_change ?? 0))
-        .slice(0, 5),
-      latest_snapshot_date: latestSnapshotDate,
-    };
-  }, [accountFilter, filteredInstruments, rawSummary]);
-
-  // For the "all" view, compute the snapshot date range from all instruments
-  const snapshotDateRange = useMemo(() => {
-    const instruments = instrumentsQ.data ?? [];
-    let earliest: string | null = null;
-    let latest: string | null = null;
-    for (const inst of instruments) {
-      if (!inst.snapshot_as_of_date) continue;
-      if (!earliest || inst.snapshot_as_of_date < earliest) earliest = inst.snapshot_as_of_date;
-      if (!latest || inst.snapshot_as_of_date > latest) latest = inst.snapshot_as_of_date;
-    }
-    return { earliest, latest };
-  }, [instrumentsQ.data]);
+  const summary = summaryQ.data;
+  const valuationDates = summary?.scope?.valuation_dates.map((row) => row.date).sort() ?? [];
+  const snapshotDateRange = { earliest: valuationDates[0] ?? null, latest: valuationDates[valuationDates.length - 1] ?? null };
   const analytics = analyticsQ.data;
   const hasOrders = (analytics?.total_orders ?? 0) > 0;
 
@@ -197,7 +100,7 @@ export function Overview() {
     }));
   }, [cashflowQ.data]);
 
-  if (summaryQ.isLoading || (selectedAccount && instrumentsQ.isLoading)) {
+  if (summaryQ.isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center text-slate-400">
         <Loader2 size={20} className="mr-2 animate-spin" />
@@ -206,17 +109,17 @@ export function Overview() {
     );
   }
 
-  if (summaryQ.isError || (selectedAccount && instrumentsQ.isError)) {
+  if (summaryQ.isError) {
     return <AnalysisStatus kind="error" title="Unable to load portfolio summary. No balance is shown."
-      onRetry={() => { void summaryQ.refetch(); if (selectedAccount) void instrumentsQ.refetch(); }} />;
+      onRetry={() => void summaryQ.refetch()} />;
   }
 
-  if (selectedAccount && summary && filteredInstruments.length === 0) {
+  if (selectedAccount && summary?.position_count === 0) {
     return <AnalysisStatus kind="empty" title="No holdings for the selected account."
       reasons={[{ code: "empty_account", message: "Choose another account or import a snapshot for this account.", action_href: "/data?tab=import" }]} />;
   }
 
-  if (!summary || (summary.as_of_date == null && filteredInstruments.length === 0)) {
+  if (!summary || summary.as_of_date == null) {
     return (
       <div className="glass mx-auto max-w-xl rounded-2xl p-8 text-center">
         <Sparkles className="mx-auto text-aurora-cyan" size={28} />
@@ -258,7 +161,7 @@ export function Overview() {
         latestAsOfDate={accountFilter === "all" ? snapshotDateRange.latest : null}
       />
 
-      {instrumentsQ.isError && <AnalysisStatus kind="warning" title="Holding details are unavailable; the summary balance is still shown." />}
+      {summary.scope?.warnings.map((warning) => <p key={warning} role="status" className="text-sm text-amber-200">{warning}</p>)}
       {analyticsQ.isError && <AnalysisStatus kind="error" title="Unable to load order analysis." onRetry={() => void analyticsQ.refetch()} />}
       {timeseriesQ.isError && <AnalysisStatus kind="error" title="Unable to load snapshot history." onRetry={() => void timeseriesQ.refetch()} />}
       {cashflowQ.isError && <AnalysisStatus kind="error" title="Unable to load cash-flow history." onRetry={() => void cashflowQ.refetch()} />}

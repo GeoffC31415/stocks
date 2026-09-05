@@ -13,6 +13,7 @@ import { MatchingWarningBanner } from "../components/MatchingWarningBanner";
 export function Holdings() {
   const [params, setParams] = useSearchParams();
   const { dripThreshold, accountFilter } = usePreferences();
+  const selectedAccount = accountFilter === "all" ? undefined : accountFilter;
   const selectedRaw = params.get("inst");
   const selectedInstrument = selectedRaw ? Number(selectedRaw) : null;
 
@@ -24,12 +25,12 @@ export function Holdings() {
   };
 
   const instrumentsQ = useQuery({
-    queryKey: ["instruments"],
-    queryFn: api.getInstruments,
+    queryKey: ["instruments", selectedAccount],
+    queryFn: () => api.getInstruments(selectedAccount),
   });
   const analyticsQ = useQuery({
-    queryKey: ["order-analytics", dripThreshold],
-    queryFn: () => api.getOrderAnalytics(dripThreshold),
+    queryKey: ["order-analytics", dripThreshold, accountFilter],
+    queryFn: () => api.getOrderAnalytics(dripThreshold, selectedAccount),
   });
   const historyQ = useQuery({
     queryKey: ["instrument-history", selectedInstrument],
@@ -43,11 +44,11 @@ export function Holdings() {
     enabled: selectedInstrument !== null,
   });
   const positionsQ = useQuery({
-    queryKey: ["positions", dripThreshold],
-    queryFn: () => api.getOrderPositions(dripThreshold),
+    queryKey: ["positions", dripThreshold, accountFilter],
+    queryFn: () => api.getOrderPositions(dripThreshold, selectedAccount),
     enabled: (analyticsQ.data?.total_orders ?? 0) > 0,
   });
-  const groupsQ = useQuery({ queryKey: ["groups"], queryFn: api.getGroups });
+  const summaryQ = useQuery({ queryKey: ["summary", selectedAccount], queryFn: () => api.getSummary(selectedAccount) });
 
   const allInstruments = instrumentsQ.data ?? [];
   const instruments = useMemo(
@@ -57,7 +58,7 @@ export function Holdings() {
         : allInstruments.filter((instrument) => instrument.account_name === accountFilter),
     [accountFilter, allInstruments],
   );
-  const groups = groupsQ.data ?? [];
+  const groups = summaryQ.data?.group_allocation ?? [];
   const hasOrders = (analyticsQ.data?.total_orders ?? 0) > 0;
 
   const selectedName = useMemo(
@@ -91,7 +92,7 @@ export function Holdings() {
           </p>
         </div>
         <span className="chip chip-muted tabular">
-          {instruments.length} positions
+          {summaryQ.data?.position_count ?? "—"} positions in scope
         </span>
       </div>
 

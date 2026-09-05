@@ -59,9 +59,13 @@ async def allocation(
 
 
 @router.get("/summary", response_model=PortfolioSummary)
-async def summary(session: AsyncSession = Depends(get_session)) -> PortfolioSummary:
-    data = await build_portfolio_summary(session)
+async def summary(account_name: str | None = None, session: AsyncSession = Depends(get_session)) -> PortfolioSummary:
+    data = await build_portfolio_summary(session, account_name=account_name)
     return PortfolioSummary(
+        scope=data["scope"],
+        position_count=data["position_count"],
+        invested_value_gbp=data["invested_value_gbp"],
+        cash_value_gbp=data["cash_value_gbp"],
         as_of_date=data["as_of_date"],
         import_batch_id=data["import_batch_id"],
         total_value_gbp=data["total_value_gbp"],

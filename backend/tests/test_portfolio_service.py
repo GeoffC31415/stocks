@@ -3,9 +3,17 @@ import datetime as dt
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models import Base, HoldingSnapshot, ImportBatch, Instrument
+from app.models import (
+    Base,
+    HoldingSnapshot,
+    ImportBatch,
+    Instrument,
+    InstrumentGroup,
+    InstrumentGroupMember,
+)
 from app.services.performance_service import build_value_series, get_portfolio_performance
 from app.services.portfolio_service import (
+    build_portfolio_summary,
     get_current_snapshots,
     get_latest_batch,
     get_latest_batch_for_account,
@@ -77,6 +85,39 @@ async def valuation_db():
         await session.flush()
         yield session
     await engine.dispose()
+
+
+async def test_scoped_summary_reconciles_cash_cost_pnl_and_group_denominator(valuation_db):
+    valuation_db.add(Instrument(id=4, account_name="ISA", identifier="CASH", security_name="Cash", is_cash=True))
+    valuation_db.add(InstrumentGroup(id=1, name="Core", target_allocation_pct=50))
+    await valuation_db.flush()
+    valuation_db.add_all([InstrumentGroupMember(group_id=1, instrument_id=i) for i in (1, 2, 4)])
+    await add_valuation(valuation_db, 1, 10, {1: 120, 4: 30})
+    await add_valuation(valuation_db, 2, 5, {2: 200})
+    await add_valuation(valuation_db, 3, 1, {1: 50})  # Later historical import cannot win.
+    snapshots = await get_current_snapshots(valuation_db)
+    for snapshot in snapshots:
+        snapshot.book_cost_gbp = 100 if snapshot.instrument_id == 1 else 180 if snapshot.instrument_id == 2 else 0
+    await valuation_db.flush()
+    combined = await build_portfolio_summary(valuation_db)
+    isa = await build_portfolio_summary(valuation_db, account_name="ISA")
+    sipp = await build_portfolio_summary(valuation_db, account_name="SIPP")
+    for field in ("total_value_gbp", "invested_value_gbp", "cash_value_gbp", "total_book_cost_gbp", "total_pnl_gbp"):
+        assert combined[field] == pytest.approx(isa[field] + sipp[field])
+    assert isa["total_value_gbp"] == 150
+    assert isa["invested_value_gbp"] == 120
+    assert isa["cash_value_gbp"] == 30
+    assert isa["total_pnl_gbp"] == 20  # Cash is not an investment gain.
+    assert isa["group_allocation"][0]["value_gbp"] == 120
+    assert isa["group_allocation"][0]["weight_pct"] == 100
+    assert isa["group_allocation"][0]["member_ids"] == [1]
+    assert sipp["as_of_date"] == dt.date(2026, 1, 5)
+    assert sipp["scope"]["valuation_dates"] == [{"account_name": "SIPP", "date": dt.date(2026, 1, 5)}]
+    assert combined["scope"]["warnings"]
+    assert isa["position_count"] == 2
+    empty = await build_portfolio_summary(valuation_db, account_name="Empty")
+    assert empty["position_count"] == 0
+    assert empty["scope"]["account_name"] == "Empty"
 
 
 async def add_valuation(session, batch_id, day, values):

@@ -36,8 +36,15 @@ beforeEach(() => {
 });
 
 describe("Overview states", () => {
+  it("uses the selected account API totals even when instrument details are empty", async () => {
+    const summary = vi.spyOn(api, "getSummary").mockResolvedValue({ ...zero, position_count: 15, total_value_gbp: 12345 });
+    show("ISA");
+    expect(await screen.findByText("Portfolio balance: 12345")).toBeInTheDocument();
+    expect(summary).toHaveBeenCalledWith("ISA");
+    expect(api.getInstruments).not.toHaveBeenCalled();
+  });
   it("discloses an empty selected account rather than a zero all-account balance", async () => {
-    vi.spyOn(api, "getSummary").mockResolvedValue({ ...zero, total_value_gbp: 100 });
+    vi.spyOn(api, "getSummary").mockResolvedValue({ ...zero, position_count: 0, total_value_gbp: 0 });
     show("Empty account");
     expect(await screen.findByText("No holdings for the selected account.")).toBeInTheDocument();
     expect(screen.queryByText("Portfolio balance: 0")).not.toBeInTheDocument();

@@ -6,7 +6,7 @@ import { GroupsSection } from "../components/GroupsSection";
 export function Groups() {
   const instrumentsQ = useQuery({
     queryKey: ["instruments"],
-    queryFn: api.getInstruments,
+    queryFn: () => api.getInstruments(),
   });
   const groupsQ = useQuery({ queryKey: ["groups"], queryFn: api.getGroups });
 

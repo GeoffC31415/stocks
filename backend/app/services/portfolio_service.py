@@ -62,9 +62,9 @@ async def snapshots_for_batch_with_instruments(
     return r.scalars().all()
 
 
-async def get_current_snapshots(session: AsyncSession) -> Sequence[HoldingSnapshot]:
+async def get_current_snapshots(session: AsyncSession, *, account_name: str | None = None) -> Sequence[HoldingSnapshot]:
     """Current account state by valuation date, not the last file imported."""
-    states, _ = await valuation_states(session)
+    states, _ = await valuation_states(session, account_name=account_name)
     if not states:
         return []
     return sorted(
@@ -195,12 +195,17 @@ def build_instrument_out(
     )
 
 
-async def build_portfolio_summary(session: AsyncSession) -> dict:
-    snaps = await get_current_snapshots(session)
+async def build_portfolio_summary(session: AsyncSession, *, account_name: str | None = None) -> dict:
+    snaps = await get_current_snapshots(session, account_name=account_name)
+    scope: dict = {"account_name": account_name, "effective_end": None, "valuation_dates": [], "warnings": []}
     if not snaps:
         return {
             "as_of_date": None,
             "import_batch_id": None,
+            "scope": scope,
+            "position_count": 0,
+            "invested_value_gbp": 0.0,
+            "cash_value_gbp": 0.0,
             "total_value_gbp": 0.0,
             "total_book_cost_gbp": 0.0,
             "total_pnl_gbp": 0.0,
@@ -247,13 +252,25 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
             }
         )
 
-    # total_pnl: for display use sum of per-line pnl where book exists + cash has no book
+    account_dates = {
+        row["instrument"].account_name: row["snapshot_as_of_date"] for row in instrument_rows
+    }
+    scope = {
+        "account_name": account_name, "effective_end": latest_as_of,
+        "valuation_dates": [{"account_name": name, "date": date} for name, date in sorted(account_dates.items())],
+        "warnings": (["Account valuation dates differ; older snapshots are carried forward."]
+                     if len(set(account_dates.values())) > 1 else []),
+    }
+    if any(row["snapshot"].value_gbp is None for row in instrument_rows):
+        scope["warnings"].append("Some holding values are missing; totals cover only recorded values.")
+    if any(row["snapshot"].book_cost_gbp is None and not row["instrument"].is_cash for row in instrument_rows):
+        scope["warnings"].append("Some book costs are missing; cost and gain totals cover only recorded costs.")
+
+    # Cash never contributes to unrealised investment P&L.
     line_pnl = 0.0
     for row in instrument_rows:
-        if row["pnl_gbp"] is not None:
+        if row["pnl_gbp"] is not None and not row["instrument"].is_cash:
             line_pnl += row["pnl_gbp"]
-        elif row["instrument"].is_cash:
-            pass
     total_pnl_gbp = line_pnl
 
     r_groups = await session.execute(
@@ -261,8 +278,10 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
     )
     groups = r_groups.scalars().unique().all()
     by_group: dict[str, float] = {}
+    non_cash = [r for r in instrument_rows if not r["instrument"].is_cash]
+    non_cash_total = sum(row["snapshot"].value_gbp or 0.0 for row in non_cash)
     inst_to_value = {
-        row["instrument"].id: row["snapshot"].value_gbp or 0.0 for row in instrument_rows
+        row["instrument"].id: row["snapshot"].value_gbp or 0.0 for row in non_cash
     }
     group_allocation: list[dict] = []
     for g in groups:
@@ -270,9 +289,10 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
         for m in g.members:
             total_g += inst_to_value.get(m.instrument_id, 0.0)
         by_group[g.name] = total_g
-        weight_pct = (total_g / total_value * 100.0) if total_value > 0 else 0.0
+        weight_pct = (total_g / non_cash_total * 100.0) if non_cash_total > 0 else 0.0
         group_allocation.append(
             {
+                "group_id": g.id,
                 "label": g.name,
                 "kind": "group",
                 "value_gbp": round(total_g, 2),
@@ -284,12 +304,12 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
                     else None
                 ),
                 "is_concentration_risk": False,
-                "member_ids": [m.instrument_id for m in g.members],
+                "member_ids": sorted(m.instrument_id for m in g.members if m.instrument_id in inst_to_value),
+                "target_gap_gbp": (non_cash_total * g.target_allocation_pct / 100 - total_g)
+                if g.target_allocation_pct is not None else None,
             }
         )
 
-    non_cash = [r for r in instrument_rows if not r["instrument"].is_cash]
-    non_cash_total = sum(row["snapshot"].value_gbp or 0.0 for row in non_cash)
     allocation = [
         {
             "label": row["instrument"].security_name,
@@ -321,6 +341,10 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
     return {
         "as_of_date": latest_as_of,
         "import_batch_id": latest_batch.id if latest_batch is not None else None,
+        "scope": scope,
+        "position_count": len(snaps),
+        "invested_value_gbp": non_cash_total,
+        "cash_value_gbp": total_value - non_cash_total,
         "total_value_gbp": total_value,
         "total_book_cost_gbp": total_book,
         "total_pnl_gbp": total_pnl_gbp,

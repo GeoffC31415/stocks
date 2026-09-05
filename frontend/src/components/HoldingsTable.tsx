@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import type { Group, Instrument } from "../lib/api";
+import type { AllocationRow, Instrument } from "../lib/api";
 import { toGbp, pct } from "../lib/formatters";
 import { holdingPerformanceSignals } from "./holdingSignals";
 
@@ -37,7 +37,7 @@ export function HoldingsTable({
   onSelect,
 }: {
   instruments: Instrument[];
-  groups: Group[];
+  groups: AllocationRow[];
   selectedId: number | null;
   onSelect: (id: number | null) => void;
 }) {
@@ -67,27 +67,17 @@ export function HoldingsTable({
   }, [instruments, query, sort]);
 
   const underweightGroupBadges = useMemo(() => {
-    const totalValue = instruments.reduce(
-      (total, instrument) => total + (instrument.latest_value_gbp ?? 0),
-      0,
-    );
-    if (totalValue <= 0) return new Map<number, HoldingBadge>();
-
     const badges = new Map<number, HoldingBadge>();
     for (const group of groups) {
-      if (group.target_allocation_pct == null || group.total_value_gbp == null) continue;
-
-      const targetValue = totalValue * (group.target_allocation_pct / 100);
-      const gap = targetValue - group.total_value_gbp;
-      if (gap < MIN_UNDERWEIGHT_GAP_GBP) continue;
-
-      badges.set(group.id, {
-        label: `Underweight ${group.name} by ${toGbp(gap)}`,
+      const gap = group.target_gap_gbp;
+      if (group.group_id == null || gap == null || gap < MIN_UNDERWEIGHT_GAP_GBP) continue;
+      badges.set(group.group_id, {
+        label: `Below ${group.label} tag target by ${toGbp(gap)}`,
         tone: "cyan",
       });
     }
     return badges;
-  }, [groups, instruments]);
+  }, [groups]);
 
   const badgesFor = (inst: Instrument): HoldingBadge[] => {
     if (inst.is_cash) return [];

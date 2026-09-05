@@ -61,6 +61,21 @@ async def test_period_is_anchored_to_valuation_not_wall_clock(client):
     assert scope["account_name"] == "ISA & pension"
 
 
+async def test_summary_and_instrument_list_share_account_scope(client):
+    summary = await client.get("/api/portfolio/summary", params={"account_name": "ISA & pension"})
+    assert summary.status_code == 200
+    payload = summary.json()
+    assert payload["position_count"] == 1
+    assert payload["invested_value_gbp"] == 100
+    assert payload["scope"]["account_name"] == "ISA & pension"
+    assert payload["scope"]["valuation_dates"] == [{"account_name": "ISA & pension", "date": "2026-06-30"}]
+    empty = await client.get("/api/portfolio/summary", params={"account_name": "Empty"})
+    assert empty.json()["total_value_gbp"] == 0
+    assert empty.json()["position_count"] == 0
+    instruments = await client.get("/api/instruments", params={"account_name": "Empty"})
+    assert instruments.json() == []
+
+
 async def test_return_card_uses_same_shared_period(client):
     response = await client.get("/api/portfolio/returns", params={"period": "YTD"})
     assert response.status_code == 200

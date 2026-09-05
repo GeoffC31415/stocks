@@ -330,7 +330,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T09 — Centralise overview scope and current-value summaries
 
-**Status:** [ ] Planned. **Dependencies:** T01, T08. **Review coverage:** 4, 16, 34.
+**Status:** [x] Account-scoped authoritative summaries, valuation dates and cash-excluded group denominators implemented. [Evidence](../verification/portfolio-experience.md#t09--authoritative-current-summaries): 266 backend / 105 frontend tests; 80 browser cases. **Dependencies:** T01, T08. **Review coverage:** 4, 16, 34.
 
 **Files:** Modify `backend/app/services/portfolio_service.py`, `backend/app/routers/portfolio.py`, `backend/app/schemas.py`, `frontend/src/lib/api.ts`, `frontend/src/routes/Overview.tsx`, `frontend/src/layout/Topbar.tsx`, `frontend/src/routes/Holdings.tsx`; extend `backend/tests/test_portfolio_service.py`, `backend/tests/test_order_account_filtering.py`, `frontend/src/routes/__tests__/Overview.test.tsx`.
 

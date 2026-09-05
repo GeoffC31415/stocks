@@ -173,6 +173,9 @@ class InstrumentHistoryPoint(BaseModel):
 
 
 class AllocationRow(BaseModel):
+    group_id: int | None = None
+    member_ids: list[int] = Field(default_factory=list)
+    target_gap_gbp: float | None = None
     label: str
     kind: str
     value_gbp: float
@@ -228,6 +231,10 @@ class SnapshotAttributionResponse(BaseModel):
 
 
 class PortfolioSummary(BaseModel):
+    scope: AnalysisScope = Field(default_factory=lambda: AnalysisScope())
+    position_count: int = 0
+    invested_value_gbp: float = 0.0
+    cash_value_gbp: float = 0.0
     as_of_date: dt.date | None
     import_batch_id: int | None
     total_value_gbp: float

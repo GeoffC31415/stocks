@@ -14,12 +14,18 @@ export function Topbar() {
   const location = useLocation();
   const { accountFilter, setAccountFilter } = usePreferences();
   const { period, setPeriod } = useAnalysisScope();
-  const summaryQ = useQuery({ queryKey: ["summary"], queryFn: api.getSummary });
+  const catalogQ = useQuery({ queryKey: ["summary", undefined], queryFn: () => api.getSummary() });
+  const selectedAccount = accountFilter === "all" ? undefined : accountFilter;
+  const summaryQ = useQuery({ queryKey: ["summary", selectedAccount], queryFn: () => api.getSummary(selectedAccount) });
   const accountSegments: Segment<string>[] = useMemo(() => [
     { key: "all", label: "All" },
-    ...Object.keys(summaryQ.data?.by_account ?? {}).sort().map((name) => ({ key: name, label: name })),
-  ], [summaryQ.data?.by_account]);
-  const asOf = accountFilter === "all" ? summaryQ.data?.as_of_date : null;
+    ...Object.keys(catalogQ.data?.by_account ?? {}).sort().map((name) => ({ key: name, label: name })),
+  ], [catalogQ.data?.by_account]);
+  const dates = summaryQ.data?.scope?.valuation_dates.map((row) => row.date).sort() ?? [];
+  const asOf = summaryQ.data?.as_of_date;
+  const dateLabel = dates.length > 1 && dates[0] !== dates[dates.length - 1]
+    ? `${formatOrderDate(dates[0])} – ${formatOrderDate(dates[dates.length - 1])}`
+    : asOf ? formatOrderDate(asOf) : null;
   const go = (target: string) => navigate(scopedNavigationUrl(target, location.search));
 
   return (
@@ -27,7 +33,7 @@ export function Topbar() {
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <Calendar size={14} className="hidden text-slate-500 sm:block" />
         <span className="text-xs text-slate-400">
-          {asOf ? `Latest snapshot across accounts · ${formatOrderDate(asOf)}` : "Valuation dates shown with analysis"}
+          {dateLabel ? `Snapshot valuation · ${dateLabel}` : summaryQ.isError ? "Valuation unavailable" : "No valuation in scope"}
         </span>
       </div>
       <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3">

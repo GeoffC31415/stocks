@@ -312,4 +312,32 @@ source of period dates and calculations. No new financial calculation was added
 in React. Scope controls reuse existing preferences and tabs rather than adding
 another state store or UI framework. New implementation modules remain under
 110 lines; the API type/client file only gains the additive period parameter.
-T09–T23 and the deferred extensions remain unchecked and unimplemented here.
+T09–T23 and the deferred extensions were still unchecked at the T08 boundary.
+
+## T09 — Authoritative current summaries
+
+Added account-scoped summary and instrument endpoints, position counts, invested
+and cash values, and canonical per-account valuation dates. Removed Overview's
+browser reconstruction of totals, allocation and dates. Cash no longer contributes
+to unrealised investment P&L. Group values, weights and GBP gaps share the scoped
+cash-excluded denominator; Holdings badges consume that backend gap rather than
+mixing filtered rows with unfiltered groups. They are labelled tag targets, not
+validated exclusive allocation targets (T16). Holdings analytics and position
+queries now include the account. Topbar shows the actual selected valuation or
+the combined date range, and shares summary cache entries with Overview.
+
+RED: scoped-summary regression failed before implementation. GREEN: **266 backend
+and 105 frontend tests**, frontend typecheck/build passed; **80 browser cases,
+0 failures**, including account/period history navigation. New fixture reconciles
+combined/account value, invested value, cash, cost, investment P&L and group
+weights with later historical imports and mismatched valuation dates. Endpoint
+coverage verifies additive metadata, scoped empty results and instrument lists;
+Overview proves an empty detail list cannot overwrite authoritative totals.
+
+Build `/tmp/stocks-briefing-dist`, evidence `/tmp/stocks-t09-browser`; no live
+build overwrite or deployment. Fresh consistent backup verified before work;
+rehearsal uses an unchanged read-only copy. Static checks retain 101 ruff / 32
+mypy inherited diagnostics after correcting the new test import ordering.
+Review: the shared canonical snapshot service owns scope, no client aggregate
+calculator remains in Overview, and no new dependency or schema migration is
+needed. Screenshot capture is not manual visual approval.

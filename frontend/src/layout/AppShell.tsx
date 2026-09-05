@@ -30,7 +30,7 @@ export function AppShell() {
   const [dripThreshold, setDripThreshold] = useState(() =>
     storedNumber(DRIP_STORAGE_KEY, DRIP_DEFAULT),
   );
-  const accountsQ = useQuery({ queryKey: ["summary"], queryFn: api.getSummary });
+  const accountsQ = useQuery({ queryKey: ["summary", undefined], queryFn: () => api.getSummary() });
   const scope = useAnalysisScopeUrl(accountsQ.data ? Object.keys(accountsQ.data.by_account) : undefined);
   const accountFilter = scope.account;
   const setAccountFilter = scope.setAccount;

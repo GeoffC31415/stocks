@@ -32,8 +32,8 @@ router = APIRouter(prefix="/api/instruments", tags=["instruments"])
 
 
 @router.get("", response_model=list[InstrumentOut])
-async def list_instruments(session: AsyncSession = Depends(get_session)) -> list[InstrumentOut]:
-    snapshots = await get_current_snapshots(session)
+async def list_instruments(account_name: str | None = None, session: AsyncSession = Depends(get_session)) -> list[InstrumentOut]:
+    snapshots = await get_current_snapshots(session, account_name=account_name)
     if not snapshots:
         return []
 

@@ -44,6 +44,10 @@ export type SnapshotAttribution = {
 };
 
 export type PortfolioSummary = {
+  scope?: AnalysisScope;
+  position_count?: number;
+  invested_value_gbp?: number;
+  cash_value_gbp?: number;
   as_of_date: string | null;
   import_batch_id: number | null;
   total_value_gbp: number;
@@ -60,6 +64,8 @@ export type PortfolioSummary = {
 };
 
 export type AllocationRow = {
+  group_id?: number | null;
+  target_gap_gbp?: number | null;
   label: string;
   kind: string;
   value_gbp: number;
@@ -684,7 +690,8 @@ export const api = {
     if (accountName != null) params.set("account_name", accountName);
     return requestJson<AllocationResponse>(`/api/portfolio/allocation?${params.toString()}`);
   },
-  getSummary: () => requestJson<PortfolioSummary>("/api/portfolio/summary"),
+  getSummary: (accountName?: string | null) => requestJson<PortfolioSummary>(
+    `/api/portfolio/summary${accountName != null ? `?${new URLSearchParams({ account_name: accountName })}` : ""}`),
   getPerformance: (
     accountName?: string | null,
     period = "ALL",
@@ -730,7 +737,8 @@ export const api = {
     if (accountName) params.set("account_name", accountName);
     return requestJson<Array<{ as_of_date: string; total_value_gbp: number; total_book_cost_gbp: number }>>(`/api/portfolio/timeseries?${params.toString()}`);
   },
-  getInstruments: () => requestJson<Instrument[]>("/api/instruments"),
+  getInstruments: (accountName?: string | null) => requestJson<Instrument[]>(
+    `/api/instruments${accountName != null ? `?${new URLSearchParams({ account_name: accountName })}` : ""}`),
   getImports: () => requestJson<ImportBatch[]>("/api/imports"),
   getImport: (batchId: number) => requestJson<ImportBatch>(`/api/imports/${batchId}`),
   getImportDiff: (batchId: number) =>

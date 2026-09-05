@@ -30,7 +30,7 @@ export function Positions() {
   });
   const instrumentsQ = useQuery({
     queryKey: ["instruments"],
-    queryFn: api.getInstruments,
+    queryFn: () => api.getInstruments(),
   });
 
   const hasOrders = (analyticsQ.data?.total_orders ?? 0) > 0;
