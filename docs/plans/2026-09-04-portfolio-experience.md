@@ -395,7 +395,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T13 — Explain drawdowns as episodes
 
-**Status:** [ ] Planned. **Dependencies:** T01–T03, T08, T10. **Review coverage:** 20.
+**Status:** [x] Observed drawdown episodes and URL-backed chart-only episode zoom implemented. [Evidence](../verification/portfolio-experience.md#t13--observed-drawdown-episodes): 290 backend / 117 frontend tests; 110 browser cases including episode zoom/reset. **Dependencies:** T01–T03, T08, T10. **Review coverage:** 20.
 
 **Files:** Modify `backend/app/services/performance_service.py`, `backend/app/schemas.py`, `frontend/src/lib/api.ts`; create `frontend/src/components/DrawdownEpisodes.tsx`, `backend/tests/test_drawdown_episodes.py`, `frontend/src/components/__tests__/DrawdownEpisodes.test.tsx`; modify `frontend/src/routes/PerformanceWorkspace.tsx`.
 

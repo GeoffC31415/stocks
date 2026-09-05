@@ -437,3 +437,29 @@ remain at **101 / 32 inherited diagnostics**, no new identities. Evidence:
 Review: two duplicated import-ID replay implementations were removed in favour
 of the canonical valuation helper. No persistence, provider call, invented
 percentage contributions, duplicated value-walk or deployment was added.
+
+## T13 — Observed drawdown episodes
+
+Episodes are built from the exact valid adjusted snapshot index. They report
+latest tied peak, first tied trough, depth, first observed recovery interval,
+calendar days and observation count. Flat histories have no episodes; invalid
+chains cannot publish them. True total loss remains a valid unrecovered episode.
+The maximum episode depth reconciles to the existing max-drawdown KPI.
+
+Portfolio → Performance includes the episode table. Links preserve account and
+period and set an `episode` presentation parameter; only the charts zoom, while
+metrics remain explicitly labelled for the full selected period. Unknown or
+out-of-scope episode IDs have an explanatory reset path. Recovery is labelled as
+observed between snapshots, not a precise intraday crossing.
+
+RED: the performance integration regression initially had no episode payload.
+GREEN: **290 backend / 117 frontend tests**, frontend typecheck/build; **110
+browser cases, zero failures**. Browser checks at 390/1440px select a real episode,
+assert the plotted observation count matches that episode, then reset to the
+complete index. The first browser pass exposed test timing during Recharts updates;
+the check now uses condition-based assertions rather than an immediate count.
+Evidence: `/tmp/stocks-t13-browser`; unchanged read-only copy, no live operations.
+Ruff/mypy retain **101 / 32 inherited diagnostics** after adding the intentional
+non-strict adjacent-point zip declaration. Final backend run had no warnings.
+Review: pure episode extraction is a small module, shared metadata gates it,
+and chart zoom does not recalculate authoritative financial metrics.

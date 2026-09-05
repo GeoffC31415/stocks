@@ -77,7 +77,7 @@ function MetricTile({
   );
 }
 
-export function PerformancePanel({ accountName, compact = false }: { accountName?: string; compact?: boolean }) {
+export function PerformancePanel({ accountName, compact = false, focusWindow }: { accountName?: string; compact?: boolean; focusWindow?: { start: string; end: string } }) {
   const { period, setPeriod } = useAnalysisScope();
   // Raw account value is an optional overlay, off by default, so the primary
   // line (flow-adjusted) cannot be mistaken for investment return.
@@ -88,6 +88,8 @@ export function PerformancePanel({ accountName, compact = false }: { accountName
     queryKey: ["performance", accountName, period],
     queryFn: () => api.getPerformance(accountName, period),
   });
+  const focusStart = focusWindow ? chartUtcMs(focusWindow.start) : null;
+  const focusEnd = focusWindow ? chartUtcMs(focusWindow.end) : null;
   const perf = perfQ.data;
   const flow = perf?.flow_adjusted;
   const chainMetric = perf ? performanceMetric(perf, "total_return_pct") : null;
@@ -99,10 +101,11 @@ export function PerformancePanel({ accountName, compact = false }: { accountName
     const benchmarks = chainAvailable ? perf.benchmarks ?? [] : [];
     return {
       rows: joinPerformanceSeries({ flow: chainAvailable ? perf.flow_adjusted_curve : [],
-        raw: perf.growth_curve, benchmarks }),
+        raw: perf.growth_curve, benchmarks }).filter((row) => row.chartTime != null &&
+          (focusStart == null || row.chartTime >= focusStart) && (focusEnd == null || row.chartTime <= focusEnd)),
       benchSymbols: Array.from(new Set(benchmarks.map((b) => b.symbol))),
     };
-  }, [perf, chainAvailable]);
+  }, [perf, chainAvailable, focusStart, focusEnd]);
 
   // Flow-adjusted drawdown area (negative, filled below 0).
   const drawdownData = useMemo(() => {
@@ -112,8 +115,8 @@ export function PerformancePanel({ accountName, compact = false }: { accountName
       drawdown: p.drawdown_pct,
     }));
     rows.sort((a, b) => (a.chartTime ?? 0) - (b.chartTime ?? 0));
-    return rows;
-  }, [perf, chainAvailable]);
+    return rows.filter((row) => row.chartTime != null && (focusStart == null || row.chartTime >= focusStart) && (focusEnd == null || row.chartTime <= focusEnd));
+  }, [perf, chainAvailable, focusStart, focusEnd]);
 
   const ticks = sparseDateTicks(chartData.rows.map((row) => row.chartTime as number), chartWidth - 100);
   const drawdownTicks = sparseDateTicks(drawdownData.map((row) => row.chartTime as number), chartWidth - 100);
@@ -191,6 +194,8 @@ export function PerformancePanel({ accountName, compact = false }: { accountName
         description={<>Growth and risk for {windowLabel || "the selected period"}. Returns and risk ratios are flow-adjusted, using observed snapshots and order-derived flow assumptions.</>}
         actions={<SegmentedControl layoutId="perf-period-pill" size="sm" value={period}
           onChange={(p) => setPeriod(p)} segments={PERIOD_SEGMENTS} />} />
+
+      {focusWindow && <p className="mt-3 text-sm text-cyan-200">Chart zoom: {focusWindow.start} – {focusWindow.end}. All metrics still describe the full selected performance period.</p>}
 
       {/* Cash-flow strip: the money that moved during the window */}
       {!compact && flow && flow.contributions_gbp != null && flow.withdrawals_gbp != null && flow.net_external_flow_gbp != null && (
@@ -301,7 +306,7 @@ export function PerformancePanel({ accountName, compact = false }: { accountName
         </label>
       </div>}
 
-      {(chainAvailable || showRaw) && <div role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
+      {(chainAvailable || showRaw) && <div id="performance-chart" role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
         <ResponsiveContainer width="100%" height="100%" onResize={(width) => setChartWidth(width)}>
           <AreaChart data={chartData.rows}>
             <defs>

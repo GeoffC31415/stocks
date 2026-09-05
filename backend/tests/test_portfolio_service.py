@@ -120,6 +120,18 @@ async def test_scoped_summary_reconciles_cash_cost_pnl_and_group_denominator(val
     assert empty["scope"]["account_name"] == "Empty"
 
 
+async def test_performance_episodes_use_the_same_valid_index_and_maximum_depth(valuation_db):
+    await add_valuation(valuation_db, 1, 1, {1: 100})
+    await add_valuation(valuation_db, 2, 5, {1: 120})
+    await add_valuation(valuation_db, 3, 10, {1: 90})
+    performance = await get_portfolio_performance(valuation_db, account_name="ISA")
+    episodes = performance.get("drawdown_episodes")
+    assert episodes
+    assert min(episode["depth_pct"] for episode in episodes) == performance["max_drawdown_pct"]
+    assert episodes[0]["peak_date"] == dt.date(2026, 1, 5)
+    assert episodes[0]["recovery_date"] is None
+
+
 async def add_valuation(session, batch_id, day, values):
     session.add(ImportBatch(id=batch_id, as_of_date=dt.date(2026, 1, day), file_sha256=str(batch_id)))
     for instrument_id, value in values.items():

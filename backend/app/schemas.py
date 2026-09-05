@@ -478,7 +478,21 @@ class PerformanceFlowAdjusted(BaseModel):
     max_drawdown_pct: float | None = None
 
 
+class DrawdownEpisode(BaseModel):
+    id: str
+    peak_date: dt.date
+    trough_date: dt.date
+    end_date: dt.date
+    depth_pct: float
+    recovery_date: dt.date | None
+    recovery_interval_start: dt.date | None
+    days_to_trough: int
+    elapsed_days: int
+    observations: int
+
+
 class PerformanceSummary(BaseModel):
+    drawdown_episodes: list[DrawdownEpisode] = Field(default_factory=list)
     metrics: dict[str, MetricState] = Field(default_factory=dict)
     scope: AnalysisScope = Field(default_factory=AnalysisScope)
     period: str

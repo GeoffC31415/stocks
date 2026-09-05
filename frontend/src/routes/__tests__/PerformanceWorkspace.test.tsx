@@ -10,6 +10,7 @@ vi.mock("../../components/PerformancePanel", () => ({ PerformancePanel: () => <d
 vi.mock("../../components/PortfolioReturnCard", () => ({ PortfolioReturnCard: () => null }));
 
 it("keeps all three history views reachable and never requests a reconstruction benchmark", async () => {
+  vi.spyOn(api, "getPerformance").mockRejectedValue(new Error("missing snapshots"));
   vi.spyOn(api, "getPortfolioReturns").mockRejectedValue(new Error("missing returns"));
   vi.spyOn(api, "getTimeseries").mockResolvedValue([]);
   vi.spyOn(api, "getCashflowTimeseries").mockResolvedValue([]);

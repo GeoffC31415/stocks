@@ -4,6 +4,8 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from app.services.drawdown_service import build_drawdown_episodes
+
 if TYPE_CHECKING:
     import datetime as dt
 
@@ -63,6 +65,7 @@ def with_performance_metadata(
         warnings.append("Account valuation dates differ; older account snapshots are carried forward.")
     if payload.get("coverage_start") is not None:
         warnings.append("Combined performance begins only once every selected account has snapshot coverage.")
+    payload["drawdown_episodes"] = build_drawdown_episodes(payload["flow_adjusted_curve"]) if chain_valid else []
     payload["metrics"] = states
     payload["scope"] = {
         "account_name": account_name, "requested_start": requested_start,

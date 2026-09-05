@@ -303,7 +303,14 @@ export type PerformanceDrawdownPoint = {
   at_peak: boolean;
 };
 
+export type DrawdownEpisode = {
+  id: string; peak_date: string; trough_date: string; end_date: string; depth_pct: number;
+  recovery_date: string | null; recovery_interval_start: string | null;
+  days_to_trough: number; elapsed_days: number; observations: number;
+};
+
 export type PerformanceSummary = {
+  drawdown_episodes?: DrawdownEpisode[];
   metrics?: Record<string, MetricState>;
   scope?: AnalysisScope;
   period: string;
