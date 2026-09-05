@@ -10,13 +10,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Info, Loader2 } from "lucide-react";
+import { Info } from "lucide-react";
 import type { Instrument, InstrumentHistoryPoint, Order } from "../lib/api";
 import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/chartDates";
 import { compactGbp } from "../lib/formatters";
 import { chartTheme } from "../lib/chartTheme";
 import { ChartTooltip } from "./ChartTooltip";
 import { OrderRow } from "./OrderRow";
+import { Link } from "react-router-dom";
+import { ordersLink } from "../lib/investigationLinks";
 import { TimelineEvents } from "./TimelineEvents";
 
 export function InstrumentDetail({
@@ -28,6 +30,7 @@ export function InstrumentDetail({
   orders,
   ordersLoading,
   hasOrders,
+  historyError = false, ordersError = false, onRetryHistory, onRetryOrders,
 }: {
   name: string | null;
   instrument: Instrument | null;
@@ -37,6 +40,7 @@ export function InstrumentDetail({
   orders: Order[];
   ordersLoading: boolean;
   hasOrders: boolean;
+  historyError?: boolean; ordersError?: boolean; onRetryHistory?: () => void; onRetryOrders?: () => void;
 }) {
   const [params, setParams] = useSearchParams();
   const showTimeline = params.get("events") === "on";
@@ -49,14 +53,6 @@ export function InstrumentDetail({
     [history],
   );
 
-  if (historyLoading) {
-    return (
-      <div className="glass flex h-full min-h-[300px] flex-col items-center justify-center rounded-2xl text-sm text-slate-500">
-        <Loader2 size={18} className="animate-spin" />
-        <span className="mt-2 text-xs">Loading history…</span>
-      </div>
-    );
-  }
 
   return (
     <div className="glass flex h-full flex-col gap-4 rounded-2xl p-5">
@@ -71,12 +67,14 @@ export function InstrumentDetail({
         )}
         {instrument ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
+            <span className="chip chip-muted">{instrument.identifier}</span>
+            <span className="chip chip-muted">{instrument.account_name}</span>
             {instrument.ticker ? <span className="chip chip-muted">{instrument.ticker}</span> : null}
             {instrument.asset_class ? <span className="chip chip-muted">{instrument.asset_class}</span> : null}
             {instrument.sector ? <span className="chip chip-muted">{instrument.sector}</span> : null}
             {trailingDripYieldPct != null ? (
               <span className="chip chip-muted">
-                DRIP yield {trailingDripYieldPct.toFixed(2)}%
+                Reinvestment proxy ratio {trailingDripYieldPct.toFixed(2)}%
               </span>
             ) : null}
             {instrument.latest_quote_as_of_date ? (
@@ -89,6 +87,8 @@ export function InstrumentDetail({
       </div>
 
       {instrument && <>
+        <Link className="inline-flex min-h-11 items-center text-sm text-cyan-200 underline" to={ordersLink(params.toString(),{account:instrument.account_name,instrumentId:instrument.id})}>View matching orders</Link>
+        <p className="text-xs text-slate-300">Reinvestment purchase proxy, not a dividend ledger. Trailing proxy yield unavailable: a same-window valuation denominator and transaction completeness are not validated.</p>
         <button type="button" className="min-h-9 text-left text-sm text-cyan-200 underline" aria-expanded={showTimeline} onClick={() => {
           const next = new URLSearchParams(params);
           if (showTimeline) next.delete("events"); else next.set("events", "on");
@@ -96,7 +96,7 @@ export function InstrumentDetail({
         }}>{showTimeline ? "Hide" : "Show"} instrument timeline</button>
         {showTimeline && <TimelineEvents instrumentId={instrument.id} />}
       </>}
-      <div className="h-44 rounded-xl bg-white/[0.02] p-2">
+      {historyLoading ? <p role="status">Loading history…</p> : historyError ? <div role="alert">History unavailable. <button onClick={onRetryHistory}>Retry history</button></div> : history.length === 0 ? <p>No history available.</p> : <div className="h-44 rounded-xl bg-white/[0.02] p-2">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={historyWithTime}>
             <defs>
@@ -157,7 +157,7 @@ export function InstrumentDetail({
             />
           </AreaChart>
         </ResponsiveContainer>
-      </div>
+      </div>}
 
       {hasOrders && (
         <div className="min-h-0 flex-1">
@@ -166,6 +166,8 @@ export function InstrumentDetail({
           </h3>
           {ordersLoading ? (
             <p className="text-xs text-slate-500">Loading…</p>
+          ) : ordersError ? (
+            <div role="alert">Orders unavailable. <button onClick={onRetryOrders}>Retry orders</button></div>
           ) : orders.length === 0 ? (
             <p className="text-xs text-slate-500">No matched orders.</p>
           ) : (

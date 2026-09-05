@@ -1,7 +1,10 @@
 import { useMemo } from "react";
+import { parseInstrumentId } from "../lib/holdingsView";
+import { HoldingDetailPanel } from "../components/HoldingDetailPanel";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
+import { useTargetDrift } from "../state/useTargetDrift";
 import { usePreferences } from "../state/usePreferences";
 import { HoldingsTable } from "../components/HoldingsTable";
 import {
@@ -12,16 +15,17 @@ import { MatchingWarningBanner } from "../components/MatchingWarningBanner";
 
 export function Holdings() {
   const [params, setParams] = useSearchParams();
+  const {query:targetsQ}=useTargetDrift();
   const { dripThreshold, accountFilter } = usePreferences();
   const selectedAccount = accountFilter === "all" ? undefined : accountFilter;
   const selectedRaw = params.get("inst");
-  const selectedInstrument = selectedRaw ? Number(selectedRaw) : null;
+  const selectedInstrument = parseInstrumentId(params);
 
   const setSelected = (id: number | null) => {
     const next = new URLSearchParams(params);
     if (id == null) next.delete("inst");
     else next.set("inst", String(id));
-    setParams(next, { replace: true });
+    setParams(next);
   };
 
   const instrumentsQ = useQuery({
@@ -32,16 +36,17 @@ export function Holdings() {
     queryKey: ["order-analytics", dripThreshold, accountFilter],
     queryFn: () => api.getOrderAnalytics(dripThreshold, selectedAccount),
   });
+  const confirmed = selectedInstrument !== null && (instrumentsQ.data ?? []).some(i => i.id === selectedInstrument && (selectedAccount === undefined || i.account_name === selectedAccount));
   const historyQ = useQuery({
-    queryKey: ["instrument-history", selectedInstrument],
+    queryKey: ["instrument-history", selectedInstrument, selectedAccount],
     queryFn: () => api.getInstrumentHistory(selectedInstrument as number),
-    enabled: selectedInstrument !== null,
+    enabled: confirmed,
   });
   const instrOrdersQ = useQuery({
-    queryKey: ["instrument-orders", selectedInstrument, dripThreshold],
+    queryKey: ["instrument-orders", selectedInstrument, dripThreshold, selectedAccount],
     queryFn: () =>
       api.getInstrumentOrders(selectedInstrument as number, dripThreshold),
-    enabled: selectedInstrument !== null,
+    enabled: confirmed,
   });
   const positionsQ = useQuery({
     queryKey: ["positions", dripThreshold, accountFilter],
@@ -100,16 +105,20 @@ export function Holdings() {
         <div className="min-w-0 lg:col-span-3">
           <HoldingsTable
             instruments={instruments}
+            scopeTotalValue={summaryQ.data?.total_value_gbp}
             groups={groups}
+            targetDrift={targetsQ.isError || targetsQ.isFetching ? undefined : targetsQ.data}
             selectedId={selectedInstrument}
             onSelect={setSelected}
           />
         </div>
         <div className="min-w-0 lg:col-span-2">
-          {selectedInstrument === null ? (
+          {selectedRaw !== null && !confirmed ? (
+            <div role="alert">{selectedInstrument === null ? "Invalid instrument selection." : instrumentsQ.isPending ? "Checking instrument account scope…" : "Instrument not available in the selected account. Clear the selection or change account."}<button type="button" onClick={()=>setSelected(null)}>Clear selection</button></div>
+          ) : selectedInstrument === null ? (
             <InstrumentDetailEmpty />
           ) : (
-            <InstrumentDetail
+            <HoldingDetailPanel instrumentId={selectedInstrument} onClose={()=>setSelected(null)}><InstrumentDetail
               name={selectedName}
               instrument={selectedHolding}
               trailingDripYieldPct={selectedPosition?.trailing_drip_yield_pct ?? null}
@@ -117,8 +126,12 @@ export function Holdings() {
               historyLoading={historyQ.isLoading}
               orders={instrOrdersQ.data ?? []}
               ordersLoading={instrOrdersQ.isLoading}
-              hasOrders={hasOrders}
-            />
+              hasOrders={hasOrders || confirmed}
+              historyError={historyQ.isError}
+              ordersError={instrOrdersQ.isError}
+              onRetryHistory={()=>{void historyQ.refetch();}}
+              onRetryOrders={()=>{void instrOrdersQ.refetch();}}
+            /></HoldingDetailPanel>
           )}
         </div>
       </div>
