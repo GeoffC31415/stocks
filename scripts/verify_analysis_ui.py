@@ -23,6 +23,7 @@ import urllib.request
 
 from ui_contracts import ROUTES, allowed_gets, geometry_failures, measure_page, request_allowed
 from ui_fixtures import EMPTY_SUMMARY, focus_controls, long_names, verify_accessibility
+from ui_r3_contracts import verify_r3_navigation
 from ui_scope_contracts import verify_episode_navigation, verify_scope_navigation, verify_timeline_navigation
 
 REPO = Path(__file__).resolve().parents[1]
@@ -223,7 +224,16 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
     except Exception as exc:
         result["failures"].append(f"readiness-or-contract: {exc}")
     finally:
-        page.evaluate("document.activeElement?.blur(); window.scrollTo(0, 0)")
+        # The focus sweep leaves nested scrollers wherever the last control
+        # sat; screenshots must show the resting state, not that residue.
+        page.evaluate("""() => {
+            document.activeElement?.blur();
+            window.scrollTo(0, 0);
+            for (const el of document.querySelectorAll('main *')) {
+                if (el.scrollTop) el.scrollTop = 0;
+                if (el.scrollLeft) el.scrollLeft = 0;
+            }
+        }""")
         page.mouse.move(0, 0)
         page.screenshot(path=str(output / f"{view}-{width}-{scenario}.png"), full_page=True)
         page.close()
@@ -246,7 +256,7 @@ def verify(database: Path, dist: Path, output: Path) -> None:
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         base = f"http://127.0.0.1:{port}"
-        report = {"views": [], "read_only_copy": True, "visual_inspection": "outstanding"}
+        report = {"views": [], "journeys": [], "read_only_copy": True, "visual_inspection": "outstanding"}
         with (output / "server.log").open("w") as log:
             server = subprocess.Popen(
                 [sys.executable, str(Path(__file__).resolve()), "--database", str(copy),
@@ -266,6 +276,8 @@ def verify(database: Path, dist: Path, output: Path) -> None:
                                     report["views"].append(verify_view(browser, base, view, width, output, scenario))
                             for scenario in ("empty", "error"):
                                 report["views"].append(verify_view(browser, base, "overview", width, output, scenario))
+                        for width in (390, 1440):
+                            report["journeys"].append(verify_r3_navigation(browser, base, output, width))
                     finally:
                         browser.close()
             finally:
@@ -278,8 +290,10 @@ def verify(database: Path, dist: Path, output: Path) -> None:
                 report["copy_unchanged"] = hashlib.sha256(copy.read_bytes()).hexdigest() == copy_hash
                 (output / "report.json").write_text(json.dumps(report, indent=2))
         failures = sum(bool(view["failures"]) for view in report["views"])
+        journey_failures = sum(len(j["failures"]) for j in report["journeys"])
         print(f"{len(report['views'])} route/width checks, {failures} failed; evidence: {output}")
-        if failures or not report["copy_unchanged"]:
+        print(f"{sum(len(j['checks']) for j in report['journeys'])} navigation journeys; {journey_failures} failures")
+        if failures or journey_failures or not report["copy_unchanged"]:
             raise SystemExit(1)
 
 

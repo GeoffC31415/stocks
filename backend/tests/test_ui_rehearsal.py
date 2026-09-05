@@ -117,3 +117,20 @@ def test_geometry_rejects_known_defects_without_accepting_a_screenshot():
     })
     assert set(failures) == {"document-overflow", "duplicate-date-labels",
                              "overlapping-date-labels", "inverted-drawdown", "clipped-controls"}
+
+
+def test_named_scroll_region_controls_are_not_clipped_if_focus_reveals_them():
+    from playwright.sync_api import sync_playwright
+    fixtures=importlib.import_module("ui_fixtures")
+    with sync_playwright() as p:
+        browser=p.chromium.launch(executable_path="/usr/bin/google-chrome",headless=True,args=["--no-sandbox"])
+        try:
+            page=browser.new_page(viewport={"width":390,"height":800})
+            page.set_content('<main><div role="region" aria-label="Table" tabindex="0" style="width:300px;overflow:auto"><div style="width:900px"><button style="margin-left:750px">Sort</button></div></div></main>')
+            assert not contracts.measure_page(page)["clippedControls"]
+            assert not fixtures.focus_controls(page)["failures"]
+            page.locator('[role="region"]').evaluate("e=>e.style.overflow='hidden'")
+            page.locator('[role="region"]').evaluate("e=>e.scrollLeft=0")
+            assert contracts.measure_page(page)["clippedControls"]
+        finally:
+            browser.close()

@@ -502,4 +502,162 @@ canonical valuation boundary. Small typed API/schema, query, marker, list and
 source-view modules keep unrelated responsibilities separate. PerformancePanel
 adds presentation geometry only (482 lines total); no alternative financial
 calculation, provider fetch, live schema change or deployed asset was introduced.
-T15–T23 remain planned; D01–D04 remain deferred.
+At the T14 boundary T15–T23 remained planned; see the completed implementation evidence below. D01–D04 remain deferred.
+
+
+## T15–T23 — Investigation, allocation and acceptance
+
+Implementation remains on `feature/portfolio-experience`, uncommitted. Starting
+HEAD for this batch: `669413693590210749315375c65ec12d0490b4e5`. T15–T23 are
+implemented and automated acceptance is complete. Visual sign-off (vision-model
+review of all captured screens, 2026-09-05) is also complete, including one
+pre-existing Groups membership bug found and fixed; deployment is not authorised
+or performed. D01–D04 retain their separate data/terms/model-assumption gates
+and are not represented as ready.
+
+### Delivered behaviour
+
+- **T15:** security/position grouping with invariant scoped invested totals,
+  constituent IDs/accounts/source currencies, top-one/top-five and neutral HHI
+  explanations. Only exact mappings in the reviewed registry aggregate; arbitrary
+  editable tickers, conflicting IDs/share classes and unknown mappings remain
+  separate. EQQQ listing evidence is in [security identity](../security-identity.md).
+  Category links carry the backend's exact constituent IDs and preserve context.
+- **T16:** complete, disjoint target memberships; finite targets summing to 100%
+  within 0.01 pp; actual/target weight, signed drift and GBP gaps on the same
+  cash-excluded denominator. Invalid sets keep descriptive tags but suppress gaps.
+  Unknown cash is null with a reason, never zero. Shared personal tolerance,
+  actual/target bars, existing Groups repair route and backend-driven Holdings
+  badges are integrated. Merely focusing/leaving an unchanged target no longer
+  sends a PATCH request. Group creation invalidates dependent target queries.
+- **T17:** non-persisting GET scenario with explicitly excluded cash, user-selected
+  amounts, strict finite/nonnegative bounds, eligible unique groups and whole-penny
+  Decimal conservation. Zero contribution preserves values. No suggested trades,
+  orders, real-cash spending or portfolio writes. Input/reset/account/target changes
+  clear results; cache identity includes the authoritative prerequisite baseline.
+- **T18:** Security/Account/Value/Weight/Gain–loss/Recent change, optional
+  classification, versioned saved sort/column preferences and reset. URL search,
+  category/group/constituent filters apply to actual rows; malformed IDs and
+  prototype-property dimensions fail closed. Display names are bounded while
+  original names/identifiers remain searchable and available in detail. Weight
+  uses the authoritative full selected-account value, not filtered visible rows.
+- **T19:** direct `inst` links, desktop inline detail, immediately visible mobile
+  drawer; initial/return focus, Escape, Back/Forward and retained table scroll.
+  The trap includes native summaries and excludes hidden/disabled/inert content.
+  Account membership is confirmed before detail requests; out-of-scope selection
+  is explained. History/orders have separate loading/error/empty/retry paths.
+- **T20:** contributor → matching comparison → holding → Orders → Back,
+  category → exact filtered holdings, group membership links and current/prior
+  Income purchase links. Existing instrument links resolve source/canonical account
+  name differences without modifying broker tokens or guessing aliases. The shared
+  order account predicate also keeps contribution/performance/confidence scope
+  consistent. New navigation uses real links; selection/expansion uses buttons.
+- **T21:** date-descending, ID-descending offset pagination; SQL filters precede
+  limiting. One statement supplies page/count/full-filter totals consistently.
+  Missing/non-finite amounts and overflow yield null plus typed reasons. Original
+  query tokens are validated before coercion. Page changes retain filters; scope
+  changes reset pagination; pending/error states hide previous results. Focus moves
+  deliberately to settled results without stealing focus if the user moved away.
+  Offset pagination is stable for unchanged data; external concurrent imports can
+  shift offsets and are not claimed to form a cross-request snapshot.
+- **T22:** backend-owned stored-import-classification purchase proxy, matched
+  calendar YTD/prior windows (leap-day clamped), monthly timing and per-holding
+  change drivers, current/closed/unlinked distinctions. Unrecorded months are not
+  confirmed zero income; coverage remains unknown. Original transaction account
+  names are disclosed separately from linked navigation accounts. Legacy list,
+  detail and paginated Orders agree on stored classification. Unsupported trailing
+  proxy yield is null with a reason rather than using an all-history denominator.
+- **T23:** question-oriented Help and working scoped links, updated README and
+  repeatable isolated browser/timing scripts. Removed outdated retrospective
+  Income and benchmarked-reconstruction descriptions. Groups remains at the
+  existing `/portfolio?tab=groups` route; no migration was needed.
+
+### Verification actually executed
+
+| Gate | Final result |
+|---|---|
+| `PORTFOLIO_DATABASE_URL=sqlite+aiosqlite:///:memory: .venv/bin/pytest -q` | **363 passed** |
+| `npm --prefix frontend test -- --run` | **183 passed, 58 files** |
+| `npm --prefix frontend run typecheck` | passed |
+| `make lint` | 100 inherited diagnostics versus 101 at baseline; **zero new identities** |
+| `make typecheck` | 31 inherited errors versus 32 at baseline; **zero new identities** |
+| Isolated Vite build | passed; existing large-chunk / Browserslist warnings |
+| `git diff --check` | passed |
+| Real Chromium route/viewport matrix | **130 cases, zero failures** |
+| End-to-end navigation | **16 journeys, zero failures** |
+| Visible control focus | **4626 checks**, zero failures |
+
+The full matrix includes Overview, Performance, Holdings, Income, Orders,
+Allocation, Returns, Snapshot changes, Data confidence, Groups, Help and
+Classifications at 320/390/720/768/1440px. Normal and adversarial long-name fixtures
+are included, plus Overview error/empty cases. Keyboard/touch and reduced motion
+checks run in the real browser. Intentional named table scrolling is distinguished
+from clipping, and controls must become reachable on focus. The scenario UI
+journey is explicitly synthetic browser response injection; independent in-memory
+backend tests prove scenario math and no writes. All other navigation journeys use
+the actual read-only backup. No placeholder/loading-only state can satisfy them.
+
+Dashboard height remains 1456px at 1440px and 2994px at 390px; desktop primary plot
+starts at y=645.5px. Migrated metric-card text contrast is at least 6.76:1; allocation
+swatches match categories and text tables preserve non-colour encodings. This is
+not a claim that every legacy text style has passed a complete accessibility audit.
+The browser matrix caught and verified repairs for actual Groups overflow,
+unchanged-target blur writes (blocked by rehearsal), focus clipping, and broken
+source-account drill-downs before the final green run.
+
+Route request/latency/layout-shift measurements, with unchanged predeclared
+budgets and actual before/after values, are in
+[route timing evidence](portfolio-route-timing.md). All comparable routes pass.
+Initial Holdings/Returns CLS regressions were fixed, not hidden by raising budgets.
+Existing high baseline CLS elsewhere is disclosed rather than called optimal.
+
+Independent specification and code-quality reviews found the shared-preference,
+scenario-cache, identity, drawer-summary, pagination-focus and cash/precision
+issues; regression tests first exposed each repaired behaviour. Final independent
+review approves T15–T22 with no verified high/medium blockers. An additional
+synthetic account matrix confirms exact source/canonical scope and unchanged
+source tokens. Review reports are retained privately with raw execution evidence.
+
+### Safety and remaining approval boundary
+
+- Verified SQLite online backup outside repository; original hash still matches
+  the starting manifest and backup integrity remains `ok`.
+- Git excludes the live database. Tests use synthetic in-memory databases. Browser
+  startup uses only audited GET routes, its own read-only dependency, no application
+  lifespan/migrations, bounded child readiness and cleanup.
+- Final build: `/tmp/stocks-r3-kfu_464p/final-dist`. Live `frontend/dist` untouched.
+- Final browser artifacts/screenshots: `/tmp/stocks-r3-kfu_464p/release-ui`.
+  Private baseline, timing, static diagnostics and reviews share the parent
+  evidence directory; no personal balances or raw responses are committed.
+- **Visual sign-off completed (vision-model review, 2026-09-05):** the vision
+  provider became available and every T15–T23 screen was reviewed at 1440px and
+  390px (allocation, holdings, income, orders, groups, plus long-name fixtures).
+  No clipping, broken layout or unreadable text was found. Two apparent defects
+  were investigated and resolved:
+  - "Clipped first row" in every Groups card: a screenshot artifact. The focus
+    sweep left the inner lists scrolled; the harness now resets nested scroller
+    positions before capturing. Fresh DOM measurement shows `scrollTop: 0` and
+    the first row fully inside the `p-2` padding.
+  - "Bottom nav overlapping content" at 390px: a full-page-capture artifact of
+    the `position: fixed` nav compositing at first-viewport position. Live
+    measurement at scroll bottom shows `pb-24` clearing the 65px nav by +31px
+    on Holdings, Allocation and Groups.
+  Minor cosmetic notes (not defects, no change made): Orders pagination is
+  Back/Next with the position given by "Showing 1–100 of 407"; scroll-region
+  bottom edges can show a partial row; the global Performance-period control
+  remains on tabs that disclose it does not apply.
+- **Pre-existing bug found and fixed during visual sign-off:** Groups cards
+  displayed "0 members" with every membership checkbox unchecked while the
+  backend reported real memberships (verified: `/api/groups` and
+  `/api/instruments` both return correct, mutually consistent data). Root cause:
+  `GroupEditor` initialises its `selected` draft from `current`, and `current`
+  can arrive after the group list because instruments and groups are separate
+  queries; the draft then stayed empty forever. That also left Save enabled in
+  the stale state, where saving would have wiped the group's memberships.
+  Fix: reconcile `selected` to `current` until the user makes their own edit
+  (pending edits are never clobbered), covered by two new component tests.
+- No project dependency installation, production data edit, live migration,
+  provider-history refresh, service restart, deployment or commit was performed.
+- Rollback before deployment: review/revert only these owned source changes;
+  do not reset unrelated work or restore a database unnecessarily. Deployment
+  requires separate approval and preservation of the currently served build.

@@ -11,10 +11,15 @@ import {
   RefreshCw,
   Scale,
   ShieldCheck,
-  Tags,
   Wallet,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, type LinkProps } from "react-router-dom";
+import { scopedNavigationUrl } from "../routing";
+
+function ScopedLink({ to, ...props }: Omit<LinkProps, "to"> & { to: string }) {
+  const location = useLocation();
+  return <Link {...props} to={scopedNavigationUrl(to, location.search)} />;
+}
 
 const linkClass =
   "inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 text-xs font-medium text-slate-300 transition-colors hover:bg-white/[0.06] hover:text-white";
@@ -110,8 +115,8 @@ export function Help() {
             text="This is the valuation date of the most recent imported holdings file—not necessarily today's market date."
           />
           <GuidePoint
-            title="DRIP threshold"
-            text="Small buys below this amount are treated as dividend reinvestments. Changing it recalculates DRIP-based views across the recorded history."
+            title="DRIP classification"
+            text="Income uses backend-stored import classification. The threshold setting does not retrospectively reclassify recorded purchases; it is not evidence of a cash dividend."
           />
           <GuidePoint
             title="Refresh data"
@@ -148,10 +153,11 @@ export function Help() {
             icon={<Wallet size={18} />}
             title="Portfolio"
             summary="Explore what you own, how it has performed, and where it is concentrated."
-            to="/portfolio"
+            to="/portfolio?tab=performance"
             linkLabel="Open Portfolio"
             items={[
               ["Holdings", "Current positions from the latest snapshot. Select a holding to inspect its details and history."],
+              ["Performance", "Snapshot-based actual-portfolio performance with covered dates, flow assumptions, and confidence disclosures."],
               ["Returns", "Order-derived cost, sales, DRIP, current value, P&L, and return estimates by position."],
               ["Allocation", "Largest holdings, concentration, and exposure by asset class, sector/theme, or region."],
               ["Income", "A DRIP purchase proxy by period and holding. It is not a complete dividend ledger."],
@@ -196,6 +202,8 @@ export function Help() {
               ["Import & refresh", "Preview and import holdings or order files; refresh quotes where configured."],
               ["Classifications", "Set ticker, asset class, sector/theme, and region for open holdings."],
               ["Matching", "Connect imported order names to instruments. The simple health panel hides advanced tools until needed."],
+              ["Data confidence", "Review missing coverage and links, then follow the source-specific repair workflow."],
+              ["Analysis settings", "Review modelling preferences and their limitations; settings do not prove data readiness."],
               ["Use care", "Imports and metadata edits change the local database. Preview files and keep backups."],
             ]}
           />
@@ -228,7 +236,7 @@ export function Help() {
           />
           <Concept
             title="DRIP proxy"
-            text="Buy orders under the selected threshold. It estimates reinvested income but omits declared and cash dividends."
+            text="Stored DRIP-classified buy orders estimate reinvested income but omit declared and cash dividends. Changing a threshold does not rewrite this history."
           />
           <Concept
             title="Estimated market movement"
@@ -256,6 +264,91 @@ export function Help() {
           id="questions-heading"
         />
         <div className="mt-4 space-y-2">
+          <Question title="What do I own now?">
+            Latest account snapshots describe current state, not live market values. Check each valuation date,
+            selected account, cash treatment, and missing coverage before comparing totals.{' '}
+            <ScopedLink className={linkClass} to="/portfolio?tab=holdings">Inspect current holdings</ScopedLink>
+          </Question>
+          <Question title="Which return am I looking at?">
+            Actual-portfolio performance uses snapshot boundaries and a flow-adjusted Modified Dietz estimate,
+            not exact time-weighted return. Position gain/cost is unrealised gain against recorded book cost;
+            lifetime position money-weighted return (MWR) also depends on transaction timing. Neither is the
+            selected-period portfolio return. Historical current-composition risk models today's holdings,
+            not the portfolio you actually held. Past holdings valued at today’s prices is an order-derived
+            reconstruction, not benchmarked actual return.{' '}
+            <ScopedLink className={linkClass} to="/portfolio?tab=performance">Inspect actual performance</ScopedLink>{' '}
+            <ScopedLink className={linkClass} to="/portfolio?tab=returns">Inspect position returns</ScopedLink>
+          </Question>
+          <Question title="Why does changing the period not change every view?">
+            Performance uses the shared period and disclosed covered dates. Holdings, allocation, and groups
+            use latest snapshots; Returns uses lifetime transactions. Income has its own calendar comparison
+            and trailing windows. Orders has its own date filters and search query: paginated rows do not limit
+            full-filter totals, which are independent of the current page. Tax uses its tax-year selector;
+            snapshot changes use the selected pair. Repair queues can include all accounts.{' '}
+            <ScopedLink className={linkClass} to="/activity?tab=orders">Inspect filtered orders</ScopedLink>
+          </Question>
+          <Question title="What explains the change in value?">
+            Contributions and withdrawals are observed-flow proxies. The residual after flows and reinvestment
+            is not pure price effects: it may include FX, fees, missing records, timing, and valuation differences.
+            Residual holding contribution is attribution, not a causal market-price decomposition.{' '}
+            <ScopedLink className={linkClass} to="/activity?tab=changes">Compare source snapshots</ScopedLink>{' '}
+            <ScopedLink className={linkClass} to="/activity?tab=imports">Review import history</ScopedLink>
+          </Question>
+          <Question title="When are two holdings the same security?">
+            Account positions remain separate records. Security aggregation uses a conservative reviewed registry,
+            currently only EQQQ: exact ISIN IE0032077012 or SEDOL B0GL4T3, XLON listing EQQQ, provider mapping
+            EQQQ.L, and verified source value currency GBP/GBX/GBp. The unchanged source currency remains part
+            of the identity key. An editable ticker or similar name is insufficient; other identifiers, listings,
+            currencies, or share classes stay separate.{' '}
+            <ScopedLink className={linkClass} to="/portfolio?tab=allocation">Inspect security exposure</ScopedLink>
+          </Question>
+          <Question title="Does a lower HHI mean I am diversified?">
+            HHI measures concentration of the displayed weights, not diversification, correlations, or fund overlap.
+            Product classifications are not underlying-company look-through. Two broad funds can overlap heavily
+            even when their displayed positions appear evenly weighted.{' '}
+            <ScopedLink className={linkClass} to="/portfolio?tab=allocation">Review concentration</ScopedLink>
+          </Question>
+          <Question title="When can I compare my allocation with targets?">
+            Targets must be complete and exclusive: every eligible holding belongs to exactly one target group,
+            the target sum is 100 ± 0.01 percentage points, and the cash-excluded invested scope has positive value.
+            Incomplete or overlapping groups cannot support a valid comparison. Drift is in percentage points;
+            your personal tolerance is a preference, not investment advice. Groups currently live in Portfolio.{' '}
+            <ScopedLink className={linkClass} to="/portfolio?tab=groups">Review target groups</ScopedLink>
+          </Question>
+          <Question title="Does a contribution scenario move real money?">
+            No. Hypothetical user contributions compare an entered amount against eligible targets; they do not
+            execute trades, move funds, or change stored holdings, and real cash is unchanged. The cash-excluded
+            model is not a funded order or a recommendation.{' '}
+            <ScopedLink className={linkClass} to="/portfolio?tab=allocation">Explore hypothetical allocation</ScopedLink>
+          </Question>
+          <Question title="Why is Income only a proxy?">
+            Income uses backend stored import classification, not a retrospective threshold calculation. Recorded
+            reinvestment purchases are not a dividend ledger: cash dividends, declarations, and missing imports
+            are not represented. Completeness is unknown; unrecorded months are null, not confirmed zero income.{' '}
+            <ScopedLink className={linkClass} to="/portfolio?tab=income">Inspect reinvestment proxy</ScopedLink>
+          </Question>
+          <Question title="How are Income periods and drivers compared?">
+            Matched YTD compares the current calendar period with the same prior-year calendar period, not a
+            partial year against a full year; a leap-day clamp maps February 29 to February 28 when necessary.
+            Check the latest transaction date and coverage. Drivers include current, closed, and unlinked holdings;
+            follow matching purchase links to inspect the underlying stored classifications and date filters.{' '}
+            <ScopedLink className={linkClass} to="/activity?tab=orders&kind=drip&offset=0">Inspect matching purchases</ScopedLink>
+          </Question>
+          <Question title="How do I repair low-confidence data?">
+            Begin with Data confidence, inspect the affected source account and dates, then verify the broker file,
+            import coverage, instrument match, and classification. Matching and classification queues can span all
+            accounts. Back up before writes; repair only evidenced exceptions, then refresh and recheck confidence.
+            A healthy match alone does not prove complete performance or income history.{' '}
+            <ScopedLink className={linkClass} to="/data?tab=confidence">Review data confidence</ScopedLink>{' '}
+            <ScopedLink className={linkClass} to="/data?tab=classifications">Repair classifications</ScopedLink>
+          </Question>
+          <Question title="Are risk forecasts and look-through ready?">
+            D01–D04 remain data- and approval-gated: validated market/FX history and comparable benchmarks,
+            current-composition risk and loss analysis, separately accepted scenario assumptions, and fund
+            look-through each require evidence. Sample provider success and synthetic tests do not establish
+            full-portfolio readiness. No live refresh, backfill, or deployment is authorised by this guide.{' '}
+            <ScopedLink className={linkClass} to="/data?tab=settings">Review analysis settings</ScopedLink>
+          </Question>
           <Question title="Why do two totals not match exactly?">
             Check the account selector, date, and source. Snapshot value, order-derived cash deployed, book cost,
             and P&L are related but not interchangeable. Whole-pound display rounding can also create a £1 visual difference.
@@ -335,9 +428,9 @@ function RoutineStep({
       </div>
       <h3 className="mt-3 text-sm font-semibold text-white">{title}</h3>
       <p className="mt-1 text-xs leading-5 text-slate-400">{text}</p>
-      <Link to={to} className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-aurora-cyan hover:text-cyan-200">
+      <ScopedLink to={to} className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-aurora-cyan hover:text-cyan-200">
         Open {title} <ArrowRight size={12} />
-      </Link>
+      </ScopedLink>
     </li>
   );
 }
@@ -378,9 +471,9 @@ function PageGuide({
             <p className="mt-1 text-xs text-slate-400">{summary}</p>
           </div>
         </div>
-        <Link to={to} className={linkClass} aria-label={linkLabel}>
+        <ScopedLink to={to} className={linkClass} aria-label={linkLabel}>
           Open <ArrowRight size={13} />
-        </Link>
+        </ScopedLink>
       </div>
       <dl className="mt-4 grid gap-x-6 gap-y-3 md:grid-cols-2">
         {items.map(([term, description]) => (

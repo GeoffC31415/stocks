@@ -22,22 +22,22 @@ ROUTES = {
     },
     "holdings": {
         "url": "/portfolio?tab=holdings", "heading": "Holdings", "required": "/api/instruments",
-        "gets": {"/api/orders/analytics", "/api/orders/positions", "/api/groups",
+        "gets": {"/api/orders/analytics", "/api/orders/positions", "/api/groups", "/api/portfolio/allocation-targets",
                  "/api/portfolio/timeline", "/api/portfolio/timeline/source/{source}/{record_id}",
                  "/api/matching/summary", "/api/instruments/{instrument_id}/history",
                  "/api/instruments/{instrument_id}/orders"},
     },
     "income": {
-        "url": "/portfolio?tab=income", "heading": "DRIP purchase proxy", "required": "/api/orders",
-        "gets": {"/api/orders", "/api/orders/positions"},
+        "url": "/portfolio?tab=income", "heading": "DRIP purchase proxy", "required": "/api/orders/income",
+        "gets": {"/api/orders/income", "/api/orders/page", "/api/portfolio/timeline/source/{source}/{record_id}"},
     },
     "orders": {
-        "url": "/activity?tab=orders", "heading": "Order history", "required": "/api/orders",
-        "gets": {"/api/orders", "/api/orders/analytics", "/api/matching/summary"},
+        "url": "/activity?tab=orders", "heading": "Order history", "required": "/api/orders/page",
+        "gets": {"/api/orders/page", "/api/orders/analytics", "/api/matching/summary"},
     },
     "allocation": {
         "url": "/portfolio?tab=allocation", "heading": "Allocation & concentration",
-        "required": "/api/portfolio/allocation", "gets": {"/api/portfolio/allocation"},
+        "required": "/api/portfolio/allocation", "gets": {"/api/portfolio/allocation", "/api/portfolio/allocation-targets", "/api/portfolio/allocation-scenario"},
     },
     "returns": {
         "url": "/portfolio?tab=returns", "heading": "Position analysis", "required": "/api/orders/positions",
@@ -51,6 +51,13 @@ ROUTES = {
     "confidence": {
         "url": "/data?tab=confidence", "heading": "Data confidence", "required": "/api/portfolio/data-confidence",
         "gets": {"/api/portfolio/data-confidence"},
+    },
+    "groups": {
+        "url": "/portfolio?tab=groups", "heading": "Groups", "required": "/api/groups",
+        "gets": {"/api/groups", "/api/portfolio/allocation-targets"},
+    },
+    "help": {
+        "url": "/help", "heading": "Help & site guide", "required": "/api/portfolio/summary", "gets": set(),
     },
     "classifications": {
         "url": "/data?tab=classifications", "heading": "Classification queue",
@@ -97,7 +104,13 @@ def measure_page(page) -> dict:
       const clippedControls=[...document.querySelectorAll('main button, main [role="tab"]')]
         .filter(e=>e.getClientRects().length).filter(e=>{
           const r=e.getBoundingClientRect();
-          if(r.left<0 || r.right>innerWidth+1) return true;
+          let namedScroller=false;
+          for(let p=e.parentElement; p; p=p.parentElement){
+            const s=getComputedStyle(p), b=p.getBoundingClientRect();
+            if(['auto','scroll'].includes(s.overflowX) && p.getAttribute('role')==='region' && p.getAttribute('aria-label') && b.left>=0 && b.right<=innerWidth+1) namedScroller=true;
+          }
+          // Focus reachability is tested separately; named table scroll is intentional.
+          if(!namedScroller && (r.left<0 || r.right>innerWidth+1)) return true;
           for(let p=e.parentElement; p; p=p.parentElement){
             const s=getComputedStyle(p), b=p.getBoundingClientRect();
             if(s.overflowX==='hidden' && (r.left<b.left || r.right>b.right)) return true;
