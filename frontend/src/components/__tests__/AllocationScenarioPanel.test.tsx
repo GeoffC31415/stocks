@@ -1,0 +1,26 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { AllocationScenarioPanel } from "../AllocationScenarioPanel";
+const before={status:"available",account_name:"ISA",invested_value_gbp:100,excluded_cash_gbp:25,tolerance_pp:2,reasons:[],groups:[{group_id:1,name:"Core",actual_value_gbp:100,actual_weight_pct:100,target_weight_pct:100,drift_pp:0,gap_gbp:0,within_tolerance:true,instrument_ids:[1]}]};
+vi.mock("../../state/useTargetDrift",()=>({useTargetDrift:()=>({query:{data:before,isError:false}})}));
+afterEach(()=>vi.unstubAllGlobals());
+it("sends a read-only explicit scenario, displays before/after, and clears stale results on edit/reset",async()=>{
+ const fetcher=vi.fn().mockResolvedValue({ok:true,json:async()=>({before,after:{...before,invested_value_gbp:150,groups:[{...before.groups[0],actual_value_gbp:150}]},contribution_gbp:50,assumption:"Hypothetical contribution; no orders created."})});
+ vi.stubGlobal("fetch",fetcher);
+ render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><AllocationScenarioPanel/></QueryClientProvider>);
+ fireEvent.change(screen.getByLabelText("Contribution (GBP)"),{target:{value:"50"}});
+ fireEvent.change(screen.getByLabelText("Core allocation (GBP)"),{target:{value:"50"}});
+ fireEvent.click(screen.getByRole("button",{name:"Calculate scenario"}));
+ expect(await screen.findByRole("table",{name:"Before and hypothetical after"})).toHaveTextContent("£150");
+ await waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(1));
+ const [url,init]=fetcher.mock.calls[0];
+ expect(init?.method??"GET").toBe("GET");
+ const p=new URL(String(url),"http://test").searchParams;
+ expect(p.get("account_name")).toBe("ISA");
+ expect(JSON.parse(p.get("scenario")!)).toEqual({contribution_gbp:50,allocations:[{group_id:1,amount_gbp:50}],cash_policy:"excluded"});
+ fireEvent.change(screen.getByLabelText("Contribution (GBP)"),{target:{value:"60"}});
+ expect(screen.queryByRole("table",{name:"Before and hypothetical after"})).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole("button",{name:"Reset scenario"}));
+ expect(screen.getByLabelText("Contribution (GBP)")).toHaveValue(0);
+});

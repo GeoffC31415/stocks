@@ -3,8 +3,10 @@ from __future__ import annotations
 import datetime as dt
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.allocation_scenario_schemas import ContributionResult, ContributionScenario
 from app.allocation_target_schemas import AllocationTargets
 from app.data_quality_schemas import DataConfidence
 from app.database import get_session
@@ -21,6 +23,7 @@ from app.schemas import (
     RiskAnalysisResponse,
     SnapshotAttributionResponse,
 )
+from app.services.allocation_scenario_service import calculate_scenario
 from app.services.allocation_service import get_allocation
 from app.services.allocation_target_service import get_allocation_targets
 from app.services.attribution_service import get_snapshot_attribution
@@ -50,6 +53,21 @@ def _to_instrument_out(row: dict) -> InstrumentOut:
         row["snapshot"],
         snapshot_as_of_date=row.get("snapshot_as_of_date"),
     )
+
+
+@router.get("/allocation-scenario", response_model=ContributionResult, dependencies=[Depends(validate_analysis_scope)])
+async def allocation_scenario(
+    scenario: str = Query(max_length=10000),
+    account_name: str | None = None,
+    tolerance_pp: float = Query(2, ge=0, le=100, allow_inf_nan=False),
+    session: AsyncSession = Depends(get_session),
+) -> ContributionResult:
+    try:
+        body = ContributionScenario.model_validate_json(scenario)
+        before = await get_allocation_targets(session, account_name=account_name, tolerance_pp=tolerance_pp)
+        return calculate_scenario(before, body)
+    except (ValidationError, ValueError) as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/allocation-targets", response_model=AllocationTargets, dependencies=[Depends(validate_analysis_scope)])

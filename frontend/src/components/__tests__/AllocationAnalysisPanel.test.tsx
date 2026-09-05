@@ -7,12 +7,16 @@ import { PreferencesContext } from "../../state/usePreferences";
 import { AllocationAnalysisPanel } from "../AllocationAnalysisPanel";
 
 vi.mock("../../lib/api", () => ({ api: { getAllocation: vi.fn(), getInstruments: vi.fn().mockResolvedValue([]) } }));
+vi.mock("../../lib/allocationTargetsApi", () => ({getAllocationTargets: vi.fn().mockResolvedValue({status:"unavailable",groups:[],reasons:["No targets configured"],invested_value_gbp:100,excluded_cash_gbp:0,tolerance_pp:2,cash_policy:"Cash excluded"})}));
 const payload: AllocationResponse = {
-  dimension: "asset_class", account_name: null, cash_policy: "excluded_all_dimensions",
+  dimension: "asset_class", group_by: "security", account_name: null, cash_policy: "excluded_all_dimensions",
   denominator_description: "Current positive GBP values of open non-cash holdings only.",
+  category_instruments: {Equity:[1],Unclassified:[2]},
   totalValue: 1000, top1Pct: 80, top5Pct: 100, hhi: 6800,
   categories: [{ label: "Equity", value: 800, weightPct: 80, count: 1 }, { label: "Unclassified", value: 200, weightPct: 20, count: 1 }],
-  holdings: [{ id: 1, identifier: "AAA", label: "Alpha", value: 800, weightPct: 80 }],
+  holdings: [{ id: 1, identifier: "AAA", label: "Alpha", value: 800, weightPct: 80,
+    security_key: "position:1", aggregation_confidence: "unverified", aggregation_reasons: ["Missing listing"],
+    constituents: [{ id: 1, identifier: "AAA", label: "Alpha", value: 800, weightPct: 80, account_name: "ISA", ticker: null, source_currency: "GBP" }] }],
   classification: { holding_count: 2, classified_count: 1, classified_count_pct: 50, total_value_gbp: 1000, classified_value_gbp: 800, classified_value_pct: 80 },
 };
 function setup(account = "all") {
@@ -23,6 +27,27 @@ function setup(account = "all") {
 }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.getAllocation).mockResolvedValue(payload); });
 describe("AllocationAnalysisPanel", () => {
+  it("defaults to securities, exposes account constituents and switches to positions", async () => {
+    setup();
+    await screen.findByText("AAA");
+    expect(screen.getByRole("button", { name: "Security exposure", pressed: true })).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/Accounts and positions/));
+    expect(screen.getByText(/ISA · AAA · ID 1/)).toBeInTheDocument();
+    expect(screen.getByText(/not proof of diversification/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Account positions" }));
+    await waitFor(() => expect(api.getAllocation).toHaveBeenCalledWith("asset_class", null, "position"));
+  });
+  it("includes the non-trading contribution scenario and target explanation", async () => {
+    setup();
+    expect(await screen.findByRole("heading", {name:"Hypothetical contribution"})).toBeInTheDocument();
+    expect(await screen.findByText("Configure a valid target set before modelling a contribution.")).toBeInTheDocument();
+  });
+  it("links categories to exact constituent holdings", async () => {
+    setup("ISA");
+    const link=await screen.findByRole("link",{name:"Explore Equity holdings"});
+    expect(link).toHaveAttribute("href",expect.stringContaining("instrument_ids=1"));
+    expect(link).toHaveAttribute("href",expect.stringContaining("allocation_category=Equity"));
+  });
   it("shows loading without fabricated zero metrics", () => {
     vi.mocked(api.getAllocation).mockReturnValue(new Promise(() => {}));
     setup();
@@ -47,10 +72,10 @@ describe("AllocationAnalysisPanel", () => {
   it("queries each dimension and account independently using accessible wrapping controls", async () => {
     const view = setup("ISA");
     await screen.findByText("AAA");
-    expect(api.getAllocation).toHaveBeenCalledWith("asset_class", "ISA");
+    expect(api.getAllocation).toHaveBeenCalledWith("asset_class", "ISA", "security");
     for (const [name, dimension] of [["Sector", "sector"], ["Region", "region"], ["Account", "account"], ["Source currency", "currency"]]) {
       fireEvent.click(screen.getByRole("button", { name }));
-      await waitFor(() => expect(api.getAllocation).toHaveBeenCalledWith(dimension, "ISA"));
+      await waitFor(() => expect(api.getAllocation).toHaveBeenCalledWith(dimension, "ISA", "security"));
       await screen.findByText("AAA");
       expect(screen.getByRole("button", { name, pressed: true })).toBeInTheDocument();
     }
@@ -58,14 +83,14 @@ describe("AllocationAnalysisPanel", () => {
     expect(screen.getByText(/not underlying FX exposure/)).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Allocation dimension" })).toHaveClass("flex-wrap");
     view.changeAccount("SIPP");
-    await waitFor(() => expect(api.getAllocation).toHaveBeenCalledWith("currency", "SIPP"));
+    await waitFor(() => expect(api.getAllocation).toHaveBeenCalledWith("currency", "SIPP", "security"));
     await screen.findByText("AAA");
     fireEvent.click(screen.getByRole("button", { name: "Account" }));
     expect(await screen.findByRole("table", { name: "By account" })).toBeInTheDocument();
   });
   it("renders authoritative backend allocation and classification count/value coverage", async () => {
     setup();
-    await waitFor(() => expect(api.getAllocation).toHaveBeenCalledWith("asset_class", null));
+    await waitFor(() => expect(api.getAllocation).toHaveBeenCalledWith("asset_class", null, "security"));
     expect(await screen.findByText("AAA")).toBeInTheDocument();
     expect(api.getInstruments).not.toHaveBeenCalled();
     expect(screen.getByText(payload.denominator_description)).toBeInTheDocument();
