@@ -10,6 +10,7 @@ from app.database import get_session
 from app.routers.analysis_scope import validate_analysis_scope
 from app.schemas import (
     AllocationDimension,
+    AllocationGrouping,
     AllocationResponse,
     BenchmarkPoint,
     InstrumentOut,
@@ -53,10 +54,13 @@ def _to_instrument_out(row: dict) -> InstrumentOut:
 async def allocation(
     dimension: AllocationDimension = "asset_class",
     account_name: str | None = None,
+    group_by: AllocationGrouping = "security",
     session: AsyncSession = Depends(get_session),
 ) -> AllocationResponse:
     try:
-        data = await get_allocation(session, dimension=dimension, account_name=account_name)
+        data = await get_allocation(
+            session, dimension=dimension, account_name=account_name, group_by=group_by,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return AllocationResponse(**data)

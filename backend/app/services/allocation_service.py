@@ -13,8 +13,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.schemas import AllocationDimension
+    from app.schemas import AllocationDimension, AllocationGrouping
 from app.services.portfolio_service import get_current_snapshots
+from app.services.security_identity_service import security_identity
 
 
 def _round(value: float) -> float:
@@ -29,6 +30,7 @@ async def get_allocation(
     *,
     dimension: AllocationDimension = "asset_class",
     account_name: str | None = None,
+    group_by: AllocationGrouping = "security",
 ) -> dict:
     snapshots = [
         s
@@ -53,7 +55,25 @@ async def get_allocation(
         }
         for s, weight in zip(snapshots, weights, strict=True)
     ]
+    exposure: dict[str, dict] = {}
+    for snapshot, holding in zip(snapshots, holdings, strict=True):
+        identity = security_identity(snapshot.instrument, snapshot.value_ccy)
+        key = identity["security_key"] if group_by == "security" else f"position:{holding['id']}"
+        row = exposure.setdefault(key, {
+            **holding, **identity, "value": 0, "constituents": [],
+        })
+        row["value"] += snapshot.value_gbp or 0
+        row["constituents"].append({
+            **holding, "account_name": snapshot.instrument.account_name,
+            "ticker": snapshot.instrument.ticker, "source_currency": snapshot.value_ccy,
+        })
+    grouped_holdings = sorted(exposure.values(), key=lambda row: -row["value"])
+    for row in grouped_holdings:
+        row["weightPct"] = _round(row["value"] / total * 100)
+        row["value"] = _round(row["value"])
+    weights = [row["weightPct"] for row in grouped_holdings]
     grouped: dict[str, dict] = {}
+    category_instruments: dict[str, list[int]] = {}
     classified_count = 0
     classified_value = 0.0
     for s in snapshots:
@@ -65,6 +85,7 @@ async def get_allocation(
             else getattr(s.instrument, dimension)
         )
         label = (raw or "").strip() or "Unclassified"
+        category_instruments.setdefault(label, []).append(s.instrument_id)
         if label != "Unclassified":
             classified_count += 1
             classified_value += s.value_gbp or 0
@@ -80,6 +101,7 @@ async def get_allocation(
     )
     return {
         "dimension": dimension,
+        "group_by": group_by,
         "account_name": account_name,
         "cash_policy": "excluded_all_dimensions",
         "denominator_description": "Open non-cash holdings with positive GBP snapshot value; "
@@ -89,7 +111,8 @@ async def get_allocation(
         "top5Pct": _round(sum(weights[:5])),
         "hhi": _round(sum(weight ** 2 for weight in weights)),
         "categories": categories,
-        "holdings": holdings,
+        "category_instruments": category_instruments,
+        "holdings": grouped_holdings,
         "classification": {
             "holding_count": len(snapshots),
             "classified_count": classified_count,

@@ -674,9 +674,12 @@ export const requestJson = async <T>(url: string, init?: RequestInit): Promise<T
 };
 
 export type AllocationDimension = "asset_class" | "sector" | "region" | "account" | "currency";
+export type AllocationGrouping = "security" | "position";
 export type AllocationCategory = { label: string; value: number; weightPct: number; count: number };
 export type AllocationResponse = {
+  category_instruments?: Record<string, number[]>;
   dimension: AllocationDimension;
+  group_by: AllocationGrouping;
   account_name: string | null;
   cash_policy: "excluded_all_dimensions";
   denominator_description: string;
@@ -685,7 +688,12 @@ export type AllocationResponse = {
   top5Pct: number;
   hhi: number;
   categories: AllocationCategory[];
-  holdings: Array<{ id: number; label: string; identifier: string; value: number; weightPct: number }>;
+  holdings: Array<{ id: number; label: string; identifier: string; value: number; weightPct: number;
+    security_key: string; aggregation_confidence: "verified_listing" | "unverified";
+    aggregation_reasons: string[];
+    constituents: Array<{ id: number; label: string; identifier: string; value: number; weightPct: number;
+      account_name: string; ticker: string | null; source_currency: string | null }>;
+  }>;
   classification: {
     holding_count: number;
     classified_count: number;
@@ -697,8 +705,8 @@ export type AllocationResponse = {
 };
 
 export const api = {
-  getAllocation: (dimension: AllocationDimension = "asset_class", accountName?: string | null) => {
-    const params = new URLSearchParams({ dimension });
+  getAllocation: (dimension: AllocationDimension = "asset_class", accountName?: string | null, groupBy: AllocationGrouping = "security") => {
+    const params = new URLSearchParams({ dimension, group_by: groupBy });
     if (accountName != null) params.set("account_name", accountName);
     return requestJson<AllocationResponse>(`/api/portfolio/allocation?${params.toString()}`);
   },
@@ -884,11 +892,10 @@ export const api = {
     if (baseValue != null) params.set("base_value", String(baseValue));
     return requestJson<BenchmarkPoint[]>(`/api/portfolio/benchmarks?${params.toString()}`);
   },
-  getGroupPerformance: (dripThreshold: number) =>
-    requestJson<GroupPerformance[]>(
-      `/api/groups/performance?drip_threshold=${dripThreshold}`,
-    ),
-
+  getGroupPerformance: (dripThreshold: number, accountName?:string) => {
+    const p=new URLSearchParams({drip_threshold:String(dripThreshold)});if(accountName)p.set("account_name",accountName);
+    return requestJson<GroupPerformance[]>(`/api/groups/performance?${p}`);
+  },
   // Matching admin
   getMatchingSummary: () => requestJson<MatchSummary>("/api/matching/summary"),
   getUnmatchedGroups: (limit?: number, account?: string) => {

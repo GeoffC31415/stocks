@@ -9,10 +9,11 @@ const headings: Record<AllocationDimension, string> = {
 };
 
 /** Category weights and exact GBP values remain available without colour or hover. */
-export function AllocationDonut({ categories, totalValue, dimension = "asset_class" }: {
+export function AllocationDonut({ categories, totalValue, dimension = "asset_class", categoryHref }: {
   categories: AllocationCategory[];
   totalValue: number;
   dimension?: AllocationDimension;
+  categoryHref?: (label:string)=>string|undefined;
 }) {
   const [exact, setExact] = useState(false);
   if (categories.length === 0) return <p className="p-4 text-center text-sm text-slate-400">No positions</p>;
@@ -45,7 +46,7 @@ export function AllocationDonut({ categories, totalValue, dimension = "asset_cla
       <tbody>{categories.map((category) => <tr key={category.label} className="border-t border-slate-500/20">
         <th scope="row" className={`py-2 text-left font-medium ${category.label === "Unclassified" ? "text-amber-200" : "text-slate-200"}`}>
           <span aria-hidden="true" className="mr-2 inline-block h-2 w-2 rounded-sm" style={{ background: categoryColor(dimension, category.label) }} />
-          {category.label}
+          {categoryHref?.(category.label) ? <a className="underline" aria-label={`Explore ${category.label} holdings`} href={categoryHref(category.label)}>{category.label}</a> : category.label}
         </th>
         <td className="tabular py-2 text-right text-slate-300">{category.weightPct.toFixed(1)}%</td>
         <td className="tabular py-2 text-right text-slate-200">{currency(category.value)}</td>

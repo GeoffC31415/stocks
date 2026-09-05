@@ -6,6 +6,7 @@ from typing import Any, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 AllocationDimension = Literal["asset_class", "sector", "region", "account", "currency"]
+AllocationGrouping = Literal["security", "position"]
 
 
 class AllocationCategory(BaseModel):
@@ -15,12 +16,27 @@ class AllocationCategory(BaseModel):
     count: int
 
 
+class AllocationConstituent(BaseModel):
+    id: int
+    label: str
+    identifier: str
+    value: float
+    weightPct: float
+    account_name: str
+    ticker: str | None
+    source_currency: str | None
+
+
 class AllocationHolding(BaseModel):
     id: int
     label: str
     identifier: str
     value: float
     weightPct: float
+    security_key: str
+    aggregation_confidence: Literal["verified_listing", "unverified"]
+    aggregation_reasons: list[str]
+    constituents: list[AllocationConstituent]
 
 
 class AllocationClassification(BaseModel):
@@ -33,7 +49,9 @@ class AllocationClassification(BaseModel):
 
 
 class AllocationResponse(BaseModel):
+    category_instruments: dict[str, list[int]] = Field(default_factory=dict)
     dimension: AllocationDimension
+    group_by: AllocationGrouping
     account_name: str | None
     cash_policy: Literal["excluded_all_dimensions"]
     denominator_description: str
@@ -366,6 +384,7 @@ class PositionSummary(BaseModel):
     estimated_pnl_gbp: float | None
     annualised_return_pct: float | None
     trailing_drip_yield_pct: float | None = None
+    trailing_drip_yield_reason: str | None = None
     realized_pnl_gbp: float | None
     is_closed: bool
 
