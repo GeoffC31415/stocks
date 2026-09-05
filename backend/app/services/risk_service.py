@@ -36,6 +36,7 @@ TRADING_DAYS = 252
 
 #: Minimum paired observations for annualised alpha / Information Ratio.
 MIN_ALPHA_OBSERVATIONS = 252
+MIN_BENCHMARK_OBSERVATIONS = 126
 
 #: Tolerance for the Euler sum-of-contributions check.
 EULER_TOLERANCE = 1e-9
@@ -48,6 +49,8 @@ class RiskFactorSeries:
     name: str
     prices: list[tuple[dt.date, float]]
     constituents: tuple[tuple[int, str], ...] = ()
+    #: Why an (unsupported) factor is excluded from the covariance input.
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -454,27 +457,34 @@ def compute_risk_analysis(inp: RiskAnalysisInput) -> dict[str, Any]:
                 "reasons": ["insufficient benchmark overlap with factor dates"],
             }
         else:
-            # Pair by return end-date so a missing benchmark observation
-            # drops the pair instead of forward-filling.
-            port_by_end = {common[j + 1]: returns[:, j] for j in range(len(common) - 1)}
+            # Pair identical start AND end dates; a missing benchmark close
+            # must not turn its multi-day return into a daily comparison.
+            benchmark_intervals = {
+                (left[0], right[0])
+                for left, right in zip(inp.benchmark_prices, inp.benchmark_prices[1:], strict=False)
+            }
             paired_end_dates: list[dt.date] = []
             port_pairs: list[np.ndarray] = []
             bench_pairs: list[float] = []
-            for j in range(len(bench_dates) - 1):
-                end_date = bench_dates[j + 1]
-                start_price = bench_map[bench_dates[j]]
-                if end_date in port_by_end and start_price > 0:
+            for j, (start_date, end_date) in enumerate(zip(common, common[1:], strict=False)):
+                if (start_date, end_date) in benchmark_intervals:
+                    start_price = bench_map[start_date]
+                    if start_price <= 0:
+                        continue
                     paired_end_dates.append(end_date)
-                    port_pairs.append(port_by_end[end_date])
+                    port_pairs.append(returns[:, j])
                     bench_pairs.append(bench_map[end_date] / start_price - 1.0)
-            if len(paired_end_dates) < 2:
+            if len(paired_end_dates) < MIN_BENCHMARK_OBSERVATIONS:
                 result["benchmark"] = {
                     "available": False,
-                    "reasons": ["insufficient paired benchmark observations"],
+                    "observations": len(paired_end_dates),
+                    "reasons": [f"at least {MIN_BENCHMARK_OBSERVATIONS} paired benchmark observations required"],
                 }
             else:
                 port_matrix = np.column_stack(port_pairs)
-                result["benchmark"] = benchmark_metrics(port_matrix, np.asarray(bench_pairs, dtype=float))
+                result["benchmark"] = benchmark_metrics(
+                    factor_weights @ port_matrix, np.asarray(bench_pairs, dtype=float)
+                )
     else:
         result["benchmark"] = {"available": False, "reasons": ["no benchmark series provided"]}
 

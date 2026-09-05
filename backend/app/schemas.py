@@ -1,9 +1,49 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+AllocationDimension = Literal["asset_class", "sector", "region", "account", "currency"]
+
+
+class AllocationCategory(BaseModel):
+    label: str
+    value: float
+    weightPct: float
+    count: int
+
+
+class AllocationHolding(BaseModel):
+    id: int
+    label: str
+    identifier: str
+    value: float
+    weightPct: float
+
+
+class AllocationClassification(BaseModel):
+    holding_count: int
+    classified_count: int
+    classified_count_pct: float
+    total_value_gbp: float
+    classified_value_gbp: float
+    classified_value_pct: float
+
+
+class AllocationResponse(BaseModel):
+    dimension: AllocationDimension
+    account_name: str | None
+    cash_policy: Literal["excluded_all_dimensions"]
+    denominator_description: str
+    totalValue: float
+    top1Pct: float
+    top5Pct: float
+    hhi: float
+    categories: list[AllocationCategory]
+    holdings: list[AllocationHolding]
+    classification: AllocationClassification
 
 
 class ImportBatchOut(BaseModel):
@@ -755,3 +795,38 @@ class MarketCoverageResponse(BaseModel):
     fx: dict[str, dict[str, object] | None]
     stale_series: list[MarketCoverageInstrument]
     instruments: list[MarketCoverageInstrument]
+
+
+class RiskAnalysisCoverage(BaseModel):
+    total_value_gbp: float
+    cash_value_gbp: float
+    supported_value_gbp: float
+    unsupported_value_gbp: float
+    covered_pct: float | None
+    gate_threshold_pct: float
+    gate_met: bool
+    observations: int
+    min_observations: int
+
+
+class RiskAnalysisResponse(BaseModel):
+    """Current-composition risk report (Task 4).
+
+    ``available`` is True only when the pure analysis succeeded AND the
+    coverage + observation gates pass. Exclusions are never hidden:
+    ``warnings`` lists every factor dropped from the covariance input with
+    its reason, and ``coverage`` reconciles cash + supported + unsupported
+    to the current total value.
+    """
+
+    account_name: str | None
+    valuation_date: dt.date | None
+    available: bool
+    reasons: list[str]
+    analysis: dict[str, object] | None
+    factor_names: list[str]
+    benchmark_symbol: str | None
+    coverage: RiskAnalysisCoverage
+    stale_factors: list[str]
+    stale_after_days: int
+    warnings: list[str]

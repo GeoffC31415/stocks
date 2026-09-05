@@ -63,7 +63,7 @@ export function Topbar() {
   const asOf = summaryQ.data?.as_of_date;
 
   return (
-    <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-white/[0.05] bg-aurora-base/60 px-3 py-3 backdrop-blur-xl sm:px-6">
+    <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.05] bg-aurora-base/60 px-3 py-3 backdrop-blur-xl sm:px-6">
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <Calendar size={14} className="hidden text-slate-500 sm:block" />
         <span className="hidden text-xs text-slate-500 sm:inline">Last snapshot</span>
@@ -149,6 +149,7 @@ export function Topbar() {
 
         <button
           type="button"
+          aria-label="Refresh data"
           onClick={() => navigate("/data?tab=import")}
           className="flex min-h-9 items-center gap-2 rounded-lg bg-aurora-accent px-3 text-xs font-semibold text-white shadow-glow-accent transition-transform hover:-translate-y-0.5"
         >

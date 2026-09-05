@@ -632,7 +632,35 @@ const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
   return response.json() as Promise<T>;
 };
 
+export type AllocationDimension = "asset_class" | "sector" | "region" | "account" | "currency";
+export type AllocationCategory = { label: string; value: number; weightPct: number; count: number };
+export type AllocationResponse = {
+  dimension: AllocationDimension;
+  account_name: string | null;
+  cash_policy: "excluded_all_dimensions";
+  denominator_description: string;
+  totalValue: number;
+  top1Pct: number;
+  top5Pct: number;
+  hhi: number;
+  categories: AllocationCategory[];
+  holdings: Array<{ id: number; label: string; identifier: string; value: number; weightPct: number }>;
+  classification: {
+    holding_count: number;
+    classified_count: number;
+    classified_count_pct: number;
+    total_value_gbp: number;
+    classified_value_gbp: number;
+    classified_value_pct: number;
+  };
+};
+
 export const api = {
+  getAllocation: (dimension: AllocationDimension = "asset_class", accountName?: string | null) => {
+    const params = new URLSearchParams({ dimension });
+    if (accountName != null) params.set("account_name", accountName);
+    return requestJson<AllocationResponse>(`/api/portfolio/allocation?${params.toString()}`);
+  },
   getSummary: () => requestJson<PortfolioSummary>("/api/portfolio/summary"),
   getPerformance: (
     accountName?: string | null,

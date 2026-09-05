@@ -1,5 +1,5 @@
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
-import type { AllocationCategory, AllocationDimension } from "../lib/allocationAnalysis";
+import type { AllocationCategory, AllocationDimension } from "../lib/api";
 import { toGbp } from "../lib/formatters";
 
 const PALETTE = [
@@ -17,7 +17,7 @@ const PALETTE = [
 const UNCLASSIFIED_FILL = "#f59e0b";
 
 const dimensionLabel = (dimension: AllocationDimension): string =>
-  dimension === "asset_class" ? "asset class" : dimension === "sector" ? "sector" : "region";
+  ({ asset_class: "asset class", sector: "sector", region: "region", account: "account", currency: "source currency" })[dimension];
 
 /**
  * Allocation donut: slice area is current GBP weight, the centre carries the
@@ -91,7 +91,7 @@ export function AllocationDonut({
         </p>
       </div>
 
-      <table aria-label={`By ${dimensionLabel(dimension)}`} className="w-full text-xs">
+      <table aria-label={`By ${dimensionLabel(dimension)}`} className="w-full table-fixed break-words text-xs">
         <thead>
           <tr className="text-left text-[10px] uppercase tracking-[0.12em] text-slate-600">
             <th scope="col" className="pb-2 font-semibold">
@@ -117,9 +117,9 @@ export function AllocationDonut({
                 }
               >
                 {category.label}
-              </td>{" "}
-              <td className="tabular text-slate-400">{category.weightPct.toFixed(1)}%</td>{" "}
-              <td className="tabular text-slate-300">{toGbp(category.value)}</td>{" "}
+              {" "}</td>
+              <td className="tabular text-slate-400">{category.weightPct.toFixed(1)}%{" "}</td>
+              <td className="tabular text-slate-300">{toGbp(category.value)}{" "}</td>
               <td className="tabular text-slate-600">· {category.count}</td>
             </tr>
           ))}

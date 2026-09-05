@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { AllocationCategory } from "../../lib/allocationAnalysis";
+import type { AllocationCategory } from "../../lib/api";
 import { AllocationDonut } from "../AllocationDonut";
 
 const categories: AllocationCategory[] = [

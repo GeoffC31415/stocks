@@ -1,82 +1,58 @@
-# Market-data provider probe (2026-09-02)
+# Market-data validation and release gate
 
-Task 2 step 2: probe at least two candidate providers against the exact
-portfolio symbol set. Record success, history depth, adjustment policy,
-currencies, rate limits, and redistribution constraints.
+## Latest evidence — 2026-09-04: Yahoo sample works; release gate unvalidated
 
-## Symbol set probed
+A later read-only probe successfully retrieved approximately two years of daily Yahoo history without a key/subscription. EQQQ.L returned 507 observations in GBp with an adjusted-close series present. A subsequent sequential batch returned:
 
-Live portfolio (open, non-cash instruments with tickers):
+| Symbol | Currency | Observations | Non-null adjusted closes |
+|---|---|---:|---:|
+| VUSD.L | USD | 507 | 505 |
+| MU | USD | 502 | 502 |
+| BA.L | GBp | 507 | 507 |
+| VWRL.L | GBP | 507 | 504 |
+| GBPUSD=X | USD per GBP | 524 | 519 |
 
-- London GBP listings: `BA.L`, `ULVR.L`, `LLPC.L`
-- London USD listings: `EQQQ.L`, `VUSD.L`, `HSPX.L`, `USPY.L`, `NASL.L`,
-  `XDN0.L` (ETFs), `BCHS.L`, `PQVG.L`, `RBTX.L`, `VWRL.L` (benchmark),
-  `VUAG.L`
-- US equities: `GOOGL`, `MU`
-- Fund ISINs: `LU0827887430`, `GB00B8J6SV12` (invalid/unknown identifiers —
-  probe target for the "invalid symbol" requirement)
-- Benchmarks / FX: `^GSPC` (SPX), `GBPUSD=X` (FX)
+Endpoint: `https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2y&interval=1d`. Batch requests were spaced two seconds apart with a stop-on-429 rule. Temporary batch evidence: `/tmp/stocks-free-data-probe/report.json` and corresponding responses; the separate EQQQ probe was not saved in that report. No live cache/database writes or package installations were performed.
 
-Note: `EQQQ.L` appears under two accounts (ISA + SIPp) — the same series
-backs both; the coverage report surfaces this as a duplicate ticker.
+**Interpretation:** Yahoo is now the recommended free first candidate for isolated full-portfolio backfill. Sample success does not prove provider terms, adjustment quality, valid aligned observations, specialist-fund mappings, or 80% value coverage. The production cache has not been populated by these probes; advanced-model release remains gated. Preserve missing-value, pence/pound, USD-listed London ETF, dated FX and valuation-date checks.
 
-## Candidate 1: Stooq
+D01 in the [implementation plan](plans/2026-09-04-portfolio-experience.md) now specifies the Yahoo-first adapter, reproducible probe, isolated backfill, sparse refresh/backoff, offline-cache acceptance and validated manual CSV fallback. No paid source is assumed or authorised. Recheck provider data-use terms before persistent backfill.
 
-- Endpoint: `https://stooq.com/q/d/l/?s=<sym>&i=d`
-- Result: **bot-walled for every symbol in the set** — HTTP 403 or empty
-  bodies from this machine. Not machine-readable in practice.
-- Verdict: rejected.
+## Earlier result — 2026-09-04: probe failed; gate not passed
 
-## Candidate 2: Yahoo Finance (chart API)
+The earlier 2026-09-02 notes declared the 80% gate passed after confirming only a subset of symbols. That conclusion was not supported by measured GBP value coverage. HTTP 429 responses are failures/unverified symbols, not evidence of available history.
 
-- Endpoint: `https://query2.finance.yahoo.com/v8/finance/chart/{symbol}
-  ?range=max&interval=1d&events=div|split`
-- Access requirements observed:
-  - A cookie jar primed against `https://fc.yahoo.com` (session cookies).
-  - A browser-like `User-Agent` (Mozilla/Chrome).
-  - Polite spacing between requests (IP-wide rate limiting).
-- Confirmed working (currency + adjusted close + 250+ daily rows, 2y range):
-  - `BA.L` (GBP), `VWRL.L` (GBP), `GOOGL` (USD), `^GSPC` (USD, benchmark),
-    `GBPUSD=X` (FX, USD per GBP)
-- History depth: daily OHLC; `range=max` returns the full listed history.
-  Adjusted close is available via the `adjclose` indicator (dividend/split
-  adjusted); raw close is preserved alongside it.
-- Currencies: `meta.currency` is returned per symbol (GBP for LSE GBP
-  listings, USD for US equities / London USD listings). **Closes are in
-  the source currency — never assume GBP.**
-- Rate limits: hard IP-wide limits. A second probe pass (15 remaining
-  symbols) returned HTTP 429 for every symbol even with the cookie jar;
-  backoff (50s+) + cookie refresh is required. Raw parallel polling is not
-  viable — hence the design: persistent cache + single-flight refresh +
-  bounded concurrency + retry/backoff. A failed refresh retains usable
-  cached rows.
-- Redistribution constraints: Yahoo Finance data is provided under a
-  consumer licence; storing it locally for personal portfolio analysis is
-  within normal use, but redistribution of the raw data is not. The cache
-  is a private local store keyed by (source, symbol, date) with fetch
-  metadata — no external redistribution.
+Read-only verification of `portfolio.db` on 2026-09-04 found:
 
-## Gate result
+- 20 current holdings, including 19 non-cash holdings and one cash holding, spanning latest-date batches 31 and 33.
+- Non-cash value £860,925.3281; cash £1,779.16; total £862,704.4881.
+- Price cache: **0 rows**. FX cache: **0 rows**. Quote cache: **0 rows**.
+- Verified usable coverage: **0%**; benchmark and historical FX depth: **0**.
+- A bounded Yahoo probe using the correct standard-library opener interface requested `^GSPC` with a two-year daily window and received **HTTP 429**. It stopped immediately; other symbols were not assumed to work.
+- An independent fresh Stooq request for `spy.us` returned HTTP 200 with an HTML JavaScript/browser-verification page, **not CSV price data**.
+- No live database writes, refreshes or migrations were performed. The database hash was unchanged.
 
-Machine-readable benchmark data: **yes** (`^GSPC`, `VWRL.L` confirmed).
-GBP coverage after FX conversion: **≥80% gate met** — LSE GBP listings and
-GBP-quoted ETFs are native GBP; USD-listed holdings convert via the
-`GBPUSD` FX series (confirmed available). Fund ISINs without a marketable
-symbol are reported as uncovered (reason: no ticker) rather than guessed.
+The Yahoo probe evidence and script are retained in `/tmp/stocks-provider-gate-20260904T212651Z/` and `/tmp/stocks-provider-gate-audit.py` for this session. These are temporary evidence paths, not a durable data source.
 
-**Gate: PASS (with the caching design).** Tasks 3–6 may proceed.
+## Repairs made during the resumption
 
-## Design decisions recorded
+- Corrected `_http_get`: `urllib.request.OpenerDirector` provides `open`, not `urlopen`.
+- `fetch_history` is now cache-only. Neither a cache miss nor a missing session triggers a provider call or database commit. Use the explicit refresh operation to fetch data.
+- The unfinished risk service now uses same-date cached FX rather than a single latest exchange rate. GBP, GBp/GBX, USD and EUR are distinguished; unsupported currencies are excluded.
+- The risk service's publication threshold is 126 aligned observations and 80% of **non-cash** value. These repairs do not certify the entire risk/forecast workstream.
+- Risk factor identities are stable namespaced tickers/instrument IDs, independent of display names. All current exposures remain in the denominator; mismatched account valuation dates prevent publication with explicit warnings.
+- The risk loader rejects inconsistent currencies and mixed adjusted/raw histories, excludes post-valuation observations and checks staleness of the actual aligned window. Non-finite holding inputs fail safely. The standalone Task 2 coverage report still needs the stricter validation listed below.
 
-- Provider interface (`MarketDataProvider`) keeps provider-specific symbol
-  mapping out of analytics code; the default is `YahooMarketDataProvider`.
-- Durable cache: `market_price_points` keyed by (source, symbol, date) with
-  raw close, adjusted close (nullable), currency, and fetch metadata; FX
-  pairs live in `market_fx_points` keyed by (source, pair, date).
-- GBP conversion happens at read time only when a valid cached FX rate
-  exists; missing FX is reported, never converted to zeros.
-- Explicit refresh: `POST /api/market-data/refresh` (bounded concurrency,
-  per-symbol timeout, retry/backoff, partial-failure reporting).
-- Read-only coverage: `GET /api/market-data/coverage` (covered/uncovered by
-  reason, duplicate symbols, aligned dates, stale series, FX availability,
-  80% gate status).
+Offline regression tests exercise the real opener interface, cache-only misses, explicit refresh followed by cache reads, FX conversion and unavailable states. Synthetic test fixtures are not evidence that a live provider covers the portfolio.
+
+## Work required before risk/scenarios can be released
+
+1. Obtain a working provider/authorised data source and verify its terms for the intended storage/use. The earlier blanket claim that Yahoo local storage is permitted was not verified; do not treat it as a licence grant.
+2. Explicitly map the application's legacy symbols (`spx.us`, `vwrl.uk`, `GOOGL.US`, `MU.US`) to provider symbols in the provider layer. Preserve requested identifiers in API metadata; do not silently guess fund-ISIN mappings.
+3. Refresh an **isolated database first**, with machine-readable benchmark, holding and historical FX series; honour provider rate limits.
+4. Harden the coverage report to require finite, valid price/FX observations, daily alignment and minimum history, not merely one cached close/latest FX rate. Disclose quote currency and adjustment policy per series.
+5. Validate bounded refresh deadlines and cross-request single-flight behavior. The current sequential loop is not proof of process-wide concurrency control.
+6. Prove at least 126 aligned daily observations and coverage of at least 80% of current non-cash GBP value; record exclusions and the complete current portfolio denominator.
+7. Follow D01–D03 in the [Portfolio Experience and Insight Implementation Plan](plans/2026-09-04-portfolio-experience.md): validated history first, then risk and horizon-gated loss analysis, then separately gated bootstrap scenarios.
+
+**Advanced risk and scenario releases remain blocked by this gate. A caching design alone cannot pass it.**

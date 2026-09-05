@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Instrument } from "../../lib/api";
-import { calculateAllocation } from "../allocationAnalysis";
+import { calculateAllocation } from "./allocationOracle";
 
 const holding = (
   id: number,

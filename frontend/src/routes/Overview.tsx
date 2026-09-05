@@ -404,7 +404,7 @@ function AllocationPanel({
         ) : null}
       </div>
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
-        <div>
+        <div className="min-w-0">
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
             Largest holdings
           </p>

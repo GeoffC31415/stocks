@@ -224,12 +224,15 @@ def _dietz_interval_return(
     Returns ``None`` when the interval is unusable (non-positive prior value
     or a non-positive denominator).
     """
-    if value_prev <= 0:
+    if not all(math.isfinite(v) for v in (value_prev, value_next, raw_flow, weighted_flow)):
+        return None
+    if value_prev <= 0 or value_next < 0:
         return None
     denominator = value_prev + weighted_flow
     if denominator <= 0:
         return None
-    return (value_next - (value_prev + raw_flow)) / denominator
+    result = (value_next - (value_prev + raw_flow)) / denominator
+    return result if math.isfinite(result) and result >= -1 else None
 
 
 def _interval_dietz_returns(
@@ -274,18 +277,19 @@ def build_flow_adjusted_curve(
     """Chain-link valid interval Modified Dietz returns into a wealth index.
 
     The index starts at 100 on the first snapshot date. Each usable interval
-    multiplies the running index by ``(1 + dietz_return)``; an unusable
-    interval holds the previous value (no market movement is assumed, so a
-    pure cash contribution with no market gain keeps the index flat while the
-    raw value rises). Deterministic and DB-free.
+    multiplies the running index by ``(1 + dietz_return)``. An unusable
+    interval makes the curve unavailable rather than inventing a flat return.
+    A valid pure contribution with no market gain keeps the index flat.
+    Deterministic and DB-free.
     """
     if len(points) < 2:
         return []
     curve: list[dict] = [{"date": points[0][0], "index": 100.0}]
     index = 100.0
     for date, interval_return in _interval_dietz_returns(points, signed_flows):
-        if interval_return is not None:
-            index = index * (1.0 + interval_return)
+        if interval_return is None:
+            return []
+        index = index * (1.0 + interval_return)
         curve.append({"date": date, "index": round(index, 4)})
     return curve
 
@@ -363,7 +367,7 @@ def compute_flow_adjusted_metrics(
         "sortino_ratio": None,
         "num_periods": 0,
         "annualisation_factor": None,
-        "method": "Modified Dietz (flow-adjusted) on snapshot-derived portfolio value",
+        "method": "Chain-linked interval Modified Dietz on snapshot-derived portfolio value",
         "notes": [
             "Returns are flow-adjusted: external contributions (manual cash + new "
             "orders) and withdrawals are netted out via Modified Dietz, so growth "
@@ -378,34 +382,15 @@ def compute_flow_adjusted_metrics(
         return base
 
     dates = [p[0] for p in points]
-    values = [p[1] for p in points]
-    start_value = values[0]
-    end_value = values[-1]
-
-    # --- Headline Dietz return over the whole window (same as returns card). ---
-    # Standard Modified Dietz: raw signed net flow in the numerator (money
-    # added is not gain / removed is not a loss) and hold-weighted flow in the
-    # denominator. This mirrors ``get_portfolio_return_summary`` exactly.
-    period_start = dates[0]
-    period_end = dates[-1]
-    total_days = (period_end - period_start).days
-    net_flow = sum(amount for _flow_date, amount in signed_flows)
-    weighted_flow = (
-        sum(
-            amount * ((period_end - flow_date).days / total_days)
-            for flow_date, amount in signed_flows
-        )
-        if total_days > 0
-        else 0.0
-    )
-    denominator = start_value + weighted_flow
-    if denominator <= 0:
-        base["notes"].append(
-            "The flow-adjusted denominator is zero or negative, so the headline "
-            "return is unavailable."
-        )
-    else:
-        period_return = (end_value - (start_value + net_flow)) / denominator
+    # KPI, wealth curve and risk statistics share the same interval returns.
+    total_days = (dates[-1] - dates[0]).days
+    intervals = _interval_dietz_returns(points, signed_flows)
+    if len(intervals) != len(points) - 1 or any(value is None for _, value in intervals):
+        base["notes"].append("An unusable snapshot interval prevents a complete flow-adjusted return.")
+        return base
+    interval_returns = [value for _, value in intervals if value is not None]
+    if interval_returns:
+        period_return = math.prod(1.0 + value for value in interval_returns) - 1.0
         base["total_return_pct"] = round(period_return * 100.0, 4)
         if total_days >= MIN_ANNUALISATION_DAYS and period_return > -1:
             years = total_days / TRADING_DAYS_PER_YEAR
@@ -416,29 +401,6 @@ def compute_flow_adjusted_metrics(
             base["notes"].append(
                 "Annualised flow-adjusted return is unavailable for periods under 365 days."
             )
-
-    # --- Per-interval Dietz returns for the risk statistics. ---
-    # For each interval (prev, next]: raw signed net flow in the numerator,
-    # hold-weighted flow in the denominator (flow on the start date is already
-    # included in the start value, so it is excluded from that interval).
-    interval_returns: list[float] = []
-    for i in range(1, len(values)):
-        span_start = dates[i - 1]
-        span_end = dates[i]
-        interval_days = (span_end - span_start).days
-        if interval_days <= 0:
-            continue
-        raw_flow = 0.0
-        weighted_flow = 0.0
-        for flow_date, amount in signed_flows:
-            if span_start < flow_date <= span_end:
-                raw_flow += amount
-                weighted_flow += amount * ((span_end - flow_date).days / interval_days)
-        interval_return = _dietz_interval_return(
-            values[i - 1], values[i], raw_flow, weighted_flow
-        )
-        if interval_return is not None:
-            interval_returns.append(interval_return)
 
     n = len(interval_returns)
     base["num_periods"] = n
@@ -569,7 +531,7 @@ async def _flow_adjusted_block(
         "sortino_ratio": None,
         "num_periods": 0,
         "annualisation_factor": None,
-        "method": "Modified Dietz (flow-adjusted) on snapshot-derived portfolio value",
+        "method": "Chain-linked interval Modified Dietz on snapshot-derived portfolio value",
         "notes": ["Flow-adjusted metrics are unavailable for this window."],
         "flow_adjusted_curve": [],
         "drawdown_curve": [],

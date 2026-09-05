@@ -37,7 +37,7 @@ const benchKey = (symbol: string) => `bench_${symbol.replace(/[^a-z0-9]/gi, "_")
 const METRIC_INFO: Record<string, { definition: string; typical: string }> = {
   totalReturn: {
     definition:
-      "Flow-adjusted return (Modified Dietz) over the window. It removes the effect of cash you added or withdrew, so it measures how the money already in the account performed — not how much you put in.",
+      "Chain-linked interval Modified Dietz return over the window. It removes the effect of cash you added or withdrew, so it measures how the money already in the account performed — not how much you put in.",
     typical:
       "A diversified stock portfolio averages roughly +7–12%/yr over the long run. Much higher or lower in any single window; a big positive number that mostly reflects a cash injection is a red flag.",
   },
@@ -109,7 +109,7 @@ function MetricTile({
       {sub ? <p className="mt-0.5 text-[11px] text-slate-500">{sub}</p> : null}
 
       {/* Tooltip: definition + typical values */}
-      <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-64 -translate-x-1/2 rounded-xl border border-white/10 bg-aurora-base/95 p-3 text-left opacity-0 shadow-glass backdrop-blur-md transition duration-150 group-hover:opacity-100">
+      <div className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-64 max-w-full -translate-x-1/2 rounded-xl border border-white/10 bg-aurora-base/95 p-3 text-left opacity-0 shadow-glass backdrop-blur-md transition duration-150 group-hover:opacity-100">
         <p className="text-xs font-semibold text-white">
           {info.definition}
         </p>
@@ -219,6 +219,18 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
     );
   }
 
+  if (perfQ.isError) {
+    return (
+      <div role="alert" className="glass space-y-3 rounded-2xl p-5 text-sm text-slate-300">
+        <p>Unable to load performance. No performance estimates are shown.</p>
+        <button type="button" onClick={() => void perfQ.refetch()}
+          className="min-h-11 rounded-lg border border-white/20 px-4 focus-visible:outline">
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   if (!perf || perf.growth_curve.length === 0) {
     return (
       <div className="glass rounded-2xl p-5 text-sm text-slate-400">
@@ -233,12 +245,12 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
   const fmtPct = (v: number | null) => (v == null ? "—" : `${v.toFixed(2)}%`);
   const fmtRatio = (v: number | null) => (v == null ? "—" : v.toFixed(2));
 
-  // Headline uses flow-adjusted (Dietz) when available; falls back to raw.
-  const headlineReturn = flow?.total_return_pct ?? perf.total_return_pct;
-  const headlineAnn = flow?.annualised_return_pct ?? perf.annualised_return_pct;
-  const headlineVol = flow?.annualised_volatility_pct ?? perf.annualised_volatility_pct;
-  const headlineSharpe = flow?.sharpe_ratio ?? perf.sharpe_ratio;
-  const headlineSortino = flow?.sortino_ratio ?? perf.sortino_ratio;
+  // Missing flow-adjusted metrics must never be replaced with raw account returns.
+  const headlineReturn = flow?.total_return_pct ?? null;
+  const headlineAnn = flow?.annualised_return_pct ?? null;
+  const headlineVol = flow?.annualised_volatility_pct ?? null;
+  const headlineSharpe = flow?.sharpe_ratio ?? null;
+  const headlineSortino = flow?.sortino_ratio ?? null;
 
   const windowLabel =
     perf.period_start && perf.period_end
@@ -297,6 +309,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
         </div>
       )}
 
+      {!perf.flow_adjusted_curve?.length && <p role="status" className="mt-4 rounded-lg border border-amber-400/20 p-3 text-sm text-amber-200">Flow-adjusted performance unavailable for this window. Raw account values are not a substitute for investment returns.</p>}
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <MetricTile
           infoKey="totalReturn"

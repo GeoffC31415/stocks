@@ -76,6 +76,17 @@ function renderPanel(ui: React.ReactNode, perfOverride?: PerformanceSummary) {
 }
 
 describe("PerformancePanel", () => {
+  it("never substitutes raw metrics when flow-adjusted metrics are unavailable", async () => {
+    renderPanel(<PerformancePanel />, { ...basePerf, annualised_return_pct: 123, annualised_volatility_pct: 45, sharpe_ratio: 6, sortino_ratio: 7, flow_adjusted_curve: [], drawdown_curve: [], flow_adjusted: { ...basePerf.flow_adjusted!, total_return_pct: null, annualised_return_pct: null, annualised_volatility_pct: null, sharpe_ratio: null, sortino_ratio: null, flow_adjusted_curve: [], drawdown_curve: [] } });
+    await screen.findByText("Performance");
+    for (const label of ["Total return", "Annualised", "Volatility", "Sharpe", "Sortino"]) {
+      const tile = screen.getByText(label).parentElement!.parentElement!;
+      expect(tile.querySelector("p.tabular")).toHaveTextContent("—");
+    }
+    expect(screen.getByText(/Flow-adjusted performance unavailable/)).toBeInTheDocument();
+    expect(screen.getByText(/Chain-linked interval Modified Dietz/)).toBeInTheDocument();
+    expect(screen.getByText("raw 100.00%")).toBeInTheDocument();
+  });
   it("shows a loading state while the query is pending", async () => {
     let resolve!: (value: PerformanceSummary) => void;
     const getPerformance = vi.fn(
@@ -142,10 +153,10 @@ describe("PerformancePanel", () => {
         <PerformancePanel />
       </QueryClientProvider>,
     );
-    // On error, useQuery.data is undefined -> the panel falls back to the
-    // "not enough snapshot history" branch.
-    await waitFor(() =>
-      expect(screen.getByText(/Not enough snapshot history yet/)).toBeInTheDocument(),
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to load performance");
+    expect(screen.queryByText(/Not enough snapshot history yet/)).not.toBeInTheDocument();
+    vi.mocked(api.getPerformance).mockResolvedValue(basePerf);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Performance")).toBeInTheDocument();
   });
 });

@@ -95,8 +95,8 @@ class MarketDataProvider(Protocol):
 
 def _http_get(url: str, *, timeout: float = 20.0, opener: Any = None) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    handler = opener or urllib.request
-    with handler.urlopen(request, timeout=timeout) as response:
+    open_request = opener.open if opener is not None else urllib.request.urlopen
+    with open_request(request, timeout=timeout) as response:
         return response.read()
 
 
@@ -475,43 +475,14 @@ async def fetch_history(
     base_value: float = 100.0,
     provider: MarketDataProvider | None = None,
 ) -> list[dict[str, Any]]:
-    """Cache-first history: serve from the cache; on a miss (or empty cache)
-    fetch through the provider, persist, then re-read.
+    """Cache-only analytics read. Refresh is an explicit POST operation.
 
-    Callers that hold a session get durable cache behaviour; callers
-    without one (read-only paths) still work but do not persist.
+    ``provider`` is retained for caller compatibility but never used here.
+    Missing cache/session returns no history, never a provider call or write.
     """
-    if session is not None:
-        rows = await cached_history(session, symbol, start=start, base_value=base_value)
-        if rows:
-            return rows
-        active = provider or make_provider()
-        points = await active.fetch_daily(symbol, start=start)
-        stored = await store_points(session, points)
-        await session.commit()
-        if stored:
-            return await cached_history(session, symbol, start=start, base_value=base_value)
+    if session is None:
         return []
-    # No session: single-shot provider fetch, no persistence.
-    active = provider or make_provider()
-    points = await active.fetch_daily(symbol, start=start)
-    if len(points) < 2:
-        return []
-    first = points[0]
-    base = first.adjusted_close if first.adjusted_close is not None else first.close
-    if base <= 0:
-        return []
-    return [
-        {
-            "date": point.date,
-            "symbol": symbol,
-            "close": point.adjusted_close if point.adjusted_close is not None else point.close,
-            "rebased_value": ((point.adjusted_close if point.adjusted_close is not None else point.close) / base)
-            * base_value,
-            "currency": point.currency,
-        }
-        for point in points
-    ]
+    return await cached_history(session, symbol, start=start, base_value=base_value)
 
 
 async def fetch_latest_quote(symbol: str) -> dict[str, Any] | None:

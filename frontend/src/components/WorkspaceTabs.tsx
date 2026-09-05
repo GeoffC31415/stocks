@@ -28,7 +28,7 @@ export function WorkspaceTabs({
     <div
       role="tablist"
       aria-label={label}
-      className="inline-flex max-w-full gap-1 overflow-x-auto rounded-xl border border-white/[0.06] bg-white/[0.025] p-1"
+      className="inline-flex max-w-full flex-wrap gap-1 rounded-xl border border-white/[0.06] bg-white/[0.025] p-1"
     >
       {tabs.map((tab) => {
         const active = tab.key === selected;

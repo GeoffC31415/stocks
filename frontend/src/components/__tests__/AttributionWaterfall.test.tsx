@@ -21,6 +21,15 @@ const attribution: SnapshotAttribution = {
 };
 
 describe("AttributionWaterfall", () => {
+  it("keeps the compact value breakdown without a duplicate graph", () => {
+    const { container } = render(<AttributionWaterfall attribution={{ ...attribution, closing_value_gbp: 840, residual_market_movement_gbp: -230 }} />);
+    expect(container.querySelector("svg")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("waterfall-step")).toHaveLength(6);
+    const rows = screen.getByRole("table", { name: /attribution waterfall/i }).querySelectorAll("tbody tr");
+    expect(rows[4]).toHaveTextContent("£840");
+    expect(rows[5]).toHaveTextContent("£840");
+  });
   it("steps opening value through every component to the closing value", () => {
     render(<AttributionWaterfall attribution={attribution} />);
 

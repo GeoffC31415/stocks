@@ -1,4 +1,5 @@
-import type { Instrument } from "./api";
+// Test-only legacy parity oracle. Production allocation comes from the backend.
+import type { Instrument } from "../api";
 
 export type AllocationDimension = "asset_class" | "sector" | "region";
 

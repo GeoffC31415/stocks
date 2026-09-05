@@ -290,10 +290,13 @@ async def test_fetch_history_serves_from_cache_without_provider(session) -> None
     assert [row["rebased_value"] for row in rows] == [100.0, pytest.approx(110.0)]
 
 
-async def test_fetch_history_falls_back_to_provider_and_persists(session) -> None:
+async def test_history_requires_explicit_refresh_before_cache_read(session) -> None:
     eqqq = _pts("EQQQ.L", "GBP", [(dt.date(2026, 6, 1), 200.0), (dt.date(2026, 6, 2), 220.0)])
     provider = FakeProvider({"EQQQ.L": eqqq})
 
+    assert await fetch_history(session, "EQQQ.L", provider=provider) == []
+    assert provider.calls == []
+    await refresh_market_data(session, ["EQQQ.L"], provider=provider, fx_pairs=(), per_symbol_delay_s=0)
     rows = await fetch_history(session, "EQQQ.L", provider=provider)
     assert provider.calls == ["EQQQ.L"]
     assert [row["rebased_value"] for row in rows] == [100.0, pytest.approx(110.0)]
@@ -306,8 +309,8 @@ async def test_fetch_history_falls_back_to_provider_and_persists(session) -> Non
 
 async def test_empty_cache_and_failed_provider_yields_empty_list(session) -> None:
     provider = FakeProvider({}, fail={"XDN0.L": "HTTP 429"})
-    with pytest.raises(RuntimeError):
-        await fetch_history(session, "XDN0.L", provider=provider)
+    assert await fetch_history(session, "XDN0.L", provider=provider) == []
+    assert provider.calls == []
 
 
 async def test_cached_history_prefers_adjusted_close(session) -> None:

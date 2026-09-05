@@ -1,0 +1,1841 @@
+[
+  {
+    "dimension": "asset_class",
+    "account_name": null,
+    "instruments": [
+      {
+        "id": 1,
+        "identifier": "H1",
+        "security_name": "Holding 1",
+        "latest_value_gbp": 60,
+        "asset_class": " Equity ETF ",
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 2,
+        "identifier": "H2",
+        "security_name": "Holding 2",
+        "latest_value_gbp": 30,
+        "asset_class": " Equity ETF ",
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 3,
+        "identifier": "H3",
+        "security_name": "Holding 3",
+        "latest_value_gbp": 10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 4,
+        "identifier": "H4",
+        "security_name": "Holding 4",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 5,
+        "identifier": "H5",
+        "security_name": "Holding 5",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 6,
+        "identifier": "H6",
+        "security_name": "Holding 6",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 7,
+        "identifier": "H7",
+        "security_name": "Holding 7",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 8,
+        "identifier": "H8",
+        "security_name": "Holding 8",
+        "latest_value_gbp": 500,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": true,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 9,
+        "identifier": "H9",
+        "security_name": "Holding 9",
+        "latest_value_gbp": 200,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": "2026-01-01T00:00:00",
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 10,
+        "identifier": "H10",
+        "security_name": "Holding 10",
+        "latest_value_gbp": 0,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 11,
+        "identifier": "H11",
+        "security_name": "Holding 11",
+        "latest_value_gbp": -10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 12,
+        "identifier": "H12",
+        "security_name": "Holding 12",
+        "latest_value_gbp": null,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      }
+    ],
+    "expected": {
+      "totalValue": 104,
+      "top1Pct": 57.69,
+      "top5Pct": 98.08,
+      "hhi": 4256.69,
+      "categories": [
+        {
+          "label": "Equity ETF",
+          "value": 90,
+          "weightPct": 86.54,
+          "count": 2
+        },
+        {
+          "label": "Unclassified",
+          "value": 14,
+          "weightPct": 13.46,
+          "count": 5
+        }
+      ],
+      "holdings": [
+        {
+          "id": 1,
+          "label": "Holding 1",
+          "identifier": "H1",
+          "value": 60,
+          "weightPct": 57.69
+        },
+        {
+          "id": 2,
+          "label": "Holding 2",
+          "identifier": "H2",
+          "value": 30,
+          "weightPct": 28.85
+        },
+        {
+          "id": 3,
+          "label": "Holding 3",
+          "identifier": "H3",
+          "value": 10,
+          "weightPct": 9.62
+        },
+        {
+          "id": 4,
+          "label": "Holding 4",
+          "identifier": "H4",
+          "value": 1,
+          "weightPct": 0.96
+        },
+        {
+          "id": 5,
+          "label": "Holding 5",
+          "identifier": "H5",
+          "value": 1,
+          "weightPct": 0.96
+        },
+        {
+          "id": 6,
+          "label": "Holding 6",
+          "identifier": "H6",
+          "value": 1,
+          "weightPct": 0.96
+        },
+        {
+          "id": 7,
+          "label": "Holding 7",
+          "identifier": "H7",
+          "value": 1,
+          "weightPct": 0.96
+        }
+      ]
+    }
+  },
+  {
+    "dimension": "asset_class",
+    "account_name": "ISA",
+    "instruments": [
+      {
+        "id": 1,
+        "identifier": "H1",
+        "security_name": "Holding 1",
+        "latest_value_gbp": 60,
+        "asset_class": " Equity ETF ",
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 2,
+        "identifier": "H2",
+        "security_name": "Holding 2",
+        "latest_value_gbp": 30,
+        "asset_class": " Equity ETF ",
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 3,
+        "identifier": "H3",
+        "security_name": "Holding 3",
+        "latest_value_gbp": 10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 4,
+        "identifier": "H4",
+        "security_name": "Holding 4",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 5,
+        "identifier": "H5",
+        "security_name": "Holding 5",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 6,
+        "identifier": "H6",
+        "security_name": "Holding 6",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 7,
+        "identifier": "H7",
+        "security_name": "Holding 7",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 8,
+        "identifier": "H8",
+        "security_name": "Holding 8",
+        "latest_value_gbp": 500,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": true,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 9,
+        "identifier": "H9",
+        "security_name": "Holding 9",
+        "latest_value_gbp": 200,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": "2026-01-01T00:00:00",
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 10,
+        "identifier": "H10",
+        "security_name": "Holding 10",
+        "latest_value_gbp": 0,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 11,
+        "identifier": "H11",
+        "security_name": "Holding 11",
+        "latest_value_gbp": -10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 12,
+        "identifier": "H12",
+        "security_name": "Holding 12",
+        "latest_value_gbp": null,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      }
+    ],
+    "expected": {
+      "totalValue": 72,
+      "top1Pct": 83.33,
+      "top5Pct": 100,
+      "hhi": 7140.69,
+      "categories": [
+        {
+          "label": "Equity ETF",
+          "value": 60,
+          "weightPct": 83.33,
+          "count": 1
+        },
+        {
+          "label": "Unclassified",
+          "value": 12,
+          "weightPct": 16.67,
+          "count": 3
+        }
+      ],
+      "holdings": [
+        {
+          "id": 1,
+          "label": "Holding 1",
+          "identifier": "H1",
+          "value": 60,
+          "weightPct": 83.33
+        },
+        {
+          "id": 3,
+          "label": "Holding 3",
+          "identifier": "H3",
+          "value": 10,
+          "weightPct": 13.89
+        },
+        {
+          "id": 5,
+          "label": "Holding 5",
+          "identifier": "H5",
+          "value": 1,
+          "weightPct": 1.39
+        },
+        {
+          "id": 7,
+          "label": "Holding 7",
+          "identifier": "H7",
+          "value": 1,
+          "weightPct": 1.39
+        }
+      ]
+    }
+  },
+  {
+    "dimension": "asset_class",
+    "account_name": "Missing",
+    "instruments": [
+      {
+        "id": 1,
+        "identifier": "H1",
+        "security_name": "Holding 1",
+        "latest_value_gbp": 60,
+        "asset_class": " Equity ETF ",
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 2,
+        "identifier": "H2",
+        "security_name": "Holding 2",
+        "latest_value_gbp": 30,
+        "asset_class": " Equity ETF ",
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 3,
+        "identifier": "H3",
+        "security_name": "Holding 3",
+        "latest_value_gbp": 10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 4,
+        "identifier": "H4",
+        "security_name": "Holding 4",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 5,
+        "identifier": "H5",
+        "security_name": "Holding 5",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 6,
+        "identifier": "H6",
+        "security_name": "Holding 6",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 7,
+        "identifier": "H7",
+        "security_name": "Holding 7",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 8,
+        "identifier": "H8",
+        "security_name": "Holding 8",
+        "latest_value_gbp": 500,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": true,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 9,
+        "identifier": "H9",
+        "security_name": "Holding 9",
+        "latest_value_gbp": 200,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": "2026-01-01T00:00:00",
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 10,
+        "identifier": "H10",
+        "security_name": "Holding 10",
+        "latest_value_gbp": 0,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 11,
+        "identifier": "H11",
+        "security_name": "Holding 11",
+        "latest_value_gbp": -10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 12,
+        "identifier": "H12",
+        "security_name": "Holding 12",
+        "latest_value_gbp": null,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      }
+    ],
+    "expected": {
+      "totalValue": 0,
+      "top1Pct": 0,
+      "top5Pct": 0,
+      "hhi": 0,
+      "categories": [],
+      "holdings": []
+    }
+  },
+  {
+    "dimension": "sector",
+    "account_name": null,
+    "instruments": [
+      {
+        "id": 1,
+        "identifier": "H1",
+        "security_name": "Holding 1",
+        "latest_value_gbp": 60,
+        "asset_class": " Equity ETF ",
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 2,
+        "identifier": "H2",
+        "security_name": "Holding 2",
+        "latest_value_gbp": 30,
+        "asset_class": " Equity ETF ",
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 3,
+        "identifier": "H3",
+        "security_name": "Holding 3",
+        "latest_value_gbp": 10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 4,
+        "identifier": "H4",
+        "security_name": "Holding 4",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 5,
+        "identifier": "H5",
+        "security_name": "Holding 5",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 6,
+        "identifier": "H6",
+        "security_name": "Holding 6",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 7,
+        "identifier": "H7",
+        "security_name": "Holding 7",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 8,
+        "identifier": "H8",
+        "security_name": "Holding 8",
+        "latest_value_gbp": 500,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": true,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 9,
+        "identifier": "H9",
+        "security_name": "Holding 9",
+        "latest_value_gbp": 200,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": "2026-01-01T00:00:00",
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 10,
+        "identifier": "H10",
+        "security_name": "Holding 10",
+        "latest_value_gbp": 0,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 11,
+        "identifier": "H11",
+        "security_name": "Holding 11",
+        "latest_value_gbp": -10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 12,
+        "identifier": "H12",
+        "security_name": "Holding 12",
+        "latest_value_gbp": null,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      }
+    ],
+    "expected": {
+      "totalValue": 104,
+      "top1Pct": 57.69,
+      "top5Pct": 98.08,
+      "hhi": 4256.69,
+      "categories": [
+        {
+          "label": "Technology",
+          "value": 72,
+          "weightPct": 69.23,
+          "count": 4
+        },
+        {
+          "label": "Unclassified",
+          "value": 32,
+          "weightPct": 30.77,
+          "count": 3
+        }
+      ],
+      "holdings": [
+        {
+          "id": 1,
+          "label": "Holding 1",
+          "identifier": "H1",
+          "value": 60,
+          "weightPct": 57.69
+        },
+        {
+          "id": 2,
+          "label": "Holding 2",
+          "identifier": "H2",
+          "value": 30,
+          "weightPct": 28.85
+        },
+        {
+          "id": 3,
+          "label": "Holding 3",
+          "identifier": "H3",
+          "value": 10,
+          "weightPct": 9.62
+        },
+        {
+          "id": 4,
+          "label": "Holding 4",
+          "identifier": "H4",
+          "value": 1,
+          "weightPct": 0.96
+        },
+        {
+          "id": 5,
+          "label": "Holding 5",
+          "identifier": "H5",
+          "value": 1,
+          "weightPct": 0.96
+        },
+        {
+          "id": 6,
+          "label": "Holding 6",
+          "identifier": "H6",
+          "value": 1,
+          "weightPct": 0.96
+        },
+        {
+          "id": 7,
+          "label": "Holding 7",
+          "identifier": "H7",
+          "value": 1,
+          "weightPct": 0.96
+        }
+      ]
+    }
+  },
+  {
+    "dimension": "sector",
+    "account_name": "ISA",
+    "instruments": [
+      {
+        "id": 1,
+        "identifier": "H1",
+        "security_name": "Holding 1",
+        "latest_value_gbp": 60,
+        "asset_class": " Equity ETF ",
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 2,
+        "identifier": "H2",
+        "security_name": "Holding 2",
+        "latest_value_gbp": 30,
+        "asset_class": " Equity ETF ",
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 3,
+        "identifier": "H3",
+        "security_name": "Holding 3",
+        "latest_value_gbp": 10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 4,
+        "identifier": "H4",
+        "security_name": "Holding 4",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 5,
+        "identifier": "H5",
+        "security_name": "Holding 5",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 6,
+        "identifier": "H6",
+        "security_name": "Holding 6",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 7,
+        "identifier": "H7",
+        "security_name": "Holding 7",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 8,
+        "identifier": "H8",
+        "security_name": "Holding 8",
+        "latest_value_gbp": 500,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": true,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 9,
+        "identifier": "H9",
+        "security_name": "Holding 9",
+        "latest_value_gbp": 200,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": "2026-01-01T00:00:00",
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 10,
+        "identifier": "H10",
+        "security_name": "Holding 10",
+        "latest_value_gbp": 0,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 11,
+        "identifier": "H11",
+        "security_name": "Holding 11",
+        "latest_value_gbp": -10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 12,
+        "identifier": "H12",
+        "security_name": "Holding 12",
+        "latest_value_gbp": null,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      }
+    ],
+    "expected": {
+      "totalValue": 72,
+      "top1Pct": 83.33,
+      "top5Pct": 100,
+      "hhi": 7140.69,
+      "categories": [
+        {
+          "label": "Technology",
+          "value": 72,
+          "weightPct": 100,
+          "count": 4
+        }
+      ],
+      "holdings": [
+        {
+          "id": 1,
+          "label": "Holding 1",
+          "identifier": "H1",
+          "value": 60,
+          "weightPct": 83.33
+        },
+        {
+          "id": 3,
+          "label": "Holding 3",
+          "identifier": "H3",
+          "value": 10,
+          "weightPct": 13.89
+        },
+        {
+          "id": 5,
+          "label": "Holding 5",
+          "identifier": "H5",
+          "value": 1,
+          "weightPct": 1.39
+        },
+        {
+          "id": 7,
+          "label": "Holding 7",
+          "identifier": "H7",
+          "value": 1,
+          "weightPct": 1.39
+        }
+      ]
+    }
+  },
+  {
+    "dimension": "sector",
+    "account_name": "Missing",
+    "instruments": [
+      {
+        "id": 1,
+        "identifier": "H1",
+        "security_name": "Holding 1",
+        "latest_value_gbp": 60,
+        "asset_class": " Equity ETF ",
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 2,
+        "identifier": "H2",
+        "security_name": "Holding 2",
+        "latest_value_gbp": 30,
+        "asset_class": " Equity ETF ",
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 3,
+        "identifier": "H3",
+        "security_name": "Holding 3",
+        "latest_value_gbp": 10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 4,
+        "identifier": "H4",
+        "security_name": "Holding 4",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 5,
+        "identifier": "H5",
+        "security_name": "Holding 5",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 6,
+        "identifier": "H6",
+        "security_name": "Holding 6",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 7,
+        "identifier": "H7",
+        "security_name": "Holding 7",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 8,
+        "identifier": "H8",
+        "security_name": "Holding 8",
+        "latest_value_gbp": 500,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": true,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 9,
+        "identifier": "H9",
+        "security_name": "Holding 9",
+        "latest_value_gbp": 200,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": "2026-01-01T00:00:00",
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 10,
+        "identifier": "H10",
+        "security_name": "Holding 10",
+        "latest_value_gbp": 0,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 11,
+        "identifier": "H11",
+        "security_name": "Holding 11",
+        "latest_value_gbp": -10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 12,
+        "identifier": "H12",
+        "security_name": "Holding 12",
+        "latest_value_gbp": null,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      }
+    ],
+    "expected": {
+      "totalValue": 0,
+      "top1Pct": 0,
+      "top5Pct": 0,
+      "hhi": 0,
+      "categories": [],
+      "holdings": []
+    }
+  },
+  {
+    "dimension": "region",
+    "account_name": null,
+    "instruments": [
+      {
+        "id": 1,
+        "identifier": "H1",
+        "security_name": "Holding 1",
+        "latest_value_gbp": 60,
+        "asset_class": " Equity ETF ",
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 2,
+        "identifier": "H2",
+        "security_name": "Holding 2",
+        "latest_value_gbp": 30,
+        "asset_class": " Equity ETF ",
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 3,
+        "identifier": "H3",
+        "security_name": "Holding 3",
+        "latest_value_gbp": 10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 4,
+        "identifier": "H4",
+        "security_name": "Holding 4",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 5,
+        "identifier": "H5",
+        "security_name": "Holding 5",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 6,
+        "identifier": "H6",
+        "security_name": "Holding 6",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 7,
+        "identifier": "H7",
+        "security_name": "Holding 7",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 8,
+        "identifier": "H8",
+        "security_name": "Holding 8",
+        "latest_value_gbp": 500,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": true,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 9,
+        "identifier": "H9",
+        "security_name": "Holding 9",
+        "latest_value_gbp": 200,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": "2026-01-01T00:00:00",
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 10,
+        "identifier": "H10",
+        "security_name": "Holding 10",
+        "latest_value_gbp": 0,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 11,
+        "identifier": "H11",
+        "security_name": "Holding 11",
+        "latest_value_gbp": -10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 12,
+        "identifier": "H12",
+        "security_name": "Holding 12",
+        "latest_value_gbp": null,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      }
+    ],
+    "expected": {
+      "totalValue": 104,
+      "top1Pct": 57.69,
+      "top5Pct": 98.08,
+      "hhi": 4256.69,
+      "categories": [
+        {
+          "label": "Unclassified",
+          "value": 62,
+          "weightPct": 59.62,
+          "count": 3
+        },
+        {
+          "label": "UK",
+          "value": 42,
+          "weightPct": 40.38,
+          "count": 4
+        }
+      ],
+      "holdings": [
+        {
+          "id": 1,
+          "label": "Holding 1",
+          "identifier": "H1",
+          "value": 60,
+          "weightPct": 57.69
+        },
+        {
+          "id": 2,
+          "label": "Holding 2",
+          "identifier": "H2",
+          "value": 30,
+          "weightPct": 28.85
+        },
+        {
+          "id": 3,
+          "label": "Holding 3",
+          "identifier": "H3",
+          "value": 10,
+          "weightPct": 9.62
+        },
+        {
+          "id": 4,
+          "label": "Holding 4",
+          "identifier": "H4",
+          "value": 1,
+          "weightPct": 0.96
+        },
+        {
+          "id": 5,
+          "label": "Holding 5",
+          "identifier": "H5",
+          "value": 1,
+          "weightPct": 0.96
+        },
+        {
+          "id": 6,
+          "label": "Holding 6",
+          "identifier": "H6",
+          "value": 1,
+          "weightPct": 0.96
+        },
+        {
+          "id": 7,
+          "label": "Holding 7",
+          "identifier": "H7",
+          "value": 1,
+          "weightPct": 0.96
+        }
+      ]
+    }
+  },
+  {
+    "dimension": "region",
+    "account_name": "ISA",
+    "instruments": [
+      {
+        "id": 1,
+        "identifier": "H1",
+        "security_name": "Holding 1",
+        "latest_value_gbp": 60,
+        "asset_class": " Equity ETF ",
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 2,
+        "identifier": "H2",
+        "security_name": "Holding 2",
+        "latest_value_gbp": 30,
+        "asset_class": " Equity ETF ",
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 3,
+        "identifier": "H3",
+        "security_name": "Holding 3",
+        "latest_value_gbp": 10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 4,
+        "identifier": "H4",
+        "security_name": "Holding 4",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 5,
+        "identifier": "H5",
+        "security_name": "Holding 5",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 6,
+        "identifier": "H6",
+        "security_name": "Holding 6",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 7,
+        "identifier": "H7",
+        "security_name": "Holding 7",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 8,
+        "identifier": "H8",
+        "security_name": "Holding 8",
+        "latest_value_gbp": 500,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": true,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 9,
+        "identifier": "H9",
+        "security_name": "Holding 9",
+        "latest_value_gbp": 200,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": "2026-01-01T00:00:00",
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 10,
+        "identifier": "H10",
+        "security_name": "Holding 10",
+        "latest_value_gbp": 0,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 11,
+        "identifier": "H11",
+        "security_name": "Holding 11",
+        "latest_value_gbp": -10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 12,
+        "identifier": "H12",
+        "security_name": "Holding 12",
+        "latest_value_gbp": null,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      }
+    ],
+    "expected": {
+      "totalValue": 72,
+      "top1Pct": 83.33,
+      "top5Pct": 100,
+      "hhi": 7140.69,
+      "categories": [
+        {
+          "label": "Unclassified",
+          "value": 61,
+          "weightPct": 84.72,
+          "count": 2
+        },
+        {
+          "label": "UK",
+          "value": 11,
+          "weightPct": 15.28,
+          "count": 2
+        }
+      ],
+      "holdings": [
+        {
+          "id": 1,
+          "label": "Holding 1",
+          "identifier": "H1",
+          "value": 60,
+          "weightPct": 83.33
+        },
+        {
+          "id": 3,
+          "label": "Holding 3",
+          "identifier": "H3",
+          "value": 10,
+          "weightPct": 13.89
+        },
+        {
+          "id": 5,
+          "label": "Holding 5",
+          "identifier": "H5",
+          "value": 1,
+          "weightPct": 1.39
+        },
+        {
+          "id": 7,
+          "label": "Holding 7",
+          "identifier": "H7",
+          "value": 1,
+          "weightPct": 1.39
+        }
+      ]
+    }
+  },
+  {
+    "dimension": "region",
+    "account_name": "Missing",
+    "instruments": [
+      {
+        "id": 1,
+        "identifier": "H1",
+        "security_name": "Holding 1",
+        "latest_value_gbp": 60,
+        "asset_class": " Equity ETF ",
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 2,
+        "identifier": "H2",
+        "security_name": "Holding 2",
+        "latest_value_gbp": 30,
+        "asset_class": " Equity ETF ",
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 3,
+        "identifier": "H3",
+        "security_name": "Holding 3",
+        "latest_value_gbp": 10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 4,
+        "identifier": "H4",
+        "security_name": "Holding 4",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 5,
+        "identifier": "H5",
+        "security_name": "Holding 5",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 6,
+        "identifier": "H6",
+        "security_name": "Holding 6",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 7,
+        "identifier": "H7",
+        "security_name": "Holding 7",
+        "latest_value_gbp": 1,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 8,
+        "identifier": "H8",
+        "security_name": "Holding 8",
+        "latest_value_gbp": 500,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": true,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 9,
+        "identifier": "H9",
+        "security_name": "Holding 9",
+        "latest_value_gbp": 200,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": "2026-01-01T00:00:00",
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 10,
+        "identifier": "H10",
+        "security_name": "Holding 10",
+        "latest_value_gbp": 0,
+        "asset_class": null,
+        "sector": " ",
+        "region": null,
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "USD"
+      },
+      {
+        "id": 11,
+        "identifier": "H11",
+        "security_name": "Holding 11",
+        "latest_value_gbp": -10,
+        "asset_class": null,
+        "sector": "Technology",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "ISA",
+        "value_ccy": "GBP"
+      },
+      {
+        "id": 12,
+        "identifier": "H12",
+        "security_name": "Holding 12",
+        "latest_value_gbp": null,
+        "asset_class": null,
+        "sector": " ",
+        "region": "UK",
+        "is_cash": false,
+        "closed_at": null,
+        "account_name": "SIPP",
+        "value_ccy": "GBP"
+      }
+    ],
+    "expected": {
+      "totalValue": 0,
+      "top1Pct": 0,
+      "top5Pct": 0,
+      "hhi": 0,
+      "categories": [],
+      "holdings": []
+    }
+  }
+]

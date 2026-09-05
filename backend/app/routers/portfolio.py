@@ -2,21 +2,26 @@ from __future__ import annotations
 
 import datetime as dt
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.schemas import (
+    AllocationDimension,
+    AllocationResponse,
     BenchmarkPoint,
     InstrumentOut,
     PerformanceSummary,
     PortfolioReturnSummary,
     PortfolioSummary,
+    RiskAnalysisResponse,
     SnapshotAttributionResponse,
 )
+from app.services.allocation_service import get_allocation
 from app.services.attribution_service import get_snapshot_attribution
 from app.services.market_data_service import fetch_history
 from app.services.performance_service import get_portfolio_performance
+from app.services.portfolio_risk_service import portfolio_risk_analysis
 from app.services.portfolio_service import (
     build_instrument_out,
     build_portfolio_summary,
@@ -33,6 +38,19 @@ def _to_instrument_out(row: dict) -> InstrumentOut:
         row["snapshot"],
         snapshot_as_of_date=row.get("snapshot_as_of_date"),
     )
+
+
+@router.get("/allocation", response_model=AllocationResponse)
+async def allocation(
+    dimension: AllocationDimension = "asset_class",
+    account_name: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> AllocationResponse:
+    try:
+        data = await get_allocation(session, dimension=dimension, account_name=account_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return AllocationResponse(**data)
 
 
 @router.get("/summary", response_model=PortfolioSummary)
@@ -130,3 +148,24 @@ async def benchmarks(
         rows.extend(await fetch_history(session, symbol, start=start, base_value=base_value))
     rows.sort(key=lambda row: (row["date"], row["symbol"]))
     return [BenchmarkPoint(**row) for row in rows]
+
+
+@router.get("/risk", response_model=RiskAnalysisResponse)
+async def risk(
+    account_name: str | None = None,
+    benchmark: list[str] = Query(default=["spx.us"]),
+    session: AsyncSession = Depends(get_session),
+) -> RiskAnalysisResponse:
+    """Current-composition risk analysis (volatility, beta, contributions).
+
+    Uses ONLY cached market history and cached FX. Excluded holdings,
+    missing FX, stale series and unmet coverage gates are surfaced, never
+    hidden. The valuation is anchored to the latest snapshot date in scope.
+    """
+    return RiskAnalysisResponse(
+        **await portfolio_risk_analysis(
+            session,
+            account_name=account_name,
+            benchmark_symbols=benchmark,
+        )
+    )
