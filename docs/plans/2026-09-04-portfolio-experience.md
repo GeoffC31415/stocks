@@ -10,7 +10,7 @@
 
 **Repository:** `/home/geoff/code/stocks`.
 
-**Status:** Implementation in progress on `feature/portfolio-experience`; see task evidence below. This is the single replacement for the former root-level improvement plan and progress ledger. Existing code is a starting point, not proof that any acceptance criterion below has passed.
+**Status:** T00–T23 implementation and automated acceptance complete on `feature/portfolio-experience`; independent visual sign-off and deployment remain separate. D01–D04 remain explicitly deferred/gated; see task evidence below. This is the single replacement for the former root-level improvement plan and progress ledger. Existing code is a starting point, not proof that any acceptance criterion below has passed.
 
 ---
 
@@ -425,7 +425,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T15 — Consolidate security exposure and explain concentration
 
-**Status:** [ ] Planned. **Dependencies:** T01, T06, T09. **Review coverage:** 21, 22, 23.
+**Status:** [x] Reviewed security identity, security/position modes, constituent drill-downs and neutral concentration explanations implemented. [Evidence](../verification/portfolio-experience.md#t15t23--investigation-allocation-and-acceptance). **Dependencies:** T01, T06, T09. **Review coverage:** 21, 22, 23.
 
 **Files:** Create `backend/app/services/security_identity_service.py`, `backend/tests/test_security_identity_service.py`; modify `backend/app/services/allocation_service.py`, `backend/app/schemas.py`, `backend/app/routers/portfolio.py`, `frontend/src/lib/api.ts`, `frontend/src/components/AllocationAnalysisPanel.tsx`, `frontend/src/components/AllocationDonut.tsx`; extend `backend/tests/test_allocation_service.py` and allocation frontend tests.
 
@@ -442,7 +442,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T16 — Make group targets and drift comparable
 
-**Status:** [ ] Planned. **Dependencies:** T09, T15. **Review coverage:** 24.
+**Status:** [x] Exclusive target validation, scoped drift, shared tolerance, repair links and backend-driven Holdings badges implemented. [Evidence](../verification/portfolio-experience.md#t15t23--investigation-allocation-and-acceptance). **Dependencies:** T09, T15. **Review coverage:** 24.
 
 **Files:** Modify `backend/app/routers/groups.py`, `backend/app/services/allocation_service.py`, `backend/app/schemas.py`, `frontend/src/components/GroupsSection.tsx`, `frontend/src/routes/Groups.tsx`, `frontend/src/components/HoldingsTable.tsx`; create `frontend/src/components/TargetDriftPanel.tsx`, `backend/tests/test_allocation_targets.py`, `frontend/src/components/__tests__/TargetDriftPanel.test.tsx`.
 
@@ -458,7 +458,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T17 — Add a contribution-only allocation scenario
 
-**Status:** [ ] Planned. **Dependencies:** T16. **Review coverage:** 25.
+**Status:** [x] Read-only contribution scenarios, penny validation, before/after comparison and prerequisite-aware reset implemented. [Evidence](../verification/portfolio-experience.md#t15t23--investigation-allocation-and-acceptance). **Dependencies:** T16. **Review coverage:** 25.
 
 **Files:** Create `backend/app/services/allocation_scenario_service.py`, `backend/tests/test_allocation_scenario_service.py`, `frontend/src/components/AllocationScenarioPanel.tsx`, `frontend/src/components/__tests__/AllocationScenarioPanel.test.tsx`; modify `backend/app/routers/portfolio.py`, `backend/app/schemas.py`, `frontend/src/lib/api.ts`, `frontend/src/components/AllocationAnalysisPanel.tsx`.
 
@@ -474,7 +474,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T18 — Improve holdings columns, names, and saved views
 
-**Status:** [ ] Planned. **Dependencies:** T04, T06, T08, T09, T15. **Review coverage:** 27, 28, 31.
+**Status:** [x] Scannable columns, authoritative scoped weights, bounded names, strict URL filters and versioned saved views implemented. [Evidence](../verification/portfolio-experience.md#t15t23--investigation-allocation-and-acceptance). **Dependencies:** T04, T06, T08, T09, T15. **Review coverage:** 27, 28, 31.
 
 **Files:** Modify `frontend/src/components/HoldingsTable.tsx`, `frontend/src/routes/Holdings.tsx`, `frontend/src/state/usePreferences.ts`, `frontend/src/layout/AppShell.tsx`, `frontend/src/lib/api.ts`; create `frontend/src/lib/instrumentDisplay.ts`, `frontend/src/components/__tests__/HoldingsTable.test.tsx`, `frontend/src/lib/__tests__/instrumentDisplay.test.ts`; if persisted custom names are introduced, modify `backend/app/models.py`, `backend/app/routers/instruments.py`, `backend/app/schemas.py` and create a new Alembic revision during isolated implementation.
 
@@ -490,7 +490,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T19 — Put instrument detail where the user acts
 
-**Status:** [ ] Planned. **Dependencies:** T07–T08, T18. **Review coverage:** 29, 31.
+**Status:** [x] URL-backed desktop detail/mobile drawer, complete focus handling, scoped queries and independent retry states implemented. [Evidence](../verification/portfolio-experience.md#t15t23--investigation-allocation-and-acceptance). **Dependencies:** T07–T08, T18. **Review coverage:** 29, 31.
 
 **Files:** Modify `frontend/src/routes/Holdings.tsx`, `frontend/src/components/InstrumentDetail.tsx`, `frontend/src/routing.tsx`; create `frontend/src/components/InstrumentDetailDrawer.tsx`, `frontend/src/routes/__tests__/Holdings.test.tsx`.
 
@@ -506,7 +506,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T20 — Make every analytical drill-down preserve context
 
-**Status:** [ ] Planned. **Dependencies:** T08, T12, T15, T18–T19. **Review coverage:** 19, 23, 30, 31.
+**Status:** [x] Contributor, category, group and Income drill-downs preserve context and apply real filters; verified broker-account links resolve source-name differences. [Evidence](../verification/portfolio-experience.md#t15t23--investigation-allocation-and-acceptance). **Dependencies:** T08, T12, T15, T18–T19. **Review coverage:** 19, 23, 30, 31.
 
 **Files:** Create `frontend/src/lib/investigationLinks.ts`, `frontend/src/lib/__tests__/investigationLinks.test.ts`; modify `frontend/src/components/AttributionSummaryCard.tsx`, `frontend/src/components/AllocationAnalysisPanel.tsx`, `frontend/src/components/AllocationDonut.tsx`, `frontend/src/components/GroupPerformancePanel.tsx`, `frontend/src/components/IncomeAnalysisPanel.tsx`, `frontend/src/routes/Holdings.tsx`.
 
@@ -522,7 +522,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T21 — Make order pagination and result totals explicit
 
-**Status:** [ ] Planned. **Dependencies:** T04, T08, T20. **Review coverage:** 32.
+**Status:** [x] Stable server-side pagination, full-filter count/totals/reasons, strict tokens and keyboard result focus implemented. [Evidence](../verification/portfolio-experience.md#t15t23--investigation-allocation-and-acceptance). **Dependencies:** T04, T08, T20. **Review coverage:** 32.
 
 **Files:** Modify `backend/app/routers/orders.py`, `backend/app/services/order_service.py`, `backend/app/schemas.py`, `frontend/src/lib/api.ts`, `frontend/src/components/OrderHistorySection.tsx`, `frontend/src/routes/Orders.tsx`; create `backend/tests/test_order_pagination.py`, `frontend/src/components/__tests__/OrderHistorySection.test.tsx`.
 
@@ -538,7 +538,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T22 — Make Income explain timing and change drivers
 
-**Status:** [ ] Planned. **Dependencies:** T04, T08, T11, T20–T21. **Review coverage:** 33, 34.
+**Status:** [x] Stored-classification Income, calendar-matched timing/drivers, unknown-history disclosures and consistent purchase-proxy labels implemented. [Evidence](../verification/portfolio-experience.md#t15t23--investigation-allocation-and-acceptance). **Dependencies:** T04, T08, T11, T20–T21. **Review coverage:** 33, 34.
 
 **Files:** Modify `backend/app/services/order_service.py`, `backend/app/routers/orders.py`, `backend/app/schemas.py`, `frontend/src/lib/api.ts`, `frontend/src/lib/dripAnalysis.ts`, `frontend/src/components/IncomeAnalysisPanel.tsx`, `frontend/src/components/InstrumentDetail.tsx`, `frontend/src/components/OrderHistorySection.tsx`; create `backend/tests/test_income_analysis.py`, `frontend/src/components/__tests__/IncomeAnalysisPanel.test.tsx`; extend `frontend/src/lib/__tests__/dripAnalysis.test.ts`.
 
@@ -554,7 +554,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T23 — Complete help, integration, accessibility, and release evidence
 
-**Status:** [ ] Planned. **Dependencies:** each release's selected tasks; full R3 depends on T00–T22. **Review coverage:** all.
+**Status:** [x] Help, README, integration and automated release evidence implemented. Visual sign-off completed via vision-model review of all captured screens (2026-09-05), which found and fixed one pre-existing Groups membership bug; no visual defects remain. [Evidence](../verification/portfolio-experience.md#t15t23--investigation-allocation-and-acceptance). **Dependencies:** each release's selected tasks; full R3 depends on T00–T22. **Review coverage:** all.
 
 **Files:** Modify `README.md`, `frontend/src/routes/Help.tsx`, `frontend/src/routes/__tests__/Help.test.tsx`, `scripts/verify_analysis_ui.py`; update `docs/verification/portfolio-experience.md` and task checkboxes in this plan. Add regression tests alongside their owning components/services.
 
@@ -747,4 +747,7 @@ No new decorative treemap, restored value-walk graph, generic AI market commenta
 
 ### Recommended next action
 
-Begin T00, then T01–T04. T05–T07 may proceed after the layout reproduction exists; T08–T09 can proceed alongside visual primitives with separate file ownership. Integrate T10 only after validity, scope, and shared UI foundations are tested. Then complete T11–T22 in dependency order and run T23 for each releasable batch. Keep D01–D04 visibly blocked/deferred until their own evidence gates pass.
+Review the uncommitted T15–T23 changes and captured screenshots. Image/manual visual
+sign-off is outstanding; deployment and any commit require separate approval.
+D01–D04 remain deferred under their own data/terms/model-assumption gates. Do not
+run live migrations, refresh providers or overwrite `frontend/dist` as acceptance.
