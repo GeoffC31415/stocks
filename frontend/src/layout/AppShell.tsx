@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
+import { MotionConfig, motion, useReducedMotion } from "framer-motion";
 import { AuroraBackground } from "../components/AuroraBackground";
 import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { Topbar } from "./Topbar";
 import { PreferencesContext } from "../state/usePreferences";
 import { DRIP_DEFAULT } from "../lib/formatters";
+import { useRouteFocus } from "../state/useRouteFocus";
 
 const DRIP_STORAGE_KEY = "portfolio.dripThreshold";
 const ACCOUNT_FILTER_STORAGE_KEY = "portfolio.accountFilter";
@@ -20,6 +21,10 @@ const storedNumber = (key: string, fallback: number): number => {
 
 export function AppShell() {
   const location = useLocation();
+  const reducedMotion = useReducedMotion();
+  const main = useRef<HTMLElement>(null);
+  const routeKey = `${location.pathname}:${new URLSearchParams(location.search).get("tab") ?? ""}`;
+  useRouteFocus(main, routeKey);
   const [dripThreshold, setDripThreshold] = useState(() =>
     storedNumber(DRIP_STORAGE_KEY, DRIP_DEFAULT),
   );
@@ -39,29 +44,25 @@ export function AppShell() {
     <PreferencesContext.Provider
       value={{ dripThreshold, setDripThreshold, accountFilter, setAccountFilter }}
     >
+      <MotionConfig reducedMotion="user">
+      <a href="#main-content" onClick={() => main.current?.focus()} className="skip-link">Skip to main content</a>
       <AuroraBackground />
       <div className="flex min-h-screen">
         <Sidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <Topbar />
-          <main className="flex-1 px-4 pb-24 pt-6 sm:px-6 lg:px-10 lg:py-8">
+          <main id="main-content" ref={main} tabIndex={-1} className="flex-1 px-4 pb-24 pt-6 sm:px-6 lg:px-10 lg:py-8">
             <div className="mx-auto max-w-[1400px]">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={location.pathname}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  transition={{ duration: 0.22, ease: "easeOut" }}
-                >
-                  <Outlet />
-                </motion.div>
-              </AnimatePresence>
+              <motion.div data-testid="route-content" key={routeKey} initial={reducedMotion ? false : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }} transition={{ duration: reducedMotion ? 0 : 0.22 }}>
+                <Outlet />
+              </motion.div>
             </div>
           </main>
         </div>
         <MobileNav />
       </div>
+      </MotionConfig>
     </PreferencesContext.Provider>
   );
 }

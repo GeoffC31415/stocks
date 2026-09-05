@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { calculateDripAnalysis } from "../lib/dripAnalysis";
 import { toGbp } from "../lib/formatters";
 import { usePreferences } from "../state/usePreferences";
+import { MetricInfo } from "./MetricInfo";
 
 export function IncomeAnalysisPanel() {
   const { dripThreshold, accountFilter } = usePreferences();
@@ -66,6 +67,8 @@ export function IncomeAnalysisPanel() {
           This is a reinvested-income proxy, not a dividend ledger. The source records DRIP purchases but not declared or cash dividends.
         </p>
       </div>
+
+      <MetricInfo label="DRIP reinvestment proxy" topic="drip" context={`Today-based trailing view · threshold ${toGbp(dripThreshold)}`} />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric

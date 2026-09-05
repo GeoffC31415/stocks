@@ -231,5 +231,27 @@ checking actual SVG slice colours against table swatches, and toggling exact
 values at every width with long-name fixtures. Geometry/contrast checks remain
 green. No static backend or database changes in this slice.
 
+## T07 — Definitions, motion and focus
+
+The new HeroKpi test first failed on its invented £0 count-up starting value.
+Hero now renders the final amount synchronously, including updates. Shared
+`MetricInfo` popovers use named buttons/dialogs, explicit context, bounded viewport
+placement and focus return. A central glossary covers Dietz, estimated
+money-weighted return, CAGR, volatility/ratios, drawdown, HHI and the DRIP proxy.
+Performance, return, allocation and Income definitions use it.
+
+Added skip-to-main, visible focus, reduced-motion ambient/route/selection handling,
+and route-heading focus that does not steal active input or back-navigation focus.
+Route focus waits for loaded headings instead of focusing an old exiting route.
+
+Verification: **254 backend / 90 frontend tests**, frontend typecheck/build pass;
+**80 browser cases pass**, now including Enter/Space activation, Escape and close
+focus return, outside-pointer dismissal, mobile touch activation, popover bounds,
+skip-link focus and computed reduced-motion animation checks. Backend diagnostic
+identity comparison still has **101 inherited ruff / 32 inherited mypy errors,
+zero new identities**. Original SQLite and verified backup SHA-256 hashes match
+the starting manifest. All builds targeted `/tmp/stocks-experience-dist`, never
+the ignored live-served output; no deployment/restart/provider refresh occurred.
+
 Remaining release tasks are tracked only in the implementation plan. This is
 verification evidence, not a second progress ledger. R1–R3 are not released.

@@ -114,7 +114,8 @@ describe("PerformancePanel", () => {
       expect(tile.querySelector("p.tabular")).toHaveTextContent("—");
     }
     expect(screen.getByText(/Flow-adjusted performance unavailable/)).toBeInTheDocument();
-    expect(screen.getByText(/Chain-linked interval Modified Dietz/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "About Snapshot investment return" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Chain-linked interval Modified Dietz");
     expect(screen.getByText("raw 100.00%")).toBeInTheDocument();
   });
   it("shows a loading state while the query is pending", async () => {

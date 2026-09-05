@@ -2,6 +2,7 @@ import { Percent } from "lucide-react";
 import type { PortfolioReturnSummary } from "../lib/api";
 import { StatCard } from "./StatCard";
 import { AnalysisStatus } from "./AnalysisStatus";
+import { MetricInfo } from "./MetricInfo";
 
 const formatDate = (value: string): string => {
   const [year, month, day] = value.split("-").map(Number);
@@ -47,7 +48,9 @@ export function PortfolioReturnCard({ summary, loading = false, error = false, o
       label="Estimated money-weighted return"
       value={formatted}
       tone={returnPct >= 0 ? "pos" : "neg"}
-      sub={`Cumulative, not annualised · ${period} · ${summary.method}`}
+      sub={<>Cumulative, not annualised · {period} · {summary.method}
+        <MetricInfo label="money-weighted return" topic="moneyWeighted" context={`${period} · ${summary.method}`} />
+      </>}
       icon={<Percent size={14} />}
     />
   );

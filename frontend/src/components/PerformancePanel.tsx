@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Info, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import {
   api,
   type PerformanceBenchmarkPoint,
@@ -24,6 +24,8 @@ import { SectionHeader } from "./SectionHeader";
 import { ChartTooltip } from "./ChartTooltip";
 import { categoryColor, chartTheme } from "../lib/chartTheme";
 import { signedGbp } from "../lib/formatters";
+import { MetricInfo } from "./MetricInfo";
+import type { MetricTopic } from "../lib/metricGlossary";
 import { performanceMetric, type PerformanceMetricKey } from "../lib/analysisState";
 import type { MetricReason } from "../lib/api";
 import { benchmarkKey as benchKey, joinPerformanceSeries, performanceIndexDomain, sparseDateTicks } from "../lib/performanceChart";
@@ -37,40 +39,6 @@ const PERIODS: { key: Period; label: string }[] = [
   { key: "YTD", label: "YTD" },
   { key: "ALL", label: "All" },
 ];
-
-/** Method explanations, not generic ratings or investment recommendations. */
-const METRIC_INFO: Record<string, { definition: string; limitations: string }> = {
-  totalReturn: {
-    definition:
-      "Chain-linked interval Modified Dietz return over the window. It removes the effect of cash you added or withdrew, so it measures how the money already in the account performed — not how much you put in.",
-    limitations: "Snapshot observations are irregular. Order-derived external-flow assumptions can affect this estimate.",
-  },
-  annualised: {
-    definition:
-      "The flow-adjusted return compounded to a per-year rate (CAGR). Useful for comparing returns over different window lengths on the same footing.",
-    limitations: "Only reported for windows of at least 365 days; it is not a forecast.",
-  },
-  volatility: {
-    definition:
-      "Annualised volatility (standard deviation of period returns). Higher means bigger swings — both up and down. Flow-adjusted so cash in/out don't inflate it.",
-    limitations: "Annualisation uses the mean snapshot interval. Sparse snapshots do not measure daily market risk.",
-  },
-  sharpe: {
-    definition:
-      "Return earned per unit of total risk (excess return ÷ volatility), flow-adjusted. A higher Sharpe means you got more return for the risk taken.",
-    limitations: "The default risk-free rate is assumed to be zero, not a measured savings rate. No automatic good/weak rating applies.",
-  },
-  sortino: {
-    definition:
-      "Like the Sharpe, but it only punishes downside risk (how bad the bad periods were), ignoring the upside. Flow-adjusted.",
-    limitations: "Undefined when downside deviation is zero. Irregular snapshot sampling limits comparisons.",
-  },
-  maxDrawdown: {
-    definition:
-      "The largest peak-to-trough decline in the flow-adjusted wealth index over the window. It measures how deep a bad stretch got on a cash-flow-neutral basis, so contributions don't flatten it. Snapshot sampling may miss deeper declines between observations.",
-    limitations: "Observed between snapshots; deeper declines between observations may be missed. Raw-value drawdown is a separate measure.",
-  },
-};
 
 type Tone = "pos" | "neg" | "muted" | "accent";
 const TONE_TEXT: Record<Tone, string> = {
@@ -89,15 +57,16 @@ function MetricTile({
   tone = "muted",
   infoKey,
   reasons = [],
+  context,
 }: {
   label: string;
   value: string;
   sub?: string;
   tone?: Tone;
-  infoKey: string;
+  infoKey: MetricTopic;
   reasons?: MetricReason[];
+  context: string;
 }) {
-  const info = METRIC_INFO[infoKey];
   return (
     <div className="group relative rounded-xl bg-white/[0.02] p-3">
       <div className="flex items-center gap-1">
@@ -110,11 +79,7 @@ function MetricTile({
       {sub ? <p className="mt-0.5 text-xs text-slate-400">{sub}</p> : null}
 
       {reasons.map((reason) => <p key={reason.code} className="mt-2 text-xs text-amber-200">{reason.message}</p>)}
-      <details className="mt-2 text-xs text-slate-300">
-        <summary className="cursor-pointer focus-visible:outline"><Info size={12} className="mr-1 inline" />About {label}</summary>
-        <p className="mt-2">{info.definition}</p>
-        <p className="mt-2">{info.limitations}</p>
-      </details>
+      <MetricInfo label={label} topic={infoKey} context={context} />
     </div>
   );
 }
@@ -274,7 +239,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <MetricTile
-          infoKey="totalReturn"
+          infoKey="totalReturn" context={windowLabel}
           label="Snapshot investment return"
           value={fmtPct(headlineReturn)}
           reasons={reasons("total_return_pct")}
@@ -286,7 +251,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           tone={sign(headlineReturn)}
         />
         <MetricTile
-          infoKey="annualised"
+          infoKey="annualised" context={windowLabel}
           label="Annualised"
           value={fmtPct(headlineAnn)}
           reasons={reasons("annualised_return_pct")}
@@ -294,7 +259,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           tone={sign(headlineAnn)}
         />
         <MetricTile
-          infoKey="volatility"
+          infoKey="volatility" context={windowLabel}
           label="Volatility"
           value={fmtPct(headlineVol)}
           reasons={reasons("annualised_volatility_pct")}
@@ -302,7 +267,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           tone="muted"
         />
         <MetricTile
-          infoKey="sharpe"
+          infoKey="sharpe" context={`${windowLabel} · risk-free assumption ${perf.risk_free_annual_pct}%`}
           label="Sharpe"
           value={fmtRatio(headlineSharpe)}
           reasons={reasons("sharpe_ratio")}
@@ -310,7 +275,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           tone={sign(headlineSharpe)}
         />
         <MetricTile
-          infoKey="sortino"
+          infoKey="sortino" context={`${windowLabel} · risk-free assumption ${perf.risk_free_annual_pct}%`}
           label="Sortino"
           value={fmtRatio(headlineSortino)}
           reasons={reasons("sortino_ratio")}
@@ -318,7 +283,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           tone={sign(headlineSortino)}
         />
         <MetricTile
-          infoKey="maxDrawdown"
+          infoKey="maxDrawdown" context={windowLabel}
           label="Max drawdown"
           value={fmtPct(headlineDrawdown)}
           reasons={reasons("max_drawdown_pct")}

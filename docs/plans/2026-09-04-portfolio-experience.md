@@ -298,7 +298,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T07 — Accessible definitions, motion, and navigation focus
 
-**Status:** [ ] Planned. **Dependencies:** T05. **Review coverage:** 12, 13.
+**Status:** [x] Immediate balance, shared keyboard/touch definitions, reduced motion and route/skip focus implemented. [Evidence](../verification/portfolio-experience.md#t07--definitions-motion-and-focus): 254 backend / 90 frontend tests; 80 expanded browser cases pass. **Dependencies:** T05. **Review coverage:** 12, 13.
 
 **Files:** Modify `frontend/src/components/HeroKpi.tsx`, `frontend/src/components/AuroraBackground.tsx`, `frontend/src/components/SegmentedControl.tsx`, `frontend/src/components/PerformancePanel.tsx`, `frontend/src/layout/AppShell.tsx`; create `frontend/src/components/MetricInfo.tsx`, `frontend/src/lib/metricGlossary.ts`, `frontend/src/components/__tests__/MetricInfo.test.tsx`, `frontend/src/components/__tests__/HeroKpi.test.tsx`.
 

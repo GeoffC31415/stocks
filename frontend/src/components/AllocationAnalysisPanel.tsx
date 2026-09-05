@@ -4,6 +4,7 @@ import { Layers3, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import { api, type AllocationDimension } from "../lib/api";
 import { AllocationDonut } from "./AllocationDonut";
+import { MetricInfo } from "./MetricInfo";
 
 import { toGbp } from "../lib/formatters";
 import { usePreferences } from "../state/usePreferences";
@@ -80,6 +81,8 @@ export function AllocationAnalysisPanel() {
           note="HHI of position weights; does not measure fund overlap or correlation"
         />
       </div>
+
+      <MetricInfo label="concentration index" topic="hhi" context="Current position-weight concentration; cash excluded" />
 
       {unclassified && unclassified.weightPct > 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] px-4 py-3">

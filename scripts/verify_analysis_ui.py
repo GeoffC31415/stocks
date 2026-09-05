@@ -22,7 +22,7 @@ import time
 import urllib.request
 
 from ui_contracts import ROUTES, allowed_gets, geometry_failures, measure_page, request_allowed
-from ui_fixtures import EMPTY_SUMMARY, focus_controls, long_names
+from ui_fixtures import EMPTY_SUMMARY, focus_controls, long_names, verify_accessibility
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -115,7 +115,7 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
         contract["required"] = "/api/portfolio/summary"
         contract["heading"] = "Welcome to your portfolio"
     page = browser.new_page(viewport={"width": width, "height": 1000},
-                            device_scale_factor=2 if width == 720 else 1, reduced_motion="reduce")
+                            device_scale_factor=2 if width == 720 else 1, reduced_motion="reduce", has_touch=width <= 390)
     page.set_default_timeout(8000)
     errors, blocked, responses = [], [], []
     result = {"page": view, "width": width, "scenario": scenario, "errors": errors, "blocked": blocked, "requests": responses, "failures": []}
@@ -200,6 +200,7 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
                     result["failures"].append("allocation-legend-colour-mismatch:" + label)
                 result["failures"].extend(geometry_failures(measure_page(page)))
                 page.get_by_role("button", name="Show rounded values", exact=True).click()
+        result["accessibility"] = verify_accessibility(page, touch=width <= 390)
         focus = focus_controls(page)
         result["focus"] = focus
         if focus["failures"]:

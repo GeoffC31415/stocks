@@ -1,5 +1,3 @@
-import { useEffect, useState } from "react";
-import { animate, motion, useMotionValue } from "framer-motion";
 import { Sparkline } from "./Sparkline";
 import { TrendChip } from "./TrendChip";
 import { toGbp } from "../lib/formatters";
@@ -21,26 +19,11 @@ export function HeroKpi({
   sparklineKey?: string;
   caption?: string;
 }) {
-  const mv = useMotionValue(0);
-  const [display, setDisplay] = useState(0);
-
-  useEffect(() => {
-    const controls = animate(mv, value, {
-      duration: 0.9,
-      ease: [0.22, 1, 0.36, 1],
-      onUpdate: (latest) => setDisplay(latest),
-    });
-    return () => controls.stop();
-  }, [mv, value]);
-
   const sparkTone =
     trendPct != null ? (trendPct >= 0 ? "pos" : "neg") : "accent";
 
   return (
-    <motion.section
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
+    <section
       className="surface-card relative min-w-0 p-4 sm:p-5"
     >
       <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-center">
@@ -53,7 +36,7 @@ export function HeroKpi({
               className="tabular text-4xl font-semibold leading-none text-white sm:text-[44px]"
               style={{ letterSpacing: "-0.03em" }}
             >
-              {toGbp(display)}
+              {toGbp(value)}
             </p>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -85,6 +68,6 @@ export function HeroKpi({
           </div>
         )}
       </div>
-    </motion.section>
+    </section>
   );
 }
