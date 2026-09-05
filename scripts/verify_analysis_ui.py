@@ -22,6 +22,7 @@ import time
 import urllib.request
 
 from ui_contracts import ROUTES, allowed_gets, geometry_failures, measure_page, request_allowed
+from ui_fixtures import EMPTY_SUMMARY, focus_controls, long_names
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -108,18 +109,31 @@ def copy_database(database: Path, copy: Path) -> None:
                 raise RuntimeError("Copied SQLite database failed integrity check")
 
 
-def verify_view(browser, base: str, view: str, width: int, output: Path) -> dict:
-    contract = ROUTES[view]
-    page = browser.new_page(viewport={"width": width, "height": 1000}, reduced_motion="reduce")
+def verify_view(browser, base: str, view: str, width: int, output: Path, scenario: str = "default") -> dict:
+    contract = dict(ROUTES[view])
+    if scenario in {"empty", "error"}:
+        contract["required"] = "/api/portfolio/summary"
+        contract["heading"] = "Welcome to your portfolio"
+    page = browser.new_page(viewport={"width": width, "height": 1000},
+                            device_scale_factor=2 if width == 720 else 1, reduced_motion="reduce")
     page.set_default_timeout(8000)
     errors, blocked, responses = [], [], []
-    result = {"page": view, "width": width, "errors": errors, "blocked": blocked, "requests": responses, "failures": []}
+    result = {"page": view, "width": width, "scenario": scenario, "errors": errors, "blocked": blocked, "requests": responses, "failures": []}
     page.on("pageerror", lambda error: errors.append(str(error)))
 
     def guard(route):
         request = route.request
         if request_allowed(request.method, request.url, base, view):
-            route.continue_()
+            if request.url.split("?")[0] == base + "/api/portfolio/summary" and scenario in {"empty", "error"}:
+                route.fulfill(status=503 if scenario == "error" else 200,
+                              json={"detail": "Synthetic fetch failure"} if scenario == "error" else EMPTY_SUMMARY)
+            elif scenario == "empty" and request.url.split("?")[0] == base + "/api/instruments":
+                route.fulfill(status=200, json=[])
+            elif scenario == "long-names" and "/api/" in request.url:
+                response = route.fetch()
+                route.fulfill(response=response, json=long_names(response.json()))
+            else:
+                route.continue_()
         elif request.url.startswith("https://fonts.googleapis.com/") and request.method == "GET":
             # Deterministic offline system fonts, not an external network request.
             route.fulfill(status=200, content_type="text/css", body="")
@@ -137,9 +151,9 @@ def verify_view(browser, base: str, view: str, width: int, output: Path) -> dict
         with page.expect_response(lambda r: r.url.split("?")[0] == base + contract["required"]) as pending:
             page.goto(base + contract["url"], wait_until="networkidle", timeout=20000)
         response = pending.value
-        if response.status != 200 or not response.json():
+        if response.status != (503 if scenario == "error" else 200) or not response.json():
             raise AssertionError("Required analytics response failed or was empty")
-        if view == "overview":
+        if view == "overview" and scenario not in {"empty", "error"}:
             payload = response.json()
             if not payload.get("growth_curve"):
                 raise AssertionError("No snapshot fixture loaded")
@@ -148,7 +162,10 @@ def verify_view(browser, base: str, view: str, width: int, output: Path) -> dict
             attribution = page.get_by_role("region", name="Attribution waterfall", exact=True)
             if attribution.locator("svg").count():
                 result["failures"].append("removed-value-walk-returned")
-        page.get_by_role("heading", name=contract["heading"], exact=True).wait_for()
+        if scenario == "error":
+            page.get_by_role("alert").filter(has_text="Unable to load portfolio summary").wait_for()
+        else:
+            page.get_by_role("heading", name=contract["heading"], exact=True).wait_for()
         measurement = measure_page(page)
         result["measurement"] = measurement
         result["failures"].extend(geometry_failures(measurement))
@@ -160,12 +177,29 @@ def verify_view(browser, base: str, view: str, width: int, output: Path) -> dict
                 result["failures"].append("missing-chart-axis-labels")
             if not valid_curve and measurement["performanceDots"]:
                 result["failures"].append("unavailable-curve-plotted")
-        if errors or blocked or any(r["status"] >= 400 for r in responses):
+        if view == "overview" and scenario not in {"empty", "error"}:
+            tabs = page.get_by_role("group", name="History chart views")
+            if tabs.count():
+                for label in ("Historical estimate", "Capital deployment", "Snapshot history"):
+                    button = tabs.get_by_role("button", name=label, exact=True)
+                    button.focus()
+                    button.press("Enter")
+                    if button.get_attribute("aria-pressed") != "true":
+                        result["failures"].append("unreachable-history-tab")
+        focus = focus_controls(page)
+        result["focus"] = focus
+        if focus["failures"]:
+            result["failures"].append("unreachable-focused-controls")
+        if errors or blocked or any(r["status"] >= 400 and not (
+            scenario == "error" and r["url"].endswith("/api/portfolio/summary") and r["status"] == 503
+        ) for r in responses):
             result["failures"].append("browser-or-api-errors")
     except Exception as exc:
         result["failures"].append(f"readiness-or-contract: {exc}")
     finally:
-        page.screenshot(path=str(output / f"{view}-{width}.png"), full_page=True)
+        page.evaluate("document.activeElement?.blur(); window.scrollTo(0, 0)")
+        page.mouse.move(0, 0)
+        page.screenshot(path=str(output / f"{view}-{width}-{scenario}.png"), full_page=True)
         page.close()
     return result
 
@@ -198,11 +232,14 @@ def verify(database: Path, dist: Path, output: Path) -> None:
                 with sync_playwright() as p:
                     browser = p.chromium.launch(executable_path="/usr/bin/google-chrome", headless=True, args=["--no-sandbox"])
                     try:
-                        for width in (320, 390, 768, 1440):
+                        for width in (320, 390, 720, 768, 1440):
                             for view in ROUTES:
                                 if server.poll() is not None:
                                     raise RuntimeError("QA server exited during browser checks")
-                                report["views"].append(verify_view(browser, base, view, width, output))
+                                for scenario in ("default", "long-names"):
+                                    report["views"].append(verify_view(browser, base, view, width, output, scenario))
+                            for scenario in ("empty", "error"):
+                                report["views"].append(verify_view(browser, base, "overview", width, output, scenario))
                     finally:
                         browser.close()
             finally:

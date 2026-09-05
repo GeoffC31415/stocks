@@ -159,5 +159,32 @@ Nine route/width combinations still fail on T04's known overflow/clipped-control
 issues, so the overall browser command correctly remains nonzero. Screenshots
 captured; visual styling acceptance still outstanding, not inferred from geometry.
 
+## T04 — Responsive containers and reachable controls
+
+Grid children now shrink within their tracks; Holdings and Orders expose named,
+keyboard-focusable horizontal scroll regions with visible instructions. Controls
+wrap rather than being hidden at the root. History/workspace/account tabs wrap,
+workspace arrow/Home/End navigation preserves query parameters and reveals focus.
+The threshold popover is bounded on mobile. No root overflow-hiding rule was added.
+
+The expanded isolated harness ran **80 checks, zero failures**: seven routes with
+normal and synthetic long unbroken security/account names at 320/390/768/1440px,
+plus 720 CSS pixels at device scale 2 (1440px desktop/200%-zoom equivalent). Empty
+and failed summary fixtures were tested at all five widths. The fixtures alter
+browser responses only, preserve numerical values/IDs, and cannot write the DB.
+All documents stay within their viewport; chart accuracy checks remain green;
+**966 visible control-focus checks** passed. All three history-chart tabs were
+activated by keyboard. The original/copy data remained read-only; no page errors
+or unexpected API failures. Expected injected 503s are explicitly distinguished.
+
+Full gates: **254 backend tests**, **74 frontend tests**, frontend typecheck pass.
+New backend fixture test is ruff-clean; inherited backend static debt is unchanged.
+Two screenshots (mobile Holdings, desktop Overview) were image-inspected: the
+intentional table scrolling is visible and the chart losses descend. This is
+limited inspection, not complete contrast/visual acceptance. The dashboard is
+still too tall and its old hero trend/duplicate summaries remain T10 work.
+Screenshot capture now resets focus/scroll after interaction checks so fixed
+navigation is captured at the top, not midway down a full-page focus screenshot.
+
 Remaining release tasks are tracked only in the implementation plan. This is
 verification evidence, not a second progress ledger. R1–R3 are not released.

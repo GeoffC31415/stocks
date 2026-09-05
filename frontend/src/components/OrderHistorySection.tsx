@@ -98,9 +98,9 @@ export function OrderHistorySection({
 
   return (
     <div className="grid gap-4 lg:grid-cols-5">
-      <div className="glass rounded-2xl p-5 lg:col-span-3">
+      <div className="glass min-w-0 rounded-2xl p-5 lg:col-span-3">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-1 items-center gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
             <div>
               <h3 className="text-sm font-semibold text-white">Order log</h3>
               <p className="text-xs text-slate-500">
@@ -112,7 +112,7 @@ export function OrderHistorySection({
               placeholder="Filter by name…"
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
-              className="ml-auto w-40 rounded-lg border border-white/[0.08] bg-aurora-base/60 px-2.5 py-1 text-[11px] text-white placeholder:text-slate-500 outline-none transition-colors focus:border-white/[0.16] sm:w-48"
+              className="ml-auto min-w-0 max-w-full flex-1 basis-40 rounded-lg border border-white/[0.08] bg-aurora-base/60 px-2.5 py-1 text-[11px] text-white placeholder:text-slate-500 outline-none transition-colors focus:border-white/[0.16] sm:w-48"
             />
           </div>
           <SegmentedControl
@@ -160,9 +160,11 @@ export function OrderHistorySection({
           ) : null}
           <span className="ml-auto tabular text-slate-600">{filtered.length} matching</span>
         </div>
-        <div className="max-h-[480px] space-y-1 overflow-auto pr-1">
+        <p id="orders-scroll-hint" className="mb-2 text-xs text-slate-400">Scroll horizontally for complete transaction details.</p>
+        <div role="region" aria-label="Order results" aria-describedby="orders-scroll-hint" tabIndex={0}
+          className="max-h-[480px] max-w-full space-y-1 overflow-auto pr-1 focus-visible:outline">
           {filtered.slice(0, 100).map((o) => (
-            <OrderRow key={o.id} order={o} showName />
+            <div key={o.id} className="min-w-[450px]"><OrderRow order={o} showName /></div>
           ))}
           {filtered.length === 0 && (
             <p className="py-6 text-center text-sm text-slate-500">
@@ -172,7 +174,7 @@ export function OrderHistorySection({
         </div>
       </div>
 
-      <div className="glass rounded-2xl p-5 lg:col-span-2">
+      <div className="glass min-w-0 rounded-2xl p-5 lg:col-span-2">
         <h3 className="text-sm font-semibold text-white">DRIP income by year</h3>
         <p className="mt-0.5 text-xs text-slate-500">
           Dividend reinvestments (buys under {toGbp(dripThreshold)}).

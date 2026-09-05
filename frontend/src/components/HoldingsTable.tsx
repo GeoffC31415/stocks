@@ -110,9 +110,9 @@ export function HoldingsTable({
   };
 
   return (
-    <div className="glass overflow-hidden rounded-2xl">
+    <div className="glass min-w-0 max-w-full rounded-2xl">
       <div className="flex flex-wrap items-center gap-3 border-b border-white/[0.05] px-4 py-3">
-        <div className="relative flex-1">
+        <div className="relative min-w-0 flex-1 basis-44">
           <Search
             size={14}
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
@@ -126,6 +126,7 @@ export function HoldingsTable({
           />
         </div>
         <select
+          aria-label="Sort holdings"
           value={sort}
           onChange={(e) => setSort(e.target.value as SortKey)}
           className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
@@ -137,7 +138,9 @@ export function HoldingsTable({
         </select>
       </div>
 
-      <div className="max-h-[560px] overflow-auto">
+      <p id="holdings-scroll-hint" className="px-4 py-2 text-xs text-slate-400">Scroll horizontally for all columns.</p>
+      <div role="region" aria-label="Holdings table" aria-describedby="holdings-scroll-hint"
+        tabIndex={0} className="max-h-[560px] max-w-full overflow-auto rounded-b-2xl focus-visible:outline">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-aurora-base/85 backdrop-blur-md">
             <tr className="text-left text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">

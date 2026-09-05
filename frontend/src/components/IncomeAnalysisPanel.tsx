@@ -88,7 +88,7 @@ export function IncomeAnalysisPanel() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <section className="glass rounded-2xl p-5">
+        <section className="glass min-w-0 rounded-2xl p-5">
           <h2 className="text-sm font-semibold text-white">Annual DRIP proxy</h2>
           <p className="mt-1 text-xs text-slate-500">
             Calendar-year purchases; {analysisAsOf.getUTCFullYear()} is year to date. Display values are rounded.
@@ -116,7 +116,7 @@ export function IncomeAnalysisPanel() {
           </div>
         </section>
 
-        <section className="glass rounded-2xl p-5">
+        <section className="glass min-w-0 rounded-2xl p-5">
           <h2 className="text-sm font-semibold text-white">By holding</h2>
           <p className="mt-1 text-xs text-slate-500">Largest recorded reinvestment totals.</p>
           <div className="mt-3 space-y-2">
@@ -172,7 +172,7 @@ function Metric({
 }) {
   const color = tone === "amber" ? "text-amber-200" : tone === "pos" ? "text-pos" : "text-white";
   return (
-    <div className="glass rounded-xl p-4">
+    <div className="glass min-w-0 rounded-xl p-4">
       <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
       <p className={`tabular mt-1 text-xl font-semibold ${color}`}>{value}</p>
       {note ? <p className="mt-1 text-[10px] text-slate-600">{note}</p> : null}

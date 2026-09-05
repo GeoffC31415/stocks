@@ -72,7 +72,7 @@ export function Topbar() {
         </span>
       </div>
 
-      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3">
         {accountSegments.length > 1 ? (
           <>
             <label className="sr-only" htmlFor="mobile-account-filter">
@@ -91,7 +91,7 @@ export function Topbar() {
                 </option>
               ))}
             </select>
-            <div className="hidden md:block">
+            <div className="hidden min-w-0 max-w-full md:block">
               <SegmentedControl
                 layoutId="account-filter"
                 value={accountFilter}
@@ -118,7 +118,7 @@ export function Topbar() {
           </button>
 
           {open && (
-            <div className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-white/[0.08] bg-aurora-surface/95 p-4 shadow-glass backdrop-blur-xl">
+            <div className="fixed left-3 right-3 top-24 rounded-xl sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-72 border border-white/[0.08] bg-aurora-surface/95 p-4 shadow-glass backdrop-blur-xl">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                 DRIP threshold (£)
               </p>
@@ -133,7 +133,7 @@ export function Topbar() {
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && apply()}
-                  className="tabular flex-1 rounded-lg border border-white/[0.08] bg-aurora-base/70 px-3 py-2 text-sm text-white focus:border-aurora-cyan/60 focus:outline-none"
+                  className="tabular min-w-0 flex-1 rounded-lg border border-white/[0.08] bg-aurora-base/70 px-3 py-2 text-sm text-white focus:border-aurora-cyan/60 focus:outline-none"
                 />
                 <button
                   type="button"

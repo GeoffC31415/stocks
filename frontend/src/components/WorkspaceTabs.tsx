@@ -39,7 +39,18 @@ export function WorkspaceTabs({
             role="tab"
             aria-selected={active}
             onClick={() => select(tab.key)}
-            className={`min-h-9 whitespace-nowrap rounded-lg px-3 text-xs font-medium transition-colors ${
+            onFocus={(event) => event.currentTarget.scrollIntoView?.({ block: "nearest", inline: "nearest" })}
+            onKeyDown={(event) => {
+              const index = tabs.indexOf(tab);
+              const next = event.key === "ArrowRight" ? (index + 1) % tabs.length
+                : event.key === "ArrowLeft" ? (index + tabs.length - 1) % tabs.length
+                : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
+              if (next == null) return;
+              event.preventDefault();
+              select(tabs[next].key);
+              event.currentTarget.parentElement?.querySelectorAll("button")[next]?.focus();
+            }}
+            className={`min-h-9 min-w-0 max-w-full rounded-lg [overflow-wrap:anywhere] px-3 text-xs font-medium transition-colors ${
               active
                 ? "bg-white/[0.09] text-white shadow-sm"
                 : "text-slate-500 hover:bg-white/[0.04] hover:text-slate-200"

@@ -93,6 +93,18 @@ def test_rendered_tick_geometry_detects_duplicate_labels_and_inverted_losses():
             browser.close()
 
 
+def test_long_name_fixture_preserves_values_identifiers_and_original_payload():
+    fixtures = importlib.import_module("ui_fixtures")
+    original = {"security_name": "Asset", "identifier": "ABC", "account_name": "ISA",
+                "value_gbp": 100, "by_account": {"ISA": 100}}
+    transformed = fixtures.long_names(original)
+    assert len(transformed["security_name"]) > 100
+    assert transformed["identifier"] == "ABC"
+    assert transformed["value_gbp"] == 100
+    assert list(transformed["by_account"].values()) == [100]
+    assert original["security_name"] == "Asset"
+
+
 def test_geometry_rejects_known_defects_without_accepting_a_screenshot():
     failures = contracts.geometry_failures({
         "document": 943, "viewport": 390, "axes": [{"duplicates": 1, "overlaps": 1}],

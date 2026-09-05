@@ -159,8 +159,8 @@ export function ChartPanel({
   );
 
   return (
-    <div className="glass relative overflow-hidden rounded-2xl p-5">
-      <div className="flex items-start justify-between gap-4">
+    <div className="glass relative min-w-0 rounded-2xl p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           {activeTab === "estimated" && (
             <>
@@ -196,7 +196,7 @@ export function ChartPanel({
         </div>
 
         {hasOrders && (
-          <div className="relative flex shrink-0 gap-1 rounded-full border border-white/[0.06] bg-aurora-base/60 p-1">
+          <div role="group" aria-label="History chart views" className="relative flex max-w-full flex-wrap gap-1 rounded-xl border border-white/[0.06] bg-aurora-base/60 p-1">
             {TABS.map((t) => {
               const isActive = activeTab === t.key;
               return (
@@ -204,7 +204,8 @@ export function ChartPanel({
                   key={t.key}
                   type="button"
                   onClick={() => setTab(t.key)}
-                  className={`relative rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                  aria-pressed={isActive}
+                  className={`relative min-h-9 max-w-full rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors ${
                     isActive ? "text-white" : "text-slate-400 hover:text-slate-200"
                   }`}
                 >

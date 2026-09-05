@@ -81,7 +81,7 @@ export function Holdings() {
     <div className="space-y-5">
       <MatchingWarningBanner />
 
-      <div className="flex items-baseline justify-between">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-white" style={{ letterSpacing: "-0.02em" }}>
             Holdings
@@ -96,7 +96,7 @@ export function Holdings() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-5">
-        <div className="lg:col-span-3">
+        <div className="min-w-0 lg:col-span-3">
           <HoldingsTable
             instruments={instruments}
             groups={groups}
@@ -104,7 +104,7 @@ export function Holdings() {
             onSelect={setSelected}
           />
         </div>
-        <div className="lg:col-span-2">
+        <div className="min-w-0 lg:col-span-2">
           {selectedInstrument === null ? (
             <InstrumentDetailEmpty />
           ) : (

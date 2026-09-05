@@ -37,7 +37,7 @@ export function SegmentedControl<K extends string>({
 
   return (
     <div
-      className={`relative inline-flex gap-1 border border-white/[0.06] bg-aurora-base/60 p-1 ${containerRadius}`}
+      className={`relative inline-flex max-w-full flex-wrap gap-1 border border-white/[0.06] bg-aurora-base/60 p-1 ${containerRadius}`}
     >
       {segments.map((s) => {
         const isActive = s.key === value;
@@ -46,7 +46,8 @@ export function SegmentedControl<K extends string>({
             key={s.key}
             type="button"
             onClick={() => onChange(s.key)}
-            className={`relative ${radius} ${padding} font-medium transition-colors ${
+            aria-pressed={isActive}
+            className={`relative min-h-9 min-w-0 max-w-full [overflow-wrap:anywhere] ${radius} ${padding} font-medium transition-colors ${
               isActive
                 ? "text-white"
                 : "text-slate-400 hover:text-slate-200"
@@ -59,7 +60,7 @@ export function SegmentedControl<K extends string>({
                 transition={{ type: "spring", stiffness: 380, damping: 30 }}
               />
             )}
-            <span className="relative flex items-center gap-1.5">
+            <span className="relative flex min-w-0 items-center gap-1.5">
               {s.label}
               {s.count != null && (
                 <span

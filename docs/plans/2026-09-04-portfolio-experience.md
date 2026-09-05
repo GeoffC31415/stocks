@@ -250,7 +250,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T04 — Repair responsive containers and navigation affordances
 
-**Status:** [ ] Planned. **Dependencies:** T00. **Review coverage:** mobile defects; 29.
+**Status:** [x] Responsive containers, scroll regions and reachable controls implemented. [Evidence](../verification/portfolio-experience.md#t04--responsive-containers-and-reachable-controls): 80 isolated browser checks / 966 focus checks pass; 254 backend / 74 frontend tests. **Dependencies:** T00. **Review coverage:** mobile defects; 29.
 
 **Files:** Modify `frontend/src/routes/Holdings.tsx`, `frontend/src/components/HoldingsTable.tsx`, `frontend/src/components/IncomeAnalysisPanel.tsx`, `frontend/src/components/OrderHistorySection.tsx`, `frontend/src/components/ChartPanel.tsx`, `frontend/src/components/WorkspaceTabs.tsx`, `frontend/src/layout/Topbar.tsx`; extend `scripts/verify_analysis_ui.py`.
 
