@@ -282,7 +282,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T06 — Standardise colours, number formats, legends, and chart tooltips
 
-**Status:** [ ] Planned. **Dependencies:** T05. **Review coverage:** 9, 10, 11, 23.
+**Status:** [x] Shared formats/tooltip/legend and stable allocation colours implemented. [Evidence](../verification/portfolio-experience.md#t06--formats-colours-and-chart-primitives): 85 frontend tests; 80 browser checks including every allocation dimension and exact-value toggle. **Dependencies:** T05. **Review coverage:** 9, 10, 11, 23.
 
 **Files:** Modify `frontend/src/lib/formatters.ts`, `frontend/src/components/ChartPanel.tsx`, `frontend/src/components/InstrumentDetail.tsx`, `frontend/src/components/AllocationDonut.tsx`; create `frontend/src/lib/chartTheme.ts`, `frontend/src/components/ChartTooltip.tsx`, `frontend/src/components/ChartLegend.tsx`, `frontend/src/lib/__tests__/formatters.test.ts`, `frontend/src/lib/__tests__/chartTheme.test.ts`.
 

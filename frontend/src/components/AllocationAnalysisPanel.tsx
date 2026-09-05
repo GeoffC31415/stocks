@@ -40,8 +40,6 @@ export function AllocationAnalysisPanel() {
   const unclassified = analysis.categories.find((row) => row.label === "Unclassified");
   const dimensionLabel =
     DIMENSIONS.find((item) => item.key === dimension)!.label.toLowerCase();
-  const hhiLabel =
-    analysis.hhi < 1500 ? "Lower concentration" : analysis.hhi < 2500 ? "Moderate concentration" : "High concentration";
 
   return (
     <div className="space-y-5">
@@ -79,7 +77,7 @@ export function AllocationAnalysisPanel() {
         <Metric
           label="Concentration index"
           value={analysis.hhi.toFixed(0)}
-          note={`${hhiLabel} · HHI, lower is more diversified`}
+          note="HHI of position weights; does not measure fund overlap or correlation"
         />
       </div>
 
@@ -102,7 +100,6 @@ export function AllocationAnalysisPanel() {
             <AllocationDonut
               categories={analysis.categories}
               totalValue={analysis.totalValue}
-              hhi={analysis.hhi}
               dimension={dimension}
             />
           </div>

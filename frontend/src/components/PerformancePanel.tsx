@@ -21,6 +21,9 @@ import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/ch
 import { SegmentedControl } from "./SegmentedControl";
 import { AnalysisStatus } from "./AnalysisStatus";
 import { SectionHeader } from "./SectionHeader";
+import { ChartTooltip } from "./ChartTooltip";
+import { categoryColor, chartTheme } from "../lib/chartTheme";
+import { signedGbp } from "../lib/formatters";
 import { performanceMetric, type PerformanceMetricKey } from "../lib/analysisState";
 import type { MetricReason } from "../lib/api";
 import { benchmarkKey as benchKey, joinPerformanceSeries, performanceIndexDomain, sparseDateTicks } from "../lib/performanceChart";
@@ -78,11 +81,6 @@ const TONE_TEXT: Record<Tone, string> = {
 };
 
 const indexFmt = new Intl.NumberFormat("en-GB", { maximumFractionDigits: 1 });
-const gbpCompact = new Intl.NumberFormat("en-GB", {
-  style: "currency",
-  currency: "GBP",
-  maximumFractionDigits: 0,
-});
 
 function MetricTile({
   label,
@@ -117,36 +115,6 @@ function MetricTile({
         <p className="mt-2">{info.definition}</p>
         <p className="mt-2">{info.limitations}</p>
       </details>
-    </div>
-  );
-}
-
-function PerformanceTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: Array<{ name?: string; value?: number; color?: string }>;
-  label?: number;
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  return (
-    <div className="rounded-xl border border-white/[0.08] bg-aurora-base/95 px-3 py-2 text-xs shadow-glass backdrop-blur-md">
-      <p className="font-semibold text-slate-300">
-        {typeof label === "number" ? formatChartTooltipDay(label) : ""}
-      </p>
-      <div className="mt-1.5 space-y-1">
-        {payload.map((p) => (
-          <div key={p.name} className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full" style={{ background: p.color }} />
-            <span className="text-slate-400">{p.name}</span>
-            <span className="tabular ml-auto font-semibold text-white">
-              {p.value != null ? indexFmt.format(p.value) : "—"}
-            </span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -273,14 +241,13 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
             Cash flows
           </span>
           <span className="text-emerald-300">
-            +{gbpCompact.format(flow.contributions_gbp)} in
+            {signedGbp(flow.contributions_gbp)} in
           </span>
           <span className="text-rose-300">
-            −{gbpCompact.format(flow.withdrawals_gbp)} out
+            {signedGbp(-flow.withdrawals_gbp)} out
           </span>
           <span className="text-slate-300">
-            net {flow.net_external_flow_gbp >= 0 ? "+" : "−"}
-            {gbpCompact.format(Math.abs(flow.net_external_flow_gbp))}
+            net {signedGbp(flow.net_external_flow_gbp)}
           </span>
           {hasFlow ? (
             <span className="text-slate-500">
@@ -392,7 +359,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
               scale="time"
               domain={["dataMin", "dataMax"]}
               stroke="#64748b"
-              tick={{ fontSize: 11, fill: "#64748b" }}
+              tick={{ fontSize: 12, fill: chartTheme.axis }}
               tickFormatter={formatChartDayTick}
               ticks={ticks}
               interval={0}
@@ -401,7 +368,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
             />
             <YAxis
               stroke="#64748b"
-              tick={{ fontSize: 11, fill: "#64748b" }}
+              tick={{ fontSize: 12, fill: chartTheme.axis }}
               tickFormatter={(v) => indexFmt.format(Number(v))}
               domain={indexDomain}
               tickLine={false}
@@ -409,7 +376,8 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
               width={48}
             />
             <Tooltip
-              content={<PerformanceTooltip />}
+              content={<ChartTooltip formatLabel={(label) => typeof label === "number" ? formatChartTooltipDay(label) : String(label ?? "")}
+                formatValue={(value) => value != null ? indexFmt.format(value) : "—"} />}
               cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
             />
             <ReferenceLine y={100} stroke="#94a3b8" strokeDasharray="3 3" />
@@ -437,13 +405,13 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
                 name="Raw account value (index)"
               />
             ) : null}
-            {chartData.benchSymbols.map((symbol, index) => (
+            {chartData.benchSymbols.map((symbol) => (
               <Line
                 key={symbol}
                 type="linear"
                 dataKey={benchKey(symbol)}
                 isAnimationActive={false}
-                stroke={index === 0 ? "#fbbf24" : "#f87171"}
+                stroke={categoryColor("benchmark", symbol)}
                 strokeWidth={1.5}
                 strokeDasharray="4 3"
                 dot={false}
@@ -475,7 +443,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
                   scale="time"
                   domain={["dataMin", "dataMax"]}
                   stroke="#64748b"
-                  tick={{ fontSize: 10, fill: "#64748b" }}
+                  tick={{ fontSize: 12, fill: chartTheme.axis }}
                   tickFormatter={formatChartDayTick}
                   ticks={drawdownTicks}
                   interval={0}
@@ -484,8 +452,8 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
                 />
                 <YAxis
                   stroke="#64748b"
-                  tick={{ fontSize: 10, fill: "#64748b" }}
-                  tickFormatter={(v) => `${Number(v).toFixed(0)}%`}
+                  tick={{ fontSize: 12, fill: chartTheme.axis }}
+                  tickFormatter={(v) => `${Number(v).toFixed(1)}%`}
                   tickLine={false}
                   axisLine={false}
                   width={44}
@@ -520,7 +488,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
         ) : null}
         {benchmarkReturns.map((b) => (
           <span key={b.symbol} className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-amber-400" />
+            <span className="h-2 w-2 rounded-full" style={{ background: categoryColor("benchmark", b.symbol) }} />
             {b.symbol.toUpperCase()} {b.returnPct >= 0 ? "+" : ""}
             {(b.returnPct * 100).toFixed(1)}%
           </span>

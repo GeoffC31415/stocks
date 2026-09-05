@@ -19,7 +19,10 @@ import {
   formatChartTooltipMonth,
   formatChartDayTick,
 } from "../lib/chartDates";
-import { toGbp } from "../lib/formatters";
+import { compactGbp as kFormatter } from "../lib/formatters";
+import { ChartTooltip as DarkTooltip } from "./ChartTooltip";
+import { ChartLegend } from "./ChartLegend";
+import { chartTheme } from "../lib/chartTheme";
 
 type TimeseriesPoint = {
   as_of_date: string;
@@ -34,48 +37,6 @@ const TABS: { key: ChartTab; label: string }[] = [
   { key: "deployment", label: "Capital deployment" },
   { key: "value", label: "Snapshot history" },
 ];
-
-const kFormatter = (v: number) => `£${(v / 1000).toFixed(0)}k`;
-
-function DarkTooltip({
-  active,
-  payload,
-  label,
-  formatLabel,
-}: {
-  active?: boolean;
-  payload?: Array<{
-    name?: string;
-    value?: number;
-    color?: string;
-    dataKey?: string;
-  }>;
-  label?: string | number;
-  formatLabel?: (label: string | number | undefined) => string;
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  const headline =
-    formatLabel != null ? formatLabel(label) : label != null ? String(label) : "";
-  return (
-    <div className="rounded-xl border border-white/[0.08] bg-aurora-base/95 px-3 py-2 text-xs shadow-glass backdrop-blur-md">
-      <p className="font-semibold text-slate-300">{headline}</p>
-      <div className="mt-1.5 space-y-1">
-        {payload.map((p) => (
-          <div key={p.dataKey} className="flex items-center gap-2">
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ background: p.color }}
-            />
-            <span className="text-slate-400">{p.name}</span>
-            <span className="tabular ml-auto font-semibold text-white">
-              {p.value != null ? toGbp(p.value as number) : "—"}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function ChartPanel({
   cashflow,
@@ -141,7 +102,7 @@ export function ChartPanel({
 
   const activeTab: ChartTab = hasOrders ? tab : "value";
 
-  const axisStyle = { fontSize: 10, fill: "#64748b" };
+  const axisStyle = { fontSize: 12, fill: chartTheme.axis };
 
   const xAxisMonthTime = (
     <XAxis
@@ -257,10 +218,7 @@ export function ChartPanel({
                 }
                 cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
               />
-              <Legend
-                wrapperStyle={{ fontSize: 11, color: "#94a3b8" }}
-                iconType="circle"
-              />
+              <Legend content={<ChartLegend />} />
               <Area
                 type="monotone"
                 dataKey="estimated_value_gbp"
@@ -318,10 +276,7 @@ export function ChartPanel({
                 }
                 cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
               />
-              <Legend
-                wrapperStyle={{ fontSize: 11, color: "#94a3b8" }}
-                iconType="circle"
-              />
+              <Legend content={<ChartLegend />} />
               <Area
                 type="monotone"
                 dataKey="cumulative_net_deployed"
@@ -391,12 +346,9 @@ export function ChartPanel({
                 }
                 cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
               />
-              <Legend
-                wrapperStyle={{ fontSize: 11, color: "#94a3b8" }}
-                iconType="circle"
-              />
+              <Legend content={<ChartLegend />} />
               <Area
-                type="monotone"
+                type="linear"
                 dataKey="total_value_gbp"
                 stroke="#22d3ee"
                 strokeWidth={2}

@@ -12,39 +12,10 @@ import {
 import { Info, Loader2 } from "lucide-react";
 import type { Instrument, InstrumentHistoryPoint, Order } from "../lib/api";
 import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/chartDates";
-import { toGbp } from "../lib/formatters";
+import { compactGbp } from "../lib/formatters";
+import { chartTheme } from "../lib/chartTheme";
+import { ChartTooltip } from "./ChartTooltip";
 import { OrderRow } from "./OrderRow";
-
-function MiniTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: Array<{ value?: number; color?: string; name?: string }>;
-  label?: string | number;
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  const headline =
-    typeof label === "number" ? formatChartTooltipDay(label) : String(label ?? "");
-  return (
-    <div className="rounded-lg border border-white/[0.08] bg-aurora-base/95 px-2.5 py-1.5 text-[11px] backdrop-blur-md">
-      <p className="text-slate-400">{headline}</p>
-      {payload.map((p) => (
-        <div key={p.name} className="flex items-center gap-2">
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ background: p.color }}
-          />
-          <span className="text-slate-500">{p.name}</span>
-          <span className="tabular ml-auto text-white">
-            {p.value != null ? toGbp(p.value) : "—"}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function InstrumentDetail({
   name,
@@ -129,7 +100,7 @@ export function InstrumentDetail({
               scale="time"
               domain={["dataMin", "dataMax"]}
               stroke="#64748b"
-              tick={{ fontSize: 10, fill: "#64748b" }}
+              tick={{ fontSize: 12, fill: chartTheme.axis }}
               tickFormatter={formatChartDayTick}
               minTickGap={24}
               tickLine={false}
@@ -137,12 +108,13 @@ export function InstrumentDetail({
             />
             <YAxis
               stroke="#64748b"
-              tick={{ fontSize: 10, fill: "#64748b" }}
+              tick={{ fontSize: 12, fill: chartTheme.axis }}
+              tickFormatter={compactGbp}
               tickLine={false}
               axisLine={false}
             />
             <Tooltip
-              content={<MiniTooltip />}
+              content={<ChartTooltip formatLabel={(label) => typeof label === "number" ? formatChartTooltipDay(label) : String(label ?? "")} />}
               cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
             />
             <Area

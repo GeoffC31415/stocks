@@ -73,6 +73,6 @@ describe("AllocationAnalysisPanel", () => {
     expect(screen.getByText(/1 of 2 holdings.*50.0%/)).toBeInTheDocument();
     expect(screen.getByText(/£800 of £1,000.*80.0%/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Complete classifications" })).toHaveAttribute("href", "/data?tab=classifications");
-    expect(screen.getAllByText("6800")).toHaveLength(2);
+    expect(screen.getAllByText("6800")).toHaveLength(1); // one HHI headline, not a duplicate donut metric
   });
 });

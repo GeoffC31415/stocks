@@ -207,5 +207,29 @@ classification row has passed a full accessibility audit. Desktop Overview and
 mobile Holdings images were inspected after resetting capture scroll/focus;
 solid surfaces and improved labels are visible, without new document overflow.
 
+## T06 — Formats, colours and chart primitives
+
+Formatting regressions first exposed missing values rendered as £0 and invalid
+dates rendered as “Invalid Date”. Shared formatters now distinguish missing/zero,
+suppress negative zero, retain existing whole-pound display rounding, and offer
+exact pennies and compact £250k/£1m axes. Dates are UTC. Exact formatting never
+feeds calculations. Shared chart tooltip/legend components replace repeated
+markup in the history/instrument/performance charts; tooltips show exact GBP or
+explicit index units rather than silently mixing them.
+
+Allocation colours are keyed to dimension/category identity; sorting/filtering
+cannot recolour surviving categories. Unclassified stays amber. Donut centre now
+shows invested value instead of a second HHI headline. Table headings match the
+dimension, swatches match the sectors, numeric columns align right, and a
+keyboard/touch button exposes exact amounts. Generic diversification implications
+were removed from the concentration description; legal-security aggregation and
+look-through remain T15/D04.
+
+Verification: **254 backend / 85 frontend tests**, frontend typecheck/build pass.
+All **80 browser checks pass**, including cycling every allocation dimension,
+checking actual SVG slice colours against table swatches, and toggling exact
+values at every width with long-name fixtures. Geometry/contrast checks remain
+green. No static backend or database changes in this slice.
+
 Remaining release tasks are tracked only in the implementation plan. This is
 verification evidence, not a second progress ledger. R1–R3 are not released.

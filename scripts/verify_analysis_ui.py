@@ -186,6 +186,20 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
                     button.press("Enter")
                     if button.get_attribute("aria-pressed") != "true":
                         result["failures"].append("unreachable-history-tab")
+        if view == "allocation":
+            for label in ("Account", "Source currency", "Sector", "Region", "Asset class"):
+                page.get_by_role("button", name=label, exact=True).click()
+                page.get_by_role("table", name="By " + label.lower(), exact=True).wait_for()
+                page.get_by_role("button", name="Show exact values", exact=True).click()
+                page.get_by_role("button", name="Show rounded values", exact=True).wait_for()
+                colours = page.evaluate("""() => ({
+                    slices:[...document.querySelectorAll('path.recharts-sector')].map(e=>getComputedStyle(e).fill),
+                    swatches:[...document.querySelectorAll('table tbody th span')].map(e=>getComputedStyle(e).backgroundColor)
+                })""")
+                if not colours["slices"] or colours["slices"] != colours["swatches"]:
+                    result["failures"].append("allocation-legend-colour-mismatch:" + label)
+                result["failures"].extend(geometry_failures(measure_page(page)))
+                page.get_by_role("button", name="Show rounded values", exact=True).click()
         focus = focus_controls(page)
         result["focus"] = focus
         if focus["failures"]:
