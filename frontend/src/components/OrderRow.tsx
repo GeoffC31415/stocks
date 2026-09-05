@@ -19,7 +19,7 @@ export function OrderRow({
         ? "chip-neg"
         : "chip-muted";
 
-  const label = order.is_drip ? "DRIP" : order.side.toUpperCase();
+  const label = order.is_drip ? "DRIP proxy" : order.side.toUpperCase();
 
   return (
     <div className="flex items-center gap-2 rounded-lg border border-white/[0.04] bg-white/[0.02] px-3 py-2 text-xs transition-colors hover:border-white/[0.08] hover:bg-white/[0.04]">

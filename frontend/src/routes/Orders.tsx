@@ -1,100 +1,47 @@
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
-import { api } from "../lib/api";
-import { toGbp } from "../lib/formatters";
+import { useSearchParams } from "react-router-dom";
+import { getOrderPage, orderPageParams } from "../lib/orderPageApi";
 import { usePreferences } from "../state/usePreferences";
-import { StatCard } from "../components/StatCard";
 import { OrderHistorySection } from "../components/OrderHistorySection";
 import { MatchingWarningBanner } from "../components/MatchingWarningBanner";
 
 export function Orders() {
-  const { dripThreshold, accountFilter } = usePreferences();
-  const selectedAccount = accountFilter === "all" ? undefined : accountFilter;
-
-  const ordersQ = useQuery({
-    queryKey: ["orders", dripThreshold, accountFilter],
-    queryFn: () => api.getOrders(dripThreshold, selectedAccount),
+  const { accountFilter } = usePreferences();
+  const [params, setParams] = useSearchParams();
+  const account = params.get("account") ?? accountFilter;
+  const queryParams = orderPageParams(params, account);
+  const scopeParams = new URLSearchParams(queryParams);
+  scopeParams.delete("offset");
+  const scope = scopeParams.toString();
+  const previousScope = useRef(scope);
+  const scopeChanged = previousScope.current !== scope;
+  if (scopeChanged) queryParams.set("offset", "0");
+  useEffect(() => {
+    previousScope.current = scope;
+    if (scopeChanged && params.get("offset") !== "0") {
+      const next = new URLSearchParams(params);
+      next.set("offset", "0");
+      setParams(next, { replace: true });
+    }
+  }, [scope, scopeChanged, params, setParams]);
+  const query = useQuery({
+    queryKey: ["orders-page", queryParams.toString()],
+    queryFn: ({ signal }) => getOrderPage(queryParams, signal),
+    // Never retain another filter/page's rows, including error/retry transitions.
+    placeholderData: undefined,
   });
-  const analyticsQ = useQuery({
-    queryKey: ["order-analytics", dripThreshold, accountFilter],
-    queryFn: () => api.getOrderAnalytics(dripThreshold, selectedAccount),
-  });
-
-  const analytics = analyticsQ.data;
-  const orders = ordersQ.data ?? [];
-  const hasOrders = (analytics?.total_orders ?? 0) > 0;
-
-  if (!hasOrders) {
-    return (
-      <div className="glass mx-auto max-w-xl rounded-2xl p-8 text-center">
-        <Sparkles className="mx-auto text-aurora-cyan" size={28} />
-        <h2 className="mt-3 text-lg font-semibold text-white">
-          No orders imported yet
-        </h2>
-        <p className="mt-2 text-sm text-slate-400">
-          Import an order history XLS to see your full transaction log and DRIP
-          analysis.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <MatchingWarningBanner />
-
-      <div>
-        <h1
-          className="text-2xl font-semibold text-white"
-          style={{ letterSpacing: "-0.02em" }}
-        >
-          Order history
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Complete order log with DRIP-aware classification.
-        </p>
-      </div>
-
-      {analytics && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            label="Cash deployed"
-            value={toGbp(analytics.cash_deployed_gbp)}
-            tone="accent"
-            sub="Discretionary buys minus sells"
-          />
-          <StatCard
-            label="DRIP reinvested"
-            value={toGbp(analytics.total_drip_gbp)}
-            tone="amber"
-            sub={`${analytics.drip_count} DRIP orders`}
-          />
-          <StatCard
-            label="Sale proceeds"
-            value={toGbp(analytics.total_sell_gbp)}
-            tone="muted"
-            sub={`${analytics.sell_count} sell orders`}
-          />
-          <StatCard
-            label="Total orders"
-            value={String(analytics.total_orders)}
-            tone="muted"
-            sub={
-              analytics.first_order_date
-                ? `Since ${analytics.first_order_date.slice(0, 7)}`
-                : undefined
-            }
-          />
-        </div>
-      )}
-
-      {analytics && (
-        <OrderHistorySection
-          orders={orders}
-          analytics={analytics}
-          dripThreshold={dripThreshold}
-        />
-      )}
-    </div>
-  );
+  const change = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value); else next.delete(key);
+    if (key !== "offset") next.set("offset", "0");
+    next.set("account", account);
+    setParams(next);
+  };
+  return <div className="space-y-6">
+    <MatchingWarningBanner />
+    <h1 className="text-2xl font-semibold text-white">Order history</h1>
+    <OrderHistorySection page={query.data} pending={query.isFetching} error={query.isError}
+      params={params} onChange={change} onRetry={() => { void query.refetch(); }} />
+  </div>;
 }

@@ -1,260 +1,52 @@
-import { useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import type { Order, OrderAnalytics } from "../lib/api";
-import { chartYearStartUtcMs, formatChartYearTick } from "../lib/chartDates";
+import { useEffect, useRef } from "react";
+import type { OrderPage } from "../lib/orderPageApi";
 import { toGbp } from "../lib/formatters";
 import { OrderRow } from "./OrderRow";
-import { SegmentedControl, type Segment } from "./SegmentedControl";
-import { filterOrders, type OrderFilterKind } from "./orderFilters";
 
-function filterTone(key: OrderFilterKind) {
-  if (key === "sell") return "neg" as const;
-  if (key === "drip") return "amber" as const;
-  return "accent" as const;
-}
-
-function DripTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: Array<{ value?: number }>;
-  label?: string | number;
+export function OrderHistorySection({ page, pending, error, params, onChange, onRetry }: {
+  page?: OrderPage; pending: boolean; error: boolean; params: URLSearchParams;
+  onChange: (key: string, value: string) => void; onRetry: () => void;
 }) {
-  if (!active || !payload?.length) return null;
-  const headline =
-    typeof label === "number" ? formatChartYearTick(label) : String(label ?? "");
-  return (
-    <div className="rounded-lg border border-white/[0.08] bg-aurora-base/95 px-2.5 py-1.5 text-[11px] backdrop-blur-md">
-      <p className="text-slate-400">{headline}</p>
-      <p className="tabular font-semibold text-amber-300">
-        {toGbp(payload[0].value as number)}
-      </p>
-    </div>
-  );
-}
-
-export function OrderHistorySection({
-  orders,
-  analytics,
-  dripThreshold,
-}: {
-  orders: Order[];
-  analytics: OrderAnalytics;
-  dripThreshold: number;
-}) {
-  const [filter, setFilter] = useState<OrderFilterKind>("all");
-  const [nameFilter, setNameFilter] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-
-  const counts = useMemo(() => {
-    let buy = 0;
-    let drip = 0;
-    let sell = 0;
-    for (const o of orders) {
-      if (o.is_drip) drip++;
-      else if (o.side.toLowerCase() === "buy") buy++;
-      else if (o.side.toLowerCase() === "sell") sell++;
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (!pending && !error && page && restoreFocus.current) {
+      // Do not steal focus if the user moved elsewhere while waiting.
+      if (document.activeElement === document.body) resultsRef.current?.focus();
+      restoreFocus.current = false;
     }
-    return { all: orders.length, buy, drip, sell };
-  }, [orders]);
-
-  const filtered = useMemo(
-    () =>
-      filterOrders(orders, {
-        kind: filter,
-        name: nameFilter,
-        from: fromDate,
-        to: toDate,
-      }),
-    [orders, filter, nameFilter, fromDate, toDate],
-  );
-
-  const segments: Segment<OrderFilterKind>[] = [
-    { key: "all", label: "All", count: counts.all },
-    { key: "buy", label: "Buy", count: counts.buy },
-    { key: "drip", label: "DRIP", count: counts.drip },
-    { key: "sell", label: "Sell", count: counts.sell },
-  ];
-
-  const dripByYearChart = useMemo(
-    () =>
-      analytics.annual_drip.map((row) => ({
-        ...row,
-        chartTime: chartYearStartUtcMs(row.year),
-      })),
-    [analytics.annual_drip],
-  );
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-5">
-      <div className="glass min-w-0 rounded-2xl p-5 lg:col-span-3">
-        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-            <div>
-              <h3 className="text-sm font-semibold text-white">Order log</h3>
-              <p className="text-xs text-slate-500">
-                Latest 100 shown · filter to refine.
-              </p>
-            </div>
-            <input
-              type="text"
-              placeholder="Filter by name…"
-              value={nameFilter}
-              onChange={(e) => setNameFilter(e.target.value)}
-              className="ml-auto min-w-0 max-w-full flex-1 basis-40 rounded-lg border border-white/[0.08] bg-aurora-base/60 px-2.5 py-1 text-[11px] text-white placeholder:text-slate-500 outline-none transition-colors focus:border-white/[0.16] sm:w-48"
-            />
-          </div>
-          <SegmentedControl
-            layoutId="order-filter"
-            value={filter}
-            onChange={setFilter}
-            tone={filterTone(filter)}
-            segments={segments}
-            size="sm"
-          />
-        </div>
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-          <span className="font-medium uppercase tracking-wider">Date range</span>
-          <label className="flex items-center gap-1.5">
-            From
-            <input
-              aria-label="Orders from date"
-              type="date"
-              value={fromDate}
-              onChange={(event) => setFromDate(event.target.value)}
-              className="rounded-lg border border-white/[0.08] bg-aurora-base/60 px-2 py-1 text-slate-300 outline-none focus:border-white/[0.16]"
-            />
-          </label>
-          <label className="flex items-center gap-1.5">
-            To
-            <input
-              aria-label="Orders to date"
-              type="date"
-              value={toDate}
-              onChange={(event) => setToDate(event.target.value)}
-              className="rounded-lg border border-white/[0.08] bg-aurora-base/60 px-2 py-1 text-slate-300 outline-none focus:border-white/[0.16]"
-            />
-          </label>
-          {fromDate || toDate ? (
-            <button
-              type="button"
-              onClick={() => {
-                setFromDate("");
-                setToDate("");
-              }}
-              className="ml-auto rounded-lg px-2 py-1 text-slate-400 hover:bg-white/[0.04] hover:text-white"
-            >
-              Clear dates
-            </button>
-          ) : null}
-          <span className="ml-auto tabular text-slate-600">{filtered.length} matching</span>
-        </div>
-        <p id="orders-scroll-hint" className="mb-2 text-xs text-slate-400">Scroll horizontally for complete transaction details.</p>
-        <div role="region" aria-label="Order results" aria-describedby="orders-scroll-hint" tabIndex={0}
-          className="max-h-[480px] max-w-full space-y-1 overflow-auto pr-1 focus-visible:outline">
-          {filtered.slice(0, 100).map((o) => (
-            <div key={o.id} className="min-w-[450px]"><OrderRow order={o} showName /></div>
-          ))}
-          {filtered.length === 0 && (
-            <p className="py-6 text-center text-sm text-slate-500">
-              No orders match your filters.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="glass min-w-0 rounded-2xl p-5 lg:col-span-2">
-        <h3 className="text-sm font-semibold text-white">DRIP income by year</h3>
-        <p className="mt-0.5 text-xs text-slate-500">
-          Dividend reinvestments (buys under {toGbp(dripThreshold)}).
-        </p>
-        <div className="mt-3 h-52">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={dripByYearChart}>
-              <defs>
-                <linearGradient id="dripBar" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#fbbf24" stopOpacity={0.95} />
-                  <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.6} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-              <XAxis
-                dataKey="chartTime"
-                type="number"
-                scale="time"
-                domain={["dataMin", "dataMax"]}
-                stroke="#64748b"
-                tick={{ fontSize: 11, fill: "#64748b" }}
-                tickFormatter={formatChartYearTick}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                stroke="#64748b"
-                tick={{ fontSize: 10, fill: "#64748b" }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip
-                content={<DripTooltip />}
-                cursor={{ fill: "rgba(255,255,255,0.04)" }}
-              />
-              <Bar
-                dataKey="total_gbp"
-                fill="url(#dripBar)"
-                name="DRIP (GBP)"
-                radius={[6, 6, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          <MiniStat label="Buys" value={String(analytics.buy_count)} />
-          <MiniStat
-            label="DRIP"
-            value={String(analytics.drip_count)}
-            tone="amber"
-          />
-          <MiniStat
-            label="Sells"
-            value={String(analytics.sell_count)}
-            tone="neg"
-          />
-        </div>
-      </div>
+  }, [pending, error, page]);
+  const changePage = (offset: number) => {
+    restoreFocus.current = true;
+    onChange("offset", String(offset));
+  };
+  const amount = (key: keyof OrderPage["totals"]) => {
+    const value = page!.totals[key];
+    const reason = page!.totals_reasons?.[key];
+    const labels = { missing_amounts: "missing amounts", non_finite_amounts: "non-finite amounts", non_finite_total: "non-finite total" };
+    return value === null ? `Unavailable${reason ? ` (${labels[reason]})` : ""}` : toGbp(value);
+  };
+  return <section className="glass min-w-0 space-y-4 rounded-2xl p-5" aria-label="Order history">
+    <div className="flex flex-wrap gap-3">
+      <label>Search orders<input aria-label="Search orders" className="block rounded bg-slate-900 p-2" placeholder="Name, ticker or identifier" value={params.get("search") ?? ""} onChange={e => onChange("search", e.target.value)} /></label>
+      <label>Kind<select aria-label="Order kind" className="block rounded bg-slate-900 p-2" value={params.get("kind") ?? "all"} onChange={e => onChange("kind", e.target.value)}>
+        <option value="all">All</option><option value="buy">Buy</option><option value="sell">Sell</option><option value="drip">DRIP proxy</option>
+      </select></label>
+      <label>From<input aria-label="Orders from date" className="block rounded bg-slate-900 p-2" type="date" value={params.get("from_date") ?? ""} onChange={e => onChange("from_date", e.target.value)} /></label>
+      <label>To<input aria-label="Orders to date" className="block rounded bg-slate-900 p-2" type="date" value={params.get("to_date") ?? ""} onChange={e => onChange("to_date", e.target.value)} /></label>
     </div>
-  );
-}
-
-function MiniStat({
-  label,
-  value,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  tone?: "default" | "amber" | "neg";
-}) {
-  const cls =
-    tone === "amber" ? "text-amber-300" : tone === "neg" ? "text-neg" : "text-white";
-  return (
-    <div className="rounded-xl border border-white/[0.04] bg-white/[0.02] px-3 py-2 text-center">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-        {label}
-      </p>
-      <p className={`tabular mt-0.5 text-sm font-bold ${cls}`}>{value}</p>
-    </div>
-  );
+    <p className="text-xs text-slate-400">Reinvestment proxy, not dividend ledger. Stored import-time classification; changing the threshold does not retrospectively reclassify orders.</p>
+    {pending ? <p role="status">Loading matching transactions…</p> : error ? <div role="alert">Could not load matching transactions. <button onClick={onRetry}>Retry</button></div> : page && <>
+      <p className="text-sm text-slate-300">Full-filter totals (not just this page): Buys {amount("buy_gbp")} · Sales {amount("sell_gbp")} · Reinvestment proxy {amount("drip_gbp")}</p>
+      <p role="status">Showing {page.items.length ? page.offset + 1 : 0}–{page.items.length ? page.offset + page.items.length : 0} of {page.total_count} matching transactions</p>
+      <div ref={resultsRef} role="region" aria-label="Order results" tabIndex={0} className="max-h-[600px] max-w-full space-y-1 overflow-auto">
+        {page.items.map(order => <div className="min-w-[450px]" key={order.id}><OrderRow order={order} showName /></div>)}
+        {!page.items.length && <p>No orders on this page. Refine your filters or go back.</p>}
+      </div>
+      <nav aria-label="Order pagination" className="flex gap-4">
+        <button aria-label="Previous page" disabled={page.offset === 0} onClick={() => changePage(Math.max(0, page.offset - page.limit))}>Back</button>
+        <button aria-label="Next page" disabled={!page.has_more} onClick={() => changePage(page.offset + page.limit)}>Next</button>
+      </nav>
+    </>}
+  </section>;
 }

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+import datetime as dt  # noqa: TC003 - FastAPI resolves annotations at runtime.
+from typing import Literal
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 - FastAPI runtime annotations.
 from sqlalchemy.orm import joinedload
 
 from app.database import get_session
 from app.models import Order
+from app.order_page_schemas import OrderPage
+from app.routers.analysis_scope import validate_analysis_scope
+from app.routers.order_scope import validate_order_page_scope
 from app.schemas import (
     CashflowPoint,
     EstimatedTimeseriesPoint,
@@ -18,6 +24,7 @@ from app.schemas import (
     UnlinkedOrdersResponse,
 )
 from app.services.instrument_matcher import link_orders_to_instruments
+from app.services.order_pagination_service import drip_predicate, get_order_page
 from app.services.order_service import (
     DuplicateOrderImportError,
     get_cashflow_timeseries,
@@ -208,6 +215,37 @@ async def list_unlinked_orders(
     return UnlinkedOrdersResponse(count=count, orders=orders)
 
 
+@router.get("/page", response_model=OrderPage, dependencies=[Depends(validate_order_page_scope)])
+async def paginated_orders(
+    search: str = "",
+    kind: Literal["all", "buy", "sell", "drip"] = "all",
+    account_name: str | None = None,
+    from_date: dt.date | None = None,
+    to_date: dt.date | None = None,
+    instrument_ids: list[int] | None = Query(None),
+    group_ids: list[int] | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    drip_threshold: float = Query(_DRIP_DEFAULT, ge=0),
+    session: AsyncSession = Depends(get_session),
+) -> OrderPage:
+    if from_date and to_date and from_date > to_date:
+        raise HTTPException(status_code=422, detail="From date must not follow to date")
+    return await get_order_page(
+        session,
+        search=search,
+        kind=kind,
+        account_name=account_name,
+        from_date=from_date,
+        to_date=to_date,
+        instrument_ids=instrument_ids,
+        group_ids=group_ids,
+        offset=offset,
+        limit=limit,
+        drip_threshold=drip_threshold,
+    )
+
+
 @router.get("", response_model=list[OrderOut])
 async def list_orders(
     side: str | None = None,
@@ -220,7 +258,12 @@ async def list_orders(
     q = select(Order).options(joinedload(Order.instrument))
     if account_name:
         q = q.where(Order.account_name == account_name)
-    q = q.order_by(Order.order_date.desc()).limit(limit)
+    if side is not None:
+        q = q.where(func.lower(Order.side) == side.lower())
+    if is_drip is not None:
+        predicate = drip_predicate(drip_threshold)
+        q = q.where(predicate if is_drip else ~predicate)
+    q = q.order_by(Order.order_date.desc(), Order.id.desc()).limit(limit)
     result = await session.execute(q)
     orders = list(result.scalars().all())
 
