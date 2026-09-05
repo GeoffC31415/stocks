@@ -41,33 +41,16 @@ export function HeroKpi({
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
-      className="glass relative overflow-hidden rounded-3xl p-6 sm:p-8"
+      className="surface-card relative min-w-0 p-4 sm:p-5"
     >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full blur-3xl opacity-60"
-        style={{
-          background:
-            "radial-gradient(circle, rgba(167, 139, 250, 0.35) 0%, rgba(34, 211, 238, 0.18) 50%, transparent 75%)",
-        }}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-px"
-        style={{
-          background:
-            "linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)",
-        }}
-      />
-
       <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-center">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+          <p className="text-sm font-medium text-slate-300">
             {label}
           </p>
           <div className="mt-3 flex items-end gap-3">
             <p
-              className="tabular text-5xl font-semibold leading-none text-white sm:text-6xl"
+              className="tabular text-4xl font-semibold leading-none text-white sm:text-[44px]"
               style={{ letterSpacing: "-0.03em" }}
             >
               {toGbp(display)}
@@ -92,12 +75,12 @@ export function HeroKpi({
         </div>
 
         {sparkline && sparkline.length > 0 && (
-          <div className="relative h-32 sm:h-40">
+          <div className="relative h-24">
             <Sparkline
               data={sparkline}
               dataKey={sparklineKey}
               tone={sparkTone}
-              height={160}
+              height={96}
             />
           </div>
         )}

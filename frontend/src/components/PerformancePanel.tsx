@@ -20,6 +20,7 @@ import {
 import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/chartDates";
 import { SegmentedControl } from "./SegmentedControl";
 import { AnalysisStatus } from "./AnalysisStatus";
+import { SectionHeader } from "./SectionHeader";
 import { performanceMetric, type PerformanceMetricKey } from "../lib/analysisState";
 import type { MetricReason } from "../lib/api";
 import { benchmarkKey as benchKey, joinPerformanceSeries, performanceIndexDomain, sparseDateTicks } from "../lib/performanceChart";
@@ -102,13 +103,13 @@ function MetricTile({
   return (
     <div className="group relative rounded-xl bg-white/[0.02] p-3">
       <div className="flex items-center gap-1">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+        <p className="text-sm font-medium text-slate-300">
           {label}
         </p>
 
       </div>
       <p className={`mt-1 tabular text-lg font-semibold ${TONE_TEXT[tone]}`}>{value}</p>
-      {sub ? <p className="mt-0.5 text-[11px] text-slate-500">{sub}</p> : null}
+      {sub ? <p className="mt-0.5 text-xs text-slate-400">{sub}</p> : null}
 
       {reasons.map((reason) => <p key={reason.code} className="mt-2 text-xs text-amber-200">{reason.message}</p>)}
       <details className="mt-2 text-xs text-slate-300">
@@ -260,24 +261,10 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
 
   return (
     <div className="glass rounded-2xl p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-base font-semibold text-white">Performance</h2>
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-500">
-            Growth and risk for {windowLabel || "the selected period"}. Returns and
-            risk ratios are <span className="text-slate-300">flow-adjusted</span> —
-            cash you added or withdrew is netted out so growth reflects the market,
-            not your contributions.
-          </p>
-        </div>
-        <SegmentedControl
-          layoutId="perf-period-pill"
-          size="sm"
-          value={period}
-          onChange={(p) => setPeriod(p)}
-          segments={PERIODS}
-        />
-      </div>
+      <SectionHeader title="Performance"
+        description={<>Growth and risk for {windowLabel || "the selected period"}. Returns and risk ratios are flow-adjusted, using observed snapshots and order-derived flow assumptions.</>}
+        actions={<SegmentedControl layoutId="perf-period-pill" size="sm" value={period}
+          onChange={(p) => setPeriod(p)} segments={PERIODS} />} />
 
       {/* Cash-flow strip: the money that moved during the window */}
       {flow && flow.contributions_gbp != null && flow.withdrawals_gbp != null && flow.net_external_flow_gbp != null && (

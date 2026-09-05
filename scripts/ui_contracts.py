@@ -62,7 +62,7 @@ def request_allowed(method: str, url: str, base: str, view: str) -> bool:
 
 def measure_page(page) -> dict:
     """Use actual rendered SVG tick boxes, not a Recharts mock or screenshot claim."""
-    return page.evaluate("""() => {
+    return page.evaluate(r"""() => {
       const box = e => { const r=e.getBoundingClientRect();
         return {left:r.left, right:r.right, top:r.top, bottom:r.bottom}; };
       const axes = [...document.querySelectorAll('.recharts-xAxis-tick-labels')].map(axis => {
@@ -95,8 +95,22 @@ def measure_page(page) -> dict:
       const plotBox=plot ? box(plot) : null;
       const clippedObservations=plotBox && performanceDots.some(dot=>
         dot.top<plotBox.top || dot.bottom>plotBox.bottom || dot.left<plotBox.left || dot.right>plotBox.right);
+      const luminance = color => {
+        const rgb=color.match(/[\d.]+/g).slice(0,3).map(Number).map(v=>{
+          v/=255; return v<=0.04045 ? v/12.92 : ((v+0.055)/1.055)**2.4;
+        });
+        return rgb[0]*0.2126+rgb[1]*0.7152+rgb[2]*0.0722;
+      };
+      const cards=[...document.querySelectorAll('.surface-card')];
+      const contrast=cards.flatMap(card=>[...card.querySelectorAll('h3,p')].map(text=>{
+        const foreground=luminance(getComputedStyle(text).color);
+        const background=luminance(getComputedStyle(card).backgroundColor);
+        return (Math.max(foreground,background)+0.05)/(Math.min(foreground,background)+0.05);
+      }));
       return {viewport:innerWidth, document:document.documentElement.scrollWidth,
         height:document.documentElement.scrollHeight, axes, invertedDrawdown, drawdownAxes,
+        solidCards:cards.length, cardMinContrast:contrast.length ? Math.min(...contrast) : null,
+        blurredCards:cards.filter(card=>getComputedStyle(card).backdropFilter!=='none').length,
         performanceDots, clippedObservations,
         clippedControls, performanceTop:performance ? box(performance).top+scrollY : null};
     }""")
@@ -116,4 +130,8 @@ def geometry_failures(measurement: dict) -> list[str]:
         failures.append("clipped-controls")
     if measurement.get("clippedObservations"):
         failures.append("clipped-observations")
+    if measurement.get("cardMinContrast") is not None and measurement["cardMinContrast"] < 4.5:
+        failures.append("metric-card-text-contrast")
+    if measurement.get("blurredCards"):
+        failures.append("blurred-analytical-cards")
     return failures

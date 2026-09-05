@@ -186,5 +186,26 @@ still too tall and its old hero trend/duplicate summaries remain T10 work.
 Screenshot capture now resets focus/scroll after interaction checks so fixed
 navigation is captured at the top, not midway down a full-page focus screenshot.
 
+## T05 — Surfaces and typography
+
+Added semantic surface/text/border/radius/spacing tokens. Existing `.glass`
+analytical cards now use solid surfaces rather than pervasive blur; overlays keep
+an explicit separate treatment. `MetricCard` and `SectionHeader` provide named
+semantic layouts. `StatCard` is a small compatibility adapter, so its consumers
+migrate together without copying financial logic. Primary labels are 14px,
+metadata 12px, and hero balance 36–44px. Header/secondary contrast was increased;
+card glows and hover lift were removed. The hero's misleading trend source is
+still explicitly pending T10, rather than silently relabelled in a styling task.
+
+Verification: frontend **77 tests / 27 files**, frontend typecheck, build and diff
+checks pass. The expanded **80 browser checks pass**. Computed foreground versus
+opaque background contrast on migrated metric-card text has minimum **6.76:1**;
+no migrated card has backdrop blur. A rendered synthetic fixture verifies that
+the contrast check rejects insufficient contrast (rather than passing on absent
+cards). These measurements are not a claim that every legacy chart label or
+classification row has passed a full accessibility audit. Desktop Overview and
+mobile Holdings images were inspected after resetting capture scroll/focus;
+solid surfaces and improved labels are visible, without new document overflow.
+
 Remaining release tasks are tracked only in the implementation plan. This is
 verification evidence, not a second progress ledger. R1–R3 are not released.

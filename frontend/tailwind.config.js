@@ -5,9 +5,9 @@ export default {
     extend: {
       colors: {
         aurora: {
-          base: "#070a1a",
-          surface: "#0d1224",
-          glass: "rgba(15, 23, 42, 0.55)",
+          base: "rgb(var(--bg-base-rgb) / <alpha-value>)",
+          surface: "rgb(var(--bg-surface-rgb) / <alpha-value>)",
+          glass: "rgb(var(--bg-surface-rgb) / <alpha-value>)",
           violet: "#a78bfa",
           cyan: "#22d3ee",
           indigo: "#6366f1",
@@ -16,6 +16,8 @@ export default {
         pos: "#34d399",
         neg: "#f87171",
         slate: {
+          500: "#a6b3c5",
+          600: "#94a3b8",
           925: "#0b1222"
         }
       },
@@ -76,7 +78,7 @@ export default {
       },
       backgroundImage: {
         "aurora-accent":
-          "linear-gradient(135deg, #a78bfa 0%, #22d3ee 100%)",
+          "linear-gradient(135deg, #155e75 0%, #155e75 100%)",
         "aurora-accent-soft":
           "linear-gradient(135deg, rgba(167,139,250,0.18) 0%, rgba(34,211,238,0.18) 100%)"
       }

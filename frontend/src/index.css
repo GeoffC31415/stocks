@@ -4,13 +4,23 @@
 
 :root {
   color-scheme: dark;
-  --bg-base: #070a1a;
-  --bg-surface: #0d1224;
-  --bg-glass: rgba(15, 23, 42, 0.55);
+  --bg-base-rgb: 11 16 32;
+  --bg-surface-rgb: 17 26 46;
+  --bg-base: rgb(var(--bg-base-rgb));
+  --bg-surface: rgb(var(--bg-surface-rgb));
+  --bg-raised: #172238;
+  --bg-overlay: rgba(17, 26, 46, 0.96);
+  --text-primary: #e2e8f0;
+  --text-secondary: #a6b3c5;
+  --border-subtle: #334155;
+  --radius-card: 1rem;
+  --space-card: 1.25rem;
+  --space-section: 1.5rem;
+  --bg-glass: var(--bg-surface);
   --border-glass: rgba(255, 255, 255, 0.08);
   --border-glass-strong: rgba(255, 255, 255, 0.14);
-  --accent-from: #a78bfa;
-  --accent-to: #22d3ee;
+  --accent-from: #155e75;
+  --accent-to: #155e75;
   --positive: #34d399;
   --negative: #f87171;
   --glow-positive: 0 0 24px rgba(52, 211, 153, 0.28);
@@ -35,7 +45,9 @@ body {
     Arial, sans-serif;
   font-feature-settings: "tnum" 1, "ss01" 1, "cv11" 1;
   background: var(--bg-base);
-  color: #e2e8f0;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -76,20 +88,23 @@ select option:disabled {
 }
 
 @layer components {
-  .glass {
-    background: var(--bg-glass);
-    backdrop-filter: blur(20px) saturate(160%);
-    -webkit-backdrop-filter: blur(20px) saturate(160%);
-    border: 1px solid var(--border-glass);
-    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
-      0 24px 60px -28px rgba(8, 12, 30, 0.7);
+  /* Legacy card classes are solid aliases while panels migrate incrementally. */
+  .glass,
+  .surface-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
   }
-
+  .surface-card {
+    border-radius: var(--radius-card);
+  }
   .glass-soft {
-    background: rgba(15, 23, 42, 0.4);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+  }
+  .surface-overlay {
+    background: var(--bg-overlay);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--border-subtle);
   }
 
   .glass-hover {

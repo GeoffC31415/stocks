@@ -266,7 +266,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T05 — Introduce a quieter, consistent surface and typography system
 
-**Status:** [ ] Planned. **Dependencies:** T04. **Review coverage:** 7, 8, 10.
+**Status:** [x] Solid surface tokens and shared semantic metric/header layouts implemented. [Evidence](../verification/portfolio-experience.md#t05--surfaces-and-typography): 77 frontend tests; 80 browser checks; migrated metric contrast ≥6.76:1. **Dependencies:** T04. **Review coverage:** 7, 8, 10.
 
 **Files:** Modify `frontend/src/index.css`, `frontend/tailwind.config.js`, `frontend/src/components/StatCard.tsx`, `frontend/src/components/HeroKpi.tsx`; create `frontend/src/components/SectionHeader.tsx`, `frontend/src/components/MetricCard.tsx`, `frontend/src/components/__tests__/MetricCard.test.tsx`.
 

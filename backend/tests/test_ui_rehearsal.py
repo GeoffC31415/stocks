@@ -89,6 +89,11 @@ def test_rendered_tick_geometry_detects_duplicate_labels_and_inverted_losses():
             failures = contracts.geometry_failures(contracts.measure_page(page))
             assert set(failures) == {"duplicate-date-labels", "overlapping-date-labels",
                                      "inverted-drawdown"}
+            page.set_content('''<article class="surface-card" style="background:rgb(17,26,46)">
+              <p style="color:rgb(226,232,240)">Readable metric</p></article>''')
+            assert contracts.measure_page(page)["cardMinContrast"] > 10
+            page.locator("p").evaluate("e => e.style.color = 'rgb(20,30,40)'")
+            assert "metric-card-text-contrast" in contracts.geometry_failures(contracts.measure_page(page))
         finally:
             browser.close()
 
