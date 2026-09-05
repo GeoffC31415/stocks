@@ -409,3 +409,31 @@ unchanged. No provider, schema, personal-data or deployment changes. Review:
 confidence schemas/client are small separate modules instead of expanding the
 large legacy contract files; existing financial/performance/cache readers are
 reused. D01–D04 remain deferred.
+
+## T12 — Dated contributions and source comparisons
+
+Four new regression tests initially failed: historical import ordering, unknown
+flow amounts, changed account coverage, and a closed holding retained in closing
+value. Attribution and raw snapshot comparison now share canonical valuation
+states, with explicit same-date correction precedence. Default comparisons select
+distinct valuation dates, not adjacent import IDs. Unknown/missing/non-finite
+flows cannot publish a numeric complete residual. Changed account coverage is
+unavailable, rather than masquerading as market movement.
+
+The response includes all signed holding movements, source order IDs and an
+explicit unallocated residual adjustment so per-holding and portfolio estimates
+reconcile even with unlinked orders. Percentage-point contributions remain null,
+with an explicit unvalidated-denominator explanation; no division by portfolio
+movement was introduced. Dashboard mover links now open the exact account,
+comparison and selected holding in Snapshot changes. The detail view consumes
+those IDs, displays source IDs and uncertainty, and rejects malformed IDs.
+
+Verification: **277 backend / 113 frontend tests**, frontend typecheck/build and
+**110 browser cases, zero failures**. Comparison route added to the width/long-name
+matrix. Full backend run again reported the existing order-account fixture's
+intermittent aiosqlite shutdown warning; tests passed. Ruff/mypy identity sets
+remain at **101 / 32 inherited diagnostics**, no new identities. Evidence:
+`/tmp/stocks-t12-browser`; isolated build and unchanged read-only DB rehearsal.
+Review: two duplicated import-ID replay implementations were removed in favour
+of the canonical valuation helper. No persistence, provider call, invented
+percentage contributions, duplicated value-walk or deployment was added.

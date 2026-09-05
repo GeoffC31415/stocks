@@ -201,6 +201,8 @@ class PortfolioReturnSummary(BaseModel):
 
 
 class AttributionInstrument(BaseModel):
+    contribution_pct_points: float | None = None
+    source_order_ids: list[int] = Field(default_factory=list)
     instrument_id: int
     identifier: str
     security_name: str
@@ -214,6 +216,9 @@ class AttributionInstrument(BaseModel):
 
 
 class SnapshotAttributionResponse(BaseModel):
+    movements: list[AttributionInstrument] = Field(default_factory=list)
+    unallocated_residual_gbp: float | None = None
+    percentage_point_reason: str = "Percentage-point attribution has no validated additive denominator."
     from_batch: ImportBatchOut | None
     to_batch: ImportBatchOut | None
     opening_value_gbp: float | None

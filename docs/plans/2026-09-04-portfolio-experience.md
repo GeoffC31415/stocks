@@ -379,7 +379,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T12 — Make contribution analysis period-aware and drillable
 
-**Status:** [ ] Planned. **Dependencies:** T01, T08–T10. **Review coverage:** 3, 19, 30.
+**Status:** [x] Canonical dated contribution boundaries, unknown-flow gating, reconciliation and matching comparison drill-downs implemented. [Evidence](../verification/portfolio-experience.md#t12--dated-contributions-and-source-comparisons): 277 backend / 113 frontend tests; 110 browser cases. **Dependencies:** T01, T08–T10. **Review coverage:** 3, 19, 30.
 
 **Files:** Modify `backend/app/services/attribution_service.py`, `backend/app/schemas.py`, `frontend/src/components/AttributionSummaryCard.tsx`, `frontend/src/routes/Diff.tsx`, `frontend/src/lib/api.ts`; extend `backend/tests/test_snapshot_attribution.py` and `frontend/src/components/__tests__/AttributionSummaryCard.test.tsx`.
 

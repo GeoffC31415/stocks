@@ -42,6 +42,10 @@ ROUTES = {
         "gets": {"/api/orders/positions", "/api/orders/analytics", "/api/groups/performance",
                  "/api/matching/summary"},
     },
+    "comparison": {
+        "url": "/activity?tab=changes", "heading": "Snapshot diff", "required": "/api/portfolio/attribution",
+        "gets": {"/api/imports", "/api/imports/diff", "/api/portfolio/attribution"},
+    },
     "confidence": {
         "url": "/data?tab=confidence", "heading": "Data confidence", "required": "/api/portfolio/data-confidence",
         "gets": {"/api/portfolio/data-confidence"},

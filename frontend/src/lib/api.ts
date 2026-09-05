@@ -14,6 +14,8 @@ export type PortfolioReturnSummary = {
 };
 
 export type SnapshotAttributionInstrument = {
+  contribution_pct_points?: number | null;
+  source_order_ids?: number[];
   instrument_id: number;
   identifier: string;
   security_name: string;
@@ -27,6 +29,9 @@ export type SnapshotAttributionInstrument = {
 };
 
 export type SnapshotAttribution = {
+  movements?: SnapshotAttributionInstrument[];
+  unallocated_residual_gbp?: number | null;
+  percentage_point_reason?: string;
   from_batch: ImportBatch | null;
   to_batch: ImportBatch | null;
   opening_value_gbp: number | null;

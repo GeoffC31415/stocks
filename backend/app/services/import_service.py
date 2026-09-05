@@ -13,6 +13,7 @@ from app.models import AccountAlias, HoldingSnapshot, ImportBatch, Instrument
 from app.services.barclays_parser import ParsedHoldingRow, parse_barclays_xls_bytes
 from app.services.hl_parser import parse_hl_holdings_csv_bytes
 from app.services.portfolio_service import get_latest_batch_for_account
+from app.services.valuation_service import valuation_state_at_batch
 
 
 async def resolve_account_name(
@@ -49,45 +50,12 @@ async def _portfolio_snapshots_after_batch(
     batch_id: int,
     account_name: str | None = None,
 ) -> list[HoldingSnapshot]:
-    """Portfolio state immediately after an import batch.
-
-    A portfolio import batch usually contains a single account/file. To compare
-    whole-portfolio snapshots, replay imports up to the selected batch and carry
-    forward the latest snapshot for accounts that were not touched by that file.
-    """
-    batches_result = await session.execute(
-        select(ImportBatch).where(ImportBatch.id <= batch_id).order_by(ImportBatch.id)
-    )
-    batches = list(batches_result.scalars().all())
-    if not batches:
+    """Use the same canonical boundaries as contribution analysis."""
+    batch = await session.get(ImportBatch, batch_id)
+    if batch is None:
         return []
-
-    snapshots_query = (
-        select(HoldingSnapshot)
-        .join(Instrument)
-        .where(HoldingSnapshot.import_batch_id <= batch_id)
-        .options(selectinload(HoldingSnapshot.instrument))
-        .order_by(HoldingSnapshot.import_batch_id)
-    )
-    if account_name:
-        snapshots_query = snapshots_query.where(Instrument.account_name == account_name)
-
-    snapshots_result = await session.execute(snapshots_query)
-    snapshots_by_batch: dict[int, list[HoldingSnapshot]] = {}
-    for snapshot in snapshots_result.scalars().all():
-        snapshots_by_batch.setdefault(snapshot.import_batch_id, []).append(snapshot)
-
-    current_by_instrument: dict[int, HoldingSnapshot] = {}
-    for batch in batches:
-        for snapshot in snapshots_by_batch.get(batch.id, []):
-            current_by_instrument[snapshot.instrument_id] = snapshot
-
-        for closed in (batch.diff_summary or {}).get("closed", []):
-            instrument_id = closed.get("instrument_id")
-            if instrument_id is not None:
-                current_by_instrument.pop(int(instrument_id), None)
-
-    return list(current_by_instrument.values())
+    state = await valuation_state_at_batch(session, batch, account_name)
+    return state.snapshots if state is not None else []
 
 
 async def get_import_batch(session: AsyncSession, batch_id: int) -> ImportBatch | None:

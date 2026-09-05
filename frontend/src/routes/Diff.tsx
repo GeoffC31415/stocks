@@ -5,6 +5,12 @@ import { ArrowDownUp, Loader2 } from "lucide-react";
 import { api, formatSnapshotDateIso, type SnapshotDiffRow } from "../lib/api";
 import { usePreferences } from "../state/usePreferences";
 import { pct, toGbp } from "../lib/formatters";
+import { scopedNavigationUrl } from "../routing";
+import { AttributionSummaryCard } from "../components/AttributionSummaryCard";
+import { ContributionDetails } from "../components/ContributionDetails";
+import { AnalysisStatus } from "../components/AnalysisStatus";
+
+const positiveId = (value: string | null) => value !== null && /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)) ? Number(value) : undefined;
 
 type SortKey = "value" | "weight" | "quantity" | "name";
 
@@ -18,16 +24,23 @@ export function Diff() {
 
   const importsQ = useQuery({ queryKey: ["imports"], queryFn: api.getImports });
   const imports = importsQ.data ?? [];
-  const latest = imports[0];
-  const previous = imports[1];
-
-  const fromBatchId = Number(params.get("from") ?? previous?.id ?? 0);
-  const toBatchId = Number(params.get("to") ?? latest?.id ?? 0);
+  const from = positiveId(params.get("from"));
+  const to = positiveId(params.get("to"));
+  const selectedInstrument = positiveId(params.get("inst"));
+  const invalid = ["from", "to", "inst"].some((key) => params.has(key) && positiveId(params.get(key)) == null);
+  const attributionQ = useQuery({
+    queryKey: ["snapshot-attribution", accountFilter, from, to],
+    queryFn: () => api.getSnapshotAttribution(accountName, from, to), enabled: !invalid,
+  });
+  const fromBatchId = attributionQ.data?.from_batch?.id ?? from ?? 0;
+  const toBatchId = attributionQ.data?.to_batch?.id ?? to ?? 0;
+  const orderedDates = attributionQ.data?.from_batch && attributionQ.data.to_batch
+    ? attributionQ.data.from_batch.as_of_date < attributionQ.data.to_batch.as_of_date : false;
 
   const diffQ = useQuery({
     queryKey: ["imports-diff", fromBatchId, toBatchId, accountName],
     queryFn: () => api.compareImports(fromBatchId, toBatchId, accountName),
-    enabled: fromBatchId > 0 && toBatchId > 0,
+    enabled: !invalid && orderedDates && fromBatchId > 0 && toBatchId > 0,
   });
 
   const rows = useMemo(() => {
@@ -47,8 +60,10 @@ export function Diff() {
   const setBatch = (key: "from" | "to", value: string) => {
     const next = new URLSearchParams(params);
     next.set(key, value);
-    setParams(next, { replace: true });
+    setParams(next);
   };
+
+  if (invalid) return <AnalysisStatus kind="error" title="Invalid comparison or instrument identifier. Use positive integer source IDs." />;
 
   return (
     <div className="space-y-5">
@@ -61,16 +76,17 @@ export function Diff() {
             Compare {accountName ?? "whole-portfolio"} quantities, values, prices and weights after two imports.
           </p>
         </div>
-        <Link to="/import" className="chip chip-muted">
+        <Link to={scopedNavigationUrl("/activity?tab=imports", params.toString())} className="chip chip-muted">
           Import history
         </Link>
       </div>
 
       <div className="glass flex flex-wrap items-center gap-3 rounded-2xl p-4">
         <select
+          aria-label="Opening snapshot"
           value={fromBatchId || ""}
           onChange={(event) => setBatch("from", event.target.value)}
-          className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
+          className="max-w-full rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
         >
           {imports.map((batch) => (
             <option key={batch.id} value={batch.id}>
@@ -80,9 +96,10 @@ export function Diff() {
         </select>
         <ArrowDownUp size={14} className="text-slate-500" />
         <select
+          aria-label="Closing snapshot"
           value={toBatchId || ""}
           onChange={(event) => setBatch("to", event.target.value)}
-          className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
+          className="max-w-full rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
         >
           {imports.map((batch) => (
             <option key={batch.id} value={batch.id}>
@@ -91,6 +108,7 @@ export function Diff() {
           ))}
         </select>
         <select
+          aria-label="Sort snapshot rows"
           value={sort}
           onChange={(event) => setSort(event.target.value as SortKey)}
           className="ml-auto rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
@@ -102,8 +120,17 @@ export function Diff() {
         </select>
       </div>
 
-      <div className="glass overflow-hidden rounded-2xl">
-        {importsQ.isLoading || diffQ.isLoading ? (
+      {attributionQ.isError ? <AnalysisStatus kind="error" title="Unable to load contribution estimates." onRetry={() => void attributionQ.refetch()} />
+        : attributionQ.data && <>
+          <AttributionSummaryCard attribution={attributionQ.data} search={params.toString()} selectedComparison={params.has("from") || params.has("to")} />
+          <ContributionDetails attribution={attributionQ.data} instrumentId={selectedInstrument} />
+          {selectedInstrument != null && <button type="button" className="text-sm text-cyan-200 underline" onClick={() => {
+            const next = new URLSearchParams(params); next.delete("inst"); setParams(next);
+          }}>Show all contributions</button>}
+        </>}
+      {(importsQ.isError || diffQ.isError) && <AnalysisStatus kind="error" title="Unable to load snapshot detail." onRetry={() => { void importsQ.refetch(); void diffQ.refetch(); }} />}
+      <div className="glass min-w-0 overflow-hidden rounded-2xl">
+        {importsQ.isLoading || attributionQ.isLoading || diffQ.isLoading ? (
           <div className="flex h-56 items-center justify-center text-sm text-slate-500">
             <Loader2 size={18} className="mr-2 animate-spin" />
             Loading diff...

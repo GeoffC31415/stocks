@@ -80,7 +80,7 @@ describe("AttributionSummaryCard", () => {
     );
     expect(screen.queryByText("Value walk")).not.toBeInTheDocument();
     expect(screen.getByText("Residual market movement is an attribution estimate.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Alpha fund/ })).toHaveAttribute("href", "/portfolio?tab=holdings&from=4&to=5&account=ISA&inst=1");
+    expect(screen.getByRole("link", { name: /Alpha fund/ })).toHaveAttribute("href", "/activity?tab=changes&from=4&to=5&account=ISA&inst=1");
     expect(
       screen.getByText("Exact reconciliation before display rounding."),
     ).toBeInTheDocument();

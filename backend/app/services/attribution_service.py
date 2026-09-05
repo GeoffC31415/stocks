@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from app.models import HoldingSnapshot, ImportBatch, Instrument, Order
+from app.services.valuation_service import valuation_state_at_batch
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +51,9 @@ def _unavailable(
         "reconciliation_difference_gbp": None,
         "top_contributors": [],
         "top_detractors": [],
+        "movements": [],
+        "unallocated_residual_gbp": None,
+        "percentage_point_reason": "Percentage-point attribution is unavailable: no validated additive return denominator is defined.",
         "notes": BASE_NOTES + [note],
     }
 
@@ -61,43 +65,9 @@ def _select_default_from_batch(
     prior = [
         batch
         for batch in relevant
-        if batch.id < to_batch.id and batch.as_of_date < to_batch.as_of_date
+        if batch.as_of_date < to_batch.as_of_date
     ]
-    return prior[-1] if prior else None
-
-
-async def _state_after_batch(
-    session: AsyncSession, batch_id: int, account_name: str | None
-) -> dict[int, HoldingSnapshot]:
-    batch_result = await session.execute(
-        select(ImportBatch).where(ImportBatch.id <= batch_id).order_by(ImportBatch.id)
-    )
-    batches = list(batch_result.scalars().all())
-    query = (
-        select(HoldingSnapshot)
-        .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
-        .where(HoldingSnapshot.import_batch_id <= batch_id)
-        .options(selectinload(HoldingSnapshot.instrument))
-        .order_by(HoldingSnapshot.import_batch_id)
-    )
-    if account_name is not None:
-        query = query.where(Instrument.account_name == account_name)
-    snapshots = await session.execute(query)
-    by_batch: dict[int, list[HoldingSnapshot]] = defaultdict(list)
-    included_ids: set[int] = set()
-    for snapshot in snapshots.scalars().all():
-        by_batch[snapshot.import_batch_id].append(snapshot)
-        included_ids.add(snapshot.instrument_id)
-
-    current: dict[int, HoldingSnapshot] = {}
-    for batch in batches:
-        for snapshot in by_batch.get(batch.id, []):
-            current[snapshot.instrument_id] = snapshot
-        for closed in (batch.diff_summary or {}).get("closed", []):
-            instrument_id = closed.get("instrument_id")
-            if instrument_id is not None and int(instrument_id) in included_ids:
-                current.pop(int(instrument_id), None)
-    return current
+    return max(prior, key=lambda batch: (batch.as_of_date, batch.id)) if prior else None
 
 
 async def get_snapshot_attribution(
@@ -113,7 +83,7 @@ async def get_snapshot_attribution(
         .join(HoldingSnapshot, HoldingSnapshot.import_batch_id == ImportBatch.id)
         .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
         .distinct()
-        .order_by(ImportBatch.id)
+        .order_by(ImportBatch.as_of_date, ImportBatch.id)
     )
     if account_name is not None:
         relevant_query = relevant_query.where(Instrument.account_name == account_name)
@@ -152,27 +122,34 @@ async def get_snapshot_attribution(
             to_batch=to_batch,
             note="No previous snapshot is available for this selection, so change attribution is unavailable.",
         )
-    if from_batch.id >= to_batch.id:
+    if from_batch.as_of_date >= to_batch.as_of_date:
         return _unavailable(
             from_batch=from_batch,
             to_batch=to_batch,
-            note="The opening snapshot batch must precede the closing snapshot batch.",
+            note="The opening valuation date must precede the closing valuation date; same-date comparisons are unavailable.",
         )
 
-    opening = await _state_after_batch(session, from_batch.id, account_name)
-    closing = await _state_after_batch(session, to_batch.id, account_name)
-    boundary_snapshots = list(opening.values()) + list(closing.values())
-    if not opening or not closing:
+    opening_state = await valuation_state_at_batch(session, from_batch, account_name)
+    closing_state = await valuation_state_at_batch(session, to_batch, account_name)
+    if opening_state is None or closing_state is None:
         return _unavailable(
             from_batch=from_batch,
             to_batch=to_batch,
             note="Both snapshot boundaries must contain holdings for this selection.",
         )
-    if any(snapshot.value_gbp is None for snapshot in boundary_snapshots):
+    if opening_state.account_dates.keys() != closing_state.account_dates.keys():
+        return _unavailable(from_batch=from_batch, to_batch=to_batch,
+                            note="Selected account coverage changed between boundaries; it cannot be attributed as market movement.")
+    opening = {s.instrument_id: s for s in opening_state.snapshots}
+    closing = {s.instrument_id: s for s in closing_state.snapshots}
+    boundary_snapshots = list(opening.values()) + list(closing.values())
+    if (any(snapshot.value_gbp is None or not math.isfinite(snapshot.value_gbp) for snapshot in boundary_snapshots)
+            or not all(math.isfinite(sum(s.value_gbp or 0 for s in boundary))
+                       for boundary in (opening.values(), closing.values()))):
         return _unavailable(
             from_batch=from_batch,
             to_batch=to_batch,
-            note="A boundary snapshot has a missing GBP value, so attribution is unavailable.",
+            note="A boundary snapshot has a missing or non-finite GBP value, so attribution is unavailable.",
         )
 
     history_query = select(Order)
@@ -207,8 +184,9 @@ async def get_snapshot_attribution(
     drip_by_instrument: dict[int, float] = defaultdict(float)
     unlinked_count = 0
     missing_amount_count = 0
+    source_orders: dict[int, list[int]] = defaultdict(list)
     for order in orders:
-        if order.cost_proceeds_gbp is None:
+        if order.cost_proceeds_gbp is None or not math.isfinite(order.cost_proceeds_gbp) or order.side.lower() not in {"buy", "sell"}:
             missing_amount_count += 1
             continue
         amount = abs(float(order.cost_proceeds_gbp))
@@ -229,10 +207,18 @@ async def get_snapshot_attribution(
             continue
         if order.instrument_id is None:
             unlinked_count += 1
+        else:
+            source_orders[order.instrument_id].append(order.id)
 
     opening_value = sum(float(snapshot.value_gbp) for snapshot in opening.values())
     closing_value = sum(float(snapshot.value_gbp) for snapshot in closing.values())
     raw_change = closing_value - opening_value
+    if missing_amount_count or not all(math.isfinite(value) for value in (contributions, withdrawals, drip_proxy, raw_change)):
+        result = _unavailable(from_batch=from_batch, to_batch=to_batch,
+                              note="Complete flows are unknown: missing/unsupported order amounts or a non-finite aggregate prevent residual attribution.")
+        result.update(opening_value_gbp=opening_value, closing_value_gbp=closing_value,
+                      raw_value_change_gbp=raw_change if math.isfinite(raw_change) else None)
+        return result
     net_external = contributions - withdrawals
     residual = raw_change - net_external - drip_proxy
     reconciliation = raw_change - (net_external + drip_proxy + residual)
@@ -252,6 +238,8 @@ async def get_snapshot_attribution(
         movements.append(
             {
                 "instrument_id": instrument_id,
+                "source_order_ids": source_orders[instrument_id],
+                "contribution_pct_points": None,
                 "identifier": snapshot.instrument.identifier,
                 "security_name": snapshot.instrument.security_name,
                 "account_name": snapshot.instrument.account_name,
@@ -277,10 +265,8 @@ async def get_snapshot_attribution(
         notes.append(
             f"{unlinked_count} flow order(s) were not linked to an instrument; per-instrument estimates do not allocate those flows."
         )
-    if missing_amount_count:
-        notes.append(
-            f"{missing_amount_count} order(s) had no GBP amount and were excluded from flow attribution."
-        )
+    if any(date != from_batch.as_of_date for date in opening_state.account_dates.values()) or any(date != to_batch.as_of_date for date in closing_state.account_dates.values()):
+        notes.append("Some account valuations are carried forward at these boundaries; market movement is not synchronously observed.")
     return {
         "from_batch": _batch_metadata(from_batch),
         "to_batch": _batch_metadata(to_batch),
@@ -293,6 +279,9 @@ async def get_snapshot_attribution(
         "net_external_flow_gbp": net_external,
         "residual_market_movement_gbp": residual,
         "reconciliation_difference_gbp": reconciliation,
+        "movements": movements,
+        "unallocated_residual_gbp": residual - sum(row["estimated_market_movement_gbp"] for row in movements),
+        "percentage_point_reason": "Percentage-point attribution is unavailable: no validated additive return denominator is defined.",
         "top_contributors": contributors,
         "top_detractors": detractors,
         "notes": notes,

@@ -4,7 +4,7 @@ import { signedGbp } from "../lib/formatters";
 import { scopedNavigationUrl } from "../routing";
 import { AttributionWaterfall } from "./AttributionWaterfall";
 
-export function AttributionSummaryCard({ attribution, search = "" }: { attribution: SnapshotAttribution | null; search?: string }) {
+export function AttributionSummaryCard({ attribution, search = "", selectedComparison = false }: { attribution: SnapshotAttribution | null; search?: string; selectedComparison?: boolean }) {
   if (!attribution) return null;
   const available = attribution.opening_value_gbp != null && attribution.closing_value_gbp != null && attribution.residual_market_movement_gbp != null;
   const comparison = attribution.from_batch && attribution.to_batch
@@ -16,7 +16,7 @@ export function AttributionSummaryCard({ attribution, search = "" }: { attributi
       const params = new URLSearchParams(comparison ?? "");
       params.set("account", row.account_name); params.set("inst", String(row.instrument_id));
       return <li key={row.instrument_id}>
-        <a className="flex min-h-9 items-center justify-between gap-3 rounded text-sm focus-visible:outline" href={scopedNavigationUrl(`/portfolio?tab=holdings&${params}`, search)}>
+        <a className="flex min-h-9 items-center justify-between gap-3 rounded text-sm focus-visible:outline" href={scopedNavigationUrl(`/activity?tab=changes&${params}`, search)}>
           <span className="min-w-0 truncate text-cyan-200" title={`${row.security_name} · ${row.identifier} · ${row.account_name}`}>{row.security_name}</span>
           <span className={`tabular whitespace-nowrap ${row.estimated_market_movement_gbp >= 0 ? "text-pos" : "text-neg"}`}>{signedGbp(row.estimated_market_movement_gbp)}</span>
         </a>
@@ -25,7 +25,7 @@ export function AttributionSummaryCard({ attribution, search = "" }: { attributi
   </div>;
   return <section className="surface-card min-w-0 p-4 sm:p-5" aria-labelledby="attribution-title">
     <h2 id="attribution-title" className="text-base font-semibold">What changed</h2>
-    <p className="mt-1 text-xs text-slate-400">Latest snapshot comparison{attribution.from_batch && attribution.to_batch
+    <p className="mt-1 text-xs text-slate-400">{selectedComparison ? "Selected snapshot comparison" : "Latest snapshot comparison"}{attribution.from_batch && attribution.to_batch
       ? ` · ${formatSnapshotDateIso(attribution.from_batch.as_of_date)} – ${formatSnapshotDateIso(attribution.to_batch.as_of_date)}` : ""}</p>
     {available ? <>
       <AttributionWaterfall attribution={attribution} />
@@ -34,6 +34,8 @@ export function AttributionSummaryCard({ attribution, search = "" }: { attributi
         {movers("Top detractors", attribution.top_detractors)}
       </div>
     </> : <p className="mt-3 text-sm text-amber-200">Attribution unavailable</p>}
+    {attribution.unallocated_residual_gbp != null && Math.abs(attribution.unallocated_residual_gbp) >= 0.005 &&
+      <p className="mt-2 text-xs text-amber-200">Unallocated residual adjustment: {signedGbp(attribution.unallocated_residual_gbp)}. Instrument estimates alone do not sum to the portfolio residual.</p>}
     <div className="mt-3 space-y-2">{attribution.notes.map((note) => <p key={note} className="text-xs text-slate-400">{note}</p>)}</div>
     {href && <a href={href} className="mt-3 inline-flex min-h-9 items-center text-sm text-cyan-200 underline">Full snapshot changes</a>}
   </section>;

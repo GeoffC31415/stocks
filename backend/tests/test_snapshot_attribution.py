@@ -134,6 +134,52 @@ def test_snapshot_attribution_reconciles_flows_drip_and_market_movement_exactly(
     assert any("estimate" in note for note in result["notes"])
 
 
+def test_historical_imports_do_not_choose_a_backwards_default_comparison() -> None:
+    result = calculate([
+        ("ISA", "AAA", "Alpha", dt.date(2025, 2, 1), 120),
+        ("ISA", "AAA", "Alpha", dt.date(2025, 1, 1), 100),
+    ], [("ISA", "AAA", dt.date(2025, 1, 5), "Buy", 10, False)])
+    assert result["from_batch"]["as_of_date"] == dt.date(2025, 1, 1)
+    assert result["to_batch"]["as_of_date"] == dt.date(2025, 2, 1)
+    assert result["residual_market_movement_gbp"] == 10
+
+
+def test_missing_flow_amount_does_not_become_zero_or_a_numeric_residual() -> None:
+    result = calculate([
+        ("ISA", "AAA", "Alpha", dt.date(2025, 1, 1), 100),
+        ("ISA", "AAA", "Alpha", dt.date(2025, 2, 1), 120),
+    ], [("ISA", "AAA", dt.date(2025, 1, 5), "Buy", None, False)])
+    assert result["residual_market_movement_gbp"] is None
+    assert result["contributions_gbp"] is None
+    assert any("unknown" in note.lower() for note in result["notes"])
+
+
+def test_account_coverage_changes_do_not_become_market_gains() -> None:
+    result = calculate([
+        ("ISA", "AAA", "Alpha", dt.date(2025, 1, 1), 100),
+        ("ISA", "AAA", "Alpha", dt.date(2025, 2, 1), 100),
+        ("SIPP", "BBB", "Beta", dt.date(2025, 2, 1), 200),
+    ], [("ISA", "AAA", dt.date(2025, 1, 5), "Buy", 1, True)])
+    assert result["residual_market_movement_gbp"] is None
+    assert any("account coverage" in note.lower() for note in result["notes"])
+
+
+def test_new_closed_holdings_and_unlinked_flows_reconcile_without_percentage_guessing() -> None:
+    result = calculate([
+        ("ISA", "AAA", "Alpha", dt.date(2025, 1, 1), 100),
+        ("ISA", "BBB", "Beta", dt.date(2025, 2, 1), 120),
+    ], [("ISA", "AAA", dt.date(2025, 1, 5), "Sell", 100, False),
+        ("ISA", "BBB", dt.date(2025, 1, 6), "Buy", 110, False),
+        ("ISA", None, dt.date(2025, 1, 7), "Buy", 5, False)])
+    assert result["opening_value_gbp"] == 100
+    assert result["closing_value_gbp"] == 120
+    assert result["residual_market_movement_gbp"] == 5
+    assert sum(row["estimated_market_movement_gbp"] for row in result["movements"]) + result["unallocated_residual_gbp"] == 5
+    assert all(row["contribution_pct_points"] is None for row in result["movements"])
+    assert result["percentage_point_reason"]
+    assert all(row["source_order_ids"] for row in result["movements"])
+
+
 def test_snapshot_attribution_endpoint_is_registered_with_response_schema() -> None:
     route = next(
         route

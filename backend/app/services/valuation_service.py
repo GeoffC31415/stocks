@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from itertools import groupby
 from typing import TYPE_CHECKING
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.models import HoldingSnapshot, ImportBatch, Instrument
@@ -38,15 +38,21 @@ class ValuationState:
 
 
 async def valuation_states(
-    session: AsyncSession, *, account_name: str | None = None
+    session: AsyncSession, *, account_name: str | None = None, through_batch: ImportBatch | None = None,
 ) -> tuple[list[ValuationState], dt.date | None]:
-    batches = list((await session.scalars(
-        select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
-    )).all())
+    batch_query = select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
+    if through_batch is not None:
+        batch_query = batch_query.where(or_(
+            ImportBatch.as_of_date < through_batch.as_of_date,
+            and_(ImportBatch.as_of_date == through_batch.as_of_date, ImportBatch.id <= through_batch.id),
+        ))
+    batches = list((await session.scalars(batch_query)).all())
     query = (select(HoldingSnapshot).join(Instrument)
              .options(selectinload(HoldingSnapshot.instrument)))
     if account_name is not None:
         query = query.where(Instrument.account_name == account_name)
+    if through_batch is not None:
+        query = query.where(HoldingSnapshot.import_batch_id.in_([batch.id for batch in batches]))
     by_batch: dict[int, dict[str, list[HoldingSnapshot]]] = defaultdict(lambda: defaultdict(list))
     account_by_instrument: dict[int, str] = {}
     for snapshot in (await session.scalars(query)).all():
@@ -82,3 +88,11 @@ async def valuation_states(
             account_dates=dict(account_dates),
         ))
     return states, coverage_start
+
+
+async def valuation_state_at_batch(
+    session: AsyncSession, batch: ImportBatch, account_name: str | None = None,
+) -> ValuationState | None:
+    """Canonical valuation-date state, retaining selected same-date correction precedence."""
+    states, _ = await valuation_states(session, account_name=account_name, through_batch=batch)
+    return states[-1] if states else None
