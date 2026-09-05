@@ -10,7 +10,7 @@ ROUTES = {
     "overview": {
         "url": "/", "heading": "Performance", "required": "/api/portfolio/performance",
         "gets": {"/api/portfolio/returns", "/api/portfolio/timeseries",
-                 "/api/portfolio/attribution", "/api/portfolio/performance",
+                 "/api/portfolio/attribution", "/api/portfolio/performance", "/api/portfolio/data-confidence",
                  "/api/portfolio/benchmarks", "/api/orders/analytics",
                  "/api/orders/cashflow-timeseries", "/api/orders/estimated-timeseries"},
     },
@@ -41,6 +41,10 @@ ROUTES = {
         "url": "/portfolio?tab=returns", "heading": "Position analysis", "required": "/api/orders/positions",
         "gets": {"/api/orders/positions", "/api/orders/analytics", "/api/groups/performance",
                  "/api/matching/summary"},
+    },
+    "confidence": {
+        "url": "/data?tab=confidence", "heading": "Data confidence", "required": "/api/portfolio/data-confidence",
+        "gets": {"/api/portfolio/data-confidence"},
     },
     "classifications": {
         "url": "/data?tab=classifications", "heading": "Classification queue",

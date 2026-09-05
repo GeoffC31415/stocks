@@ -76,6 +76,15 @@ async def test_summary_and_instrument_list_share_account_scope(client):
     assert instruments.json() == []
 
 
+async def test_confidence_endpoint_honours_scope_and_bounds_personal_rules(client):
+    response = await client.get("/api/portfolio/data-confidence", params={"account_name": "ISA & pension", "period": "YTD"})
+    assert response.status_code == 200
+    assert response.json()["scope"]["account_name"] == "ISA & pension"
+    assert response.json()["transactions"]["completeness"] == "unknown"
+    invalid = await client.get("/api/portfolio/data-confidence", params={"stale_after_days": 0})
+    assert invalid.status_code == 422
+
+
 async def test_return_card_uses_same_shared_period(client):
     response = await client.get("/api/portfolio/returns", params={"period": "YTD"})
     assert response.status_code == 200

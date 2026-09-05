@@ -12,6 +12,7 @@ import { MetricInfo } from "../components/MetricInfo";
 import { AttributionSummaryCard } from "../components/AttributionSummaryCard";
 import { PerformancePanel } from "../components/PerformancePanel";
 import { AnalysisStatus } from "../components/AnalysisStatus";
+import { DataConfidencePanel } from "../components/DataConfidencePanel";
 
 export function Overview() {
   const location = useLocation();
@@ -83,6 +84,7 @@ export function Overview() {
         </li>)}
       </ol>
     </section>
+    <DataConfidencePanel compact />
     <nav aria-label="Explore portfolio" className="flex flex-wrap gap-x-6 gap-y-3 text-sm text-cyan-200">
       <Link className="underline" to={link("/portfolio?tab=holdings")}>Explore holdings</Link>
       <Link className="underline" to={link("/portfolio?tab=returns")}>Lifetime holding returns</Link>

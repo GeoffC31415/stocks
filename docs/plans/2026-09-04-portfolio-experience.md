@@ -363,7 +363,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T11 — Add data-confidence and needs-attention summaries
 
-**Status:** [ ] Planned. **Dependencies:** T02, T08–T10. **Review coverage:** 6, 34, 35 readiness.
+**Status:** [x] Cache-only data confidence, scoped evidence-backed attention and local reminder controls implemented. [Evidence](../verification/portfolio-experience.md#t11--data-confidence-and-attention): 273 backend / 111 frontend tests; 100 browser cases. **Dependencies:** T02, T08–T10. **Review coverage:** 6, 34, 35 readiness.
 
 **Files:** Create `backend/app/services/data_quality_service.py`, `backend/tests/test_data_quality_service.py`, `frontend/src/components/DataConfidencePanel.tsx`, `frontend/src/components/AttentionList.tsx`, and matching tests in `frontend/src/components/__tests__/`; modify `backend/app/routers/portfolio.py`, `backend/app/schemas.py`, `frontend/src/lib/api.ts`, `frontend/src/routes/Overview.tsx`, `frontend/src/routes/DataWorkspace.tsx`.
 

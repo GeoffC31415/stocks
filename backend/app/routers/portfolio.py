@@ -5,6 +5,7 @@ import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.data_quality_schemas import DataConfidence
 from app.database import get_session
 from app.routers.analysis_scope import validate_analysis_scope
 from app.schemas import (
@@ -20,6 +21,7 @@ from app.schemas import (
 )
 from app.services.allocation_service import get_allocation
 from app.services.attribution_service import get_snapshot_attribution
+from app.services.data_quality_service import get_data_confidence
 from app.services.market_data_service import fetch_history
 from app.services.performance_service import (
     build_value_series,
@@ -78,6 +80,18 @@ async def summary(account_name: str | None = None, session: AsyncSession = Depen
         worst_pct=[_to_instrument_out(row) for row in data["worst_pct"]],
         best_pct=[_to_instrument_out(row) for row in data["best_pct"]],
     )
+
+
+@router.get("/data-confidence", response_model=DataConfidence, dependencies=[Depends(validate_analysis_scope)])
+async def data_confidence(
+    account_name: str | None = None,
+    period: str = "ALL",
+    stale_after_days: int = Query(default=14, ge=1, le=365),
+    session: AsyncSession = Depends(get_session),
+) -> DataConfidence:
+    return DataConfidence(**await get_data_confidence(
+        session, account_name=account_name, period=period, stale_after_days=stale_after_days,
+    ))
 
 
 @router.get("/timeseries")

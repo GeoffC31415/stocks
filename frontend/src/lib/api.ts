@@ -655,7 +655,7 @@ const toError = async (response: Response): Promise<string> => {
   return response.statusText || "Request failed";
 };
 
-const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
+export const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(url, init);
   if (!response.ok) throw new Error(await toError(response));
   return response.json() as Promise<T>;

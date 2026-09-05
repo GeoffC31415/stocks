@@ -375,3 +375,37 @@ unchanged, no live mutation/deployment. Review: Overview reduced from hundreds o
 lines to a small composition; existing shared chart/metric primitives are reused;
 no new framework, client financial aggregate, or duplicated hidden table. The
 large API client was not changed for this task.
+
+## T11 — Data confidence and attention
+
+Added read-only account/period-scoped confidence at Dashboard and Data → Data
+confidence. Reports dated snapshot freshness, recorded transaction bounds/counts,
+matching issues, classification by count/value, metric-blocking reasons and
+cached market prerequisites. Transaction completeness remains explicitly unknown.
+The market section is secondary, uses canonical current holdings and the existing
+tested GBP/dated-FX cache reader, and never declares D01 provider/identity approval
+from numeric thresholds alone. Zero cache coverage is not cash or zero risk.
+
+Attention distinguishes facts from personal freshness rules, links to the repair
+workflow and scopes its evidence. The existing global repair queues now explicitly
+say they include all accounts. A bounded local freshness setting affects query
+keys and server calculations. Non-critical dismissals are keyed by evidence,
+account, period and tolerance; changed evidence reappears. Critical calculation
+warnings remain visible outside collapsed details and cannot be dismissed.
+
+Verification: **273 backend / 111 frontend tests**, frontend typecheck/build,
+**100 browser cases, zero failures**. Tests cover scope, no DB writes, empty and
+failed checks, currency units, missing dated FX, future cache observations,
+unchanged-evidence dismissals, restored reminders, and critical-warning safety.
+New endpoint contract initially failed with 404 before wiring. One full backend
+run emitted an intermittent aiosqlite event-loop-close warning during the existing
+order-account fixture; the final full rerun passed without warnings. Static
+checks retain the inherited diagnostics after fixing new import ordering.
+
+Dashboard remains within budget: **1456px desktop / 2994px mobile**, primary
+plot still y=645.5 at desktop. Evidence `/tmp/stocks-t11-browser`; output remains
+`/tmp/stocks-briefing-dist`. Original DB SHA-256 and read-only rehearsal copy are
+unchanged. No provider, schema, personal-data or deployment changes. Review:
+confidence schemas/client are small separate modules instead of expanding the
+large legacy contract files; existing financial/performance/cache readers are
+reused. D01–D04 remain deferred.

@@ -9,6 +9,7 @@ import { PreferencesContext } from "../../state/usePreferences";
 vi.mock("../../components/HeroKpi", () => ({ HeroKpi: ({ value }: { value: number }) => <div>Portfolio balance: {value}</div> }));
 vi.mock("../../components/PerformancePanel", () => ({ PerformancePanel: () => <div>Performance workspace</div> }));
 vi.mock("../../components/ChartPanel", () => ({ ChartPanel: () => null }));
+vi.mock("../../components/DataConfidencePanel", () => ({ DataConfidencePanel: () => null }));
 vi.mock("../../components/PerformersSection", () => ({ PerformersSection: () => null }));
 vi.mock("../../components/AttributionSummaryCard", () => ({ AttributionSummaryCard: () => null }));
 
