@@ -7,6 +7,7 @@ from sqlalchemy.orm import selectinload
 
 from app.database import get_session
 from app.models import Instrument, InstrumentGroup, InstrumentGroupMember
+from app.routers.analysis_scope import validate_analysis_scope
 from app.schemas import (
     GroupMembersBody,
     GroupPerformance,
@@ -63,12 +64,13 @@ async def _single_group_summary(session: AsyncSession, group_id: int) -> tuple[i
     return int(member_count), float(total or 0.0)
 
 
-@router.get("/performance", response_model=list[GroupPerformance])
+@router.get("/performance", response_model=list[GroupPerformance], dependencies=[Depends(validate_analysis_scope)])
 async def group_performance(
     drip_threshold: float = _DRIP_DEFAULT,
+    account_name: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> list[GroupPerformance]:
-    data = await get_group_performance(session, drip_threshold_gbp=drip_threshold)
+    data = await get_group_performance(session, drip_threshold_gbp=drip_threshold, account_name=account_name)
     return [GroupPerformance(**row) for row in data]
 
 

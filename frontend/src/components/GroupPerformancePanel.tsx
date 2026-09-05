@@ -1,3 +1,5 @@
+import { Link,useLocation } from "react-router-dom";
+import { holdingsLink } from "../lib/investigationLinks";
 import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -57,6 +59,7 @@ export function GroupPerformancePanel({
   groups: GroupPerformance[];
   isLoading: boolean;
 }) {
+  const {search}=useLocation();
   const [sort, setSort] = useState<SortKey>("value");
   const [chartMode, setChartMode] = useState<ChartMode>("rebased");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -158,6 +161,7 @@ export function GroupPerformancePanel({
 
   return (
     <div className="space-y-5">
+      <nav aria-label="Explore group holdings" className="flex flex-wrap gap-3 text-sm">{ranked.map(g=><Link key={g.group_id} className="min-h-11 inline-flex items-center text-cyan-200 underline" to={holdingsLink(search,{groupId:g.group_id})}>Explore {g.name} holdings</Link>)}</nav>
       {/* Portfolio-of-groups headline */}
       <div className="glass relative overflow-hidden rounded-2xl p-5">
         <div

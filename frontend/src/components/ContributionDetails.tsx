@@ -1,7 +1,10 @@
+import { Link,useLocation } from "react-router-dom";
+import { holdingsLink } from "../lib/investigationLinks";
 import type { SnapshotAttribution } from "../lib/api";
 import { signedGbp, toGbp } from "../lib/formatters";
 
 export function ContributionDetails({ attribution, instrumentId }: { attribution: SnapshotAttribution; instrumentId?: number }) {
+  const {search}=useLocation();
   const rows = (attribution.movements ?? []).filter((row) => instrumentId == null || row.instrument_id === instrumentId);
   return <section className="surface-card min-w-0 p-4 sm:p-5">
     <h2 className="text-base font-semibold">Estimated contributions by holding</h2>
@@ -13,7 +16,7 @@ export function ContributionDetails({ attribution, instrumentId }: { attribution
           <th scope="col" className="p-2 text-left">Holding</th>
           {["Opening", "External flows", "DRIP proxy", "Residual movement", "Closing", "Source order IDs"].map((label) => <th key={label} scope="col" className="whitespace-nowrap p-2 text-right">{label}</th>)}
         </tr></thead><tbody>{rows.map((row) => <tr key={row.instrument_id} className="border-t border-white/5">
-          <th scope="row" className="min-w-40 p-2 text-left font-normal">{row.security_name}<span className="block text-xs text-slate-400">{row.identifier} · {row.account_name}</span></th>
+          <th scope="row" className="min-w-40 p-2 text-left font-normal"><Link aria-label={`Explore ${row.security_name} holding`} className="inline-block max-w-40 break-words text-cyan-200 underline [overflow-wrap:anywhere]" to={holdingsLink(search,{account:row.account_name,instrumentId:row.instrument_id})}>{row.security_name}</Link><span className="block max-w-40 break-words text-xs text-slate-400 [overflow-wrap:anywhere]">{row.identifier} · {row.account_name}</span></th>
           <td className="whitespace-nowrap p-2 text-right tabular">{toGbp(row.opening_value_gbp)}</td>
           <td className="whitespace-nowrap p-2 text-right tabular">{signedGbp(row.net_external_flow_gbp)}</td>
           <td className="whitespace-nowrap p-2 text-right tabular">{signedGbp(row.drip_proxy_gbp)}</td>

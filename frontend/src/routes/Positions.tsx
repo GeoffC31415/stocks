@@ -1,6 +1,5 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Sparkles } from "lucide-react";
 import { api } from "../lib/api";
 import { usePreferences } from "../state/usePreferences";
 import { PositionAnalysis } from "../components/PositionAnalysis";
@@ -24,79 +23,13 @@ export function Positions() {
     queryFn: () => api.getOrderAnalytics(dripThreshold, selectedAccount),
   });
   const groupPerfQ = useQuery({
-    queryKey: ["group-performance", dripThreshold],
-    queryFn: () => api.getGroupPerformance(dripThreshold),
+    queryKey: ["group-performance", dripThreshold,selectedAccount],
+    queryFn: () => api.getGroupPerformance(dripThreshold,selectedAccount),
     enabled: view === "groups",
   });
-  const instrumentsQ = useQuery({
-    queryKey: ["instruments"],
-    queryFn: () => api.getInstruments(),
-  });
-
   const hasOrders = (analyticsQ.data?.total_orders ?? 0) > 0;
-  const instrumentAccountById = useMemo(
-    () =>
-      new Map(
-        (instrumentsQ.data ?? []).map((instrument) => [
-          instrument.id,
-          instrument.account_name,
-        ]),
-      ),
-    [instrumentsQ.data],
-  );
   const positions = positionsQ.data ?? [];
-
-  const filteredGroupPerformance = useMemo(() => {
-    const groups = groupPerfQ.data ?? [];
-    if (accountFilter === "all") return groups;
-    return groups.map((group) => {
-      const filteredMembers = group.members.filter(
-        (m) => instrumentAccountById.get(m.instrument_id) === accountFilter,
-      );
-      const totalValue = filteredMembers.reduce((s, m) => s + (m.current_value_gbp ?? 0), 0);
-      const totalCost = filteredMembers.reduce((s, m) => s + m.net_cost_gbp, 0);
-      const totalPnl = filteredMembers.reduce((s, m) => s + (m.pnl_gbp ?? 0), 0);
-      const pnlPct = totalCost !== 0 ? (totalPnl / totalCost) * 100 : null;
-      // Recompute weighted CAGR from members
-      const totalWeight = filteredMembers.reduce((s, m) => s + (m.current_value_gbp ?? 0), 0);
-      let weightedCagr = 0;
-      if (totalWeight > 0) {
-        for (const m of filteredMembers) {
-          const w = (m.current_value_gbp ?? 0) / totalWeight;
-          if (m.annualised_return_pct != null) weightedCagr += w * m.annualised_return_pct;
-        }
-      }
-      const earliestDate = filteredMembers
-        .map((m) => m.first_order_date)
-        .filter((d): d is string => d != null)
-        .sort()[0] ?? null;
-      return {
-        ...group,
-        members: filteredMembers,
-        total_current_value_gbp: totalValue,
-        total_net_cost_gbp: totalCost,
-        total_pnl_gbp: totalPnl,
-        pnl_pct: pnlPct,
-        weighted_cagr_pct: totalWeight > 0 ? weightedCagr : null,
-        earliest_order_date: earliestDate,
-        members_with_value: filteredMembers.filter((m) => m.current_value_gbp != null).length,
-      };
-    });
-  }, [accountFilter, groupPerfQ.data, instrumentAccountById]);
-
-  if (!hasOrders) {
-    return (
-      <div className="glass mx-auto max-w-xl rounded-2xl p-8 text-center">
-        <Sparkles className="mx-auto text-aurora-cyan" size={28} />
-        <h2 className="mt-3 text-lg font-semibold text-white">
-          No positions yet
-        </h2>
-        <p className="mt-2 text-sm text-slate-400">
-          Import order history to derive cost basis and CAGR per position.
-        </p>
-      </div>
-    );
-  }
+  const filteredGroupPerformance=groupPerfQ.data??[];
 
   const viewSegments: Segment<View>[] = [
     { key: "positions", label: "By position" },
@@ -130,7 +63,7 @@ export function Positions() {
         />
       </div>
 
-      {view === "positions" ? (
+      {analyticsQ.isError || positionsQ.isError || (view==="groups" && groupPerfQ.isError) ? <div role="alert" className="min-h-96">Unable to load returns. <button onClick={()=>{void analyticsQ.refetch();void positionsQ.refetch();void groupPerfQ.refetch();}}>Retry returns</button></div> : analyticsQ.isPending || positionsQ.isPending ? <div role="status" className="min-h-96">Loading returns…</div> : !hasOrders ? <div className="min-h-96"><h2>No positions yet</h2><p>Import order history to derive cost basis and returns.</p></div> : view === "positions" ? (
         <PositionAnalysis positions={positions} />
       ) : (
         <GroupPerformancePanel
