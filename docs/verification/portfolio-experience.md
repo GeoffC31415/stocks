@@ -84,5 +84,37 @@ npm --prefix frontend run build -- --outDir /tmp/stocks-experience-dist
 
 Private evidence location for this session is recorded in
 `/tmp/stocks-experience-evidence-path`; do not commit its contents or screenshots.
+## T01 — Canonical dates and common validity
+
+Regression tests first failed for duplicate same-day states, a backfill replacing
+current value, and another account's imports creating phantom observations.
+The strict T00 xfail was removed after its semantic assertion passed.
+
+Shared `valuation_service.py` now replaces touched account snapshots in
+(date, import ID) order, consolidates each date, and carries untouched accounts
+forward. Current snapshots, raw timeseries, performance and the boundary Dietz
+summary use it. Allocation inherits corrected current state (including stable
+value/ID ordering); all allocation goldens pass. Existing explicit closed flags
+remain honoured by current-position consumers. Snapshot attribution retains its
+distinct batch-ID boundary semantics; its tests still pass, and period-aware
+comparison improvements remain T12, not silently included here.
+
+KPI/index share full-precision chain endpoints; duplicate/non-increasing dates,
+missing/non-finite values, unusable denominators and numerical overflow invalidate
+the common chain. Primary drawdown never falls back to raw values. True terminal
+loss remains -100%; one return interval no longer claims zero volatility.
+Structured per-metric metadata distinguishes short annualisation, insufficient
+intervals, undefined ratios and invalid chains. Scope discloses account valuation
+dates and carry-forward/coverage warnings. Missing flow queries are null, not zero.
+Python metadata is mirrored in `frontend/src/lib/api.ts`; nullable flow display is
+safe pending T02's full status migration.
+
+Verification: full backend **253 passed**; full frontend **59 passed**;
+frontend typecheck passed. Ruff/mypy diagnostic identities compared with T00:
+no new identities after fixing the one introduced dict-style diagnostic. New
+services are small and single-purpose; portfolio service shrank by removing
+three duplicate reconstruction loops. `git diff --check` passed. UI geometry is
+not claimed fixed by this backend change. No schema migration/deployment.
+
 Remaining release tasks are tracked only in the implementation plan. This is
 verification evidence, not a second progress ledger. R1–R3 are not released.

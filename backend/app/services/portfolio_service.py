@@ -4,7 +4,7 @@ import datetime as dt  # noqa: TC003
 from collections import defaultdict
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -17,10 +17,11 @@ from app.models import (
     Order,
 )
 from app.schemas import InstrumentOut
+from app.services.valuation_service import valuation_states
 
 
 async def get_latest_batch(session: AsyncSession) -> ImportBatch | None:
-    r = await session.execute(select(ImportBatch).order_by(ImportBatch.id.desc()).limit(1))
+    r = await session.execute(select(ImportBatch).order_by(ImportBatch.as_of_date.desc(), ImportBatch.id.desc()).limit(1))
     return r.scalar_one_or_none()
 
 
@@ -33,7 +34,7 @@ async def get_latest_batch_for_account(
         .join(HoldingSnapshot, HoldingSnapshot.import_batch_id == ImportBatch.id)
         .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
         .where(Instrument.account_name == account_name)
-        .order_by(ImportBatch.id.desc())
+        .order_by(ImportBatch.as_of_date.desc(), ImportBatch.id.desc())
         .limit(1)
     )
     return r.scalar_one_or_none()
@@ -62,28 +63,17 @@ async def snapshots_for_batch_with_instruments(
 
 
 async def get_current_snapshots(session: AsyncSession) -> Sequence[HoldingSnapshot]:
-    """Latest non-closed snapshot per instrument, across all account-specific batches."""
-    latest_by_instrument = (
-        select(
-            HoldingSnapshot.instrument_id,
-            func.max(HoldingSnapshot.import_batch_id).label("latest_batch_id"),
-        )
-        .group_by(HoldingSnapshot.instrument_id)
-        .subquery()
+    """Current account state by valuation date, not the last file imported."""
+    states, _ = await valuation_states(session)
+    if not states:
+        return []
+    return sorted(
+        (snapshot for snapshot in states[-1].snapshots if snapshot.instrument.closed_at is None),
+        key=lambda snapshot: (
+            -(snapshot.value_gbp if snapshot.value_gbp is not None else float("-inf")),
+            snapshot.instrument_id,
+        ),
     )
-    r = await session.execute(
-        select(HoldingSnapshot)
-        .join(
-            latest_by_instrument,
-            (HoldingSnapshot.instrument_id == latest_by_instrument.c.instrument_id)
-            & (HoldingSnapshot.import_batch_id == latest_by_instrument.c.latest_batch_id),
-        )
-        .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
-        .where(Instrument.closed_at.is_(None))
-        .options(selectinload(HoldingSnapshot.instrument))
-        .order_by(HoldingSnapshot.value_gbp.desc().nullslast())
-    )
-    return r.scalars().all()
 
 
 def compute_pnl_gbp(value_gbp: float | None, book_cost_gbp: float | None) -> float | None:
@@ -227,7 +217,7 @@ async def build_portfolio_summary(session: AsyncSession) -> dict:
     batch_result = await session.execute(select(ImportBatch).where(ImportBatch.id.in_(batch_ids)))
     batches = list(batch_result.scalars().all())
     batch_by_id = {b.id: b for b in batches}
-    latest_batch = max(batches, key=lambda batch: batch.id) if batches else None
+    latest_batch = max(batches, key=lambda batch: (batch.as_of_date, batch.id)) if batches else None
     latest_as_of = max((batch.as_of_date for batch in batches), default=None)
 
     total_value = 0.0
@@ -391,57 +381,19 @@ async def instrument_history(
 async def portfolio_value_timeseries(
     session: AsyncSession, *, account_name: str | None = None
 ) -> list[dict]:
-    """Portfolio value after each import, carrying forward untouched account snapshots.
-
-    When *account_name* is provided, only include snapshots from instruments
-    belonging to that account.
-    """
-    batches_result = await session.execute(
-        select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
-    )
-    batches = list(batches_result.scalars().all())
-    if not batches:
-        return []
-
-    snapshots_query = (
-        select(HoldingSnapshot)
-        .join(Instrument)
-        .options(selectinload(HoldingSnapshot.instrument))
-        .order_by(HoldingSnapshot.import_batch_id)
-    )
-    if account_name:
-        snapshots_query = snapshots_query.where(Instrument.account_name == account_name)
-    snapshots_result = await session.execute(snapshots_query)
-    snapshots_by_batch: dict[int, list[HoldingSnapshot]] = defaultdict(list)
-    for snapshot in snapshots_result.scalars().all():
-        snapshots_by_batch[snapshot.import_batch_id].append(snapshot)
-
-    current_by_instrument: dict[int, HoldingSnapshot] = {}
-    rows: list[dict] = []
-    for batch in batches:
-        for snapshot in snapshots_by_batch.get(batch.id, []):
-            current_by_instrument[snapshot.instrument_id] = snapshot
-
-        for closed in (batch.diff_summary or {}).get("closed", []):
-            instrument_id = closed.get("instrument_id")
-            if instrument_id is not None:
-                current_by_instrument.pop(int(instrument_id), None)
-
-        total_value = sum(snapshot.value_gbp or 0.0 for snapshot in current_by_instrument.values())
-        total_book = sum(
-            snapshot.book_cost_gbp or 0.0
-            for snapshot in current_by_instrument.values()
-            if not snapshot.instrument.is_cash
-        )
-        rows.append(
-            {
-                "as_of_date": batch.as_of_date.isoformat(),
-                "total_value_gbp": float(total_value or 0.0),
-                "total_book_cost_gbp": float(total_book or 0.0),
-            }
-        )
-
-    return rows
+    """One complete selected state per valuation date; untouched accounts carry forward."""
+    states, _ = await valuation_states(session, account_name=account_name)
+    return [
+        {
+            "as_of_date": state.date.isoformat(),
+            "total_value_gbp": state.value,
+            "total_book_cost_gbp": sum(
+                snapshot.book_cost_gbp or 0.0 for snapshot in state.snapshots
+                if not snapshot.instrument.is_cash
+            ),
+        }
+        for state in states
+    ]
 
 
 RETURN_METHOD = "Modified Dietz"
@@ -523,60 +475,17 @@ async def get_portfolio_return_summary(
     if from_date is not None and to_date is not None and from_date > to_date:
         return _unavailable_return_summary(notes + ["The requested start date is after the end date."])
 
-    batches_result = await session.execute(
-        select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
-    )
-    batches = list(batches_result.scalars().all())
-    snapshot_query = (
-        select(HoldingSnapshot)
-        .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
-        .options(selectinload(HoldingSnapshot.instrument))
-        .order_by(HoldingSnapshot.import_batch_id)
-    )
-    if account_name is not None:
-        snapshot_query = snapshot_query.where(Instrument.account_name == account_name)
-    snapshot_result = await session.execute(snapshot_query)
-    snapshots_by_batch: dict[int, list[HoldingSnapshot]] = defaultdict(list)
-    included_instrument_ids: set[int] = set()
-    included_account_names: set[str] = set()
-    for snapshot in snapshot_result.scalars().all():
-        snapshots_by_batch[snapshot.import_batch_id].append(snapshot)
-        included_instrument_ids.add(snapshot.instrument_id)
-        included_account_names.add(snapshot.instrument.account_name)
-
-    if not snapshots_by_batch:
+    states, coverage_start = await valuation_states(session, account_name=account_name)
+    if not states:
         return _unavailable_return_summary(notes + ["No portfolio snapshots are available for this selection."])
-
-    if account_name is None and len(included_account_names) > 1:
+    if coverage_start is not None:
         notes.append(
             "The all-account period starts only after every included account has snapshot coverage."
         )
-
-    current_by_instrument: dict[int, HoldingSnapshot] = {}
-    values_by_date: dict[dt.date, tuple[float, bool]] = {}
-    for batch in batches:
-        event_for_selection = bool(snapshots_by_batch.get(batch.id))
-        for snapshot in snapshots_by_batch.get(batch.id, []):
-            current_by_instrument[snapshot.instrument_id] = snapshot
-        for closed in (batch.diff_summary or {}).get("closed", []):
-            instrument_id = closed.get("instrument_id")
-            if instrument_id is None:
-                continue
-            instrument_id = int(instrument_id)
-            if instrument_id in included_instrument_ids:
-                event_for_selection = True
-                current_by_instrument.pop(instrument_id, None)
-        if event_for_selection:
-            current_account_names = {
-                snapshot.instrument.account_name for snapshot in current_by_instrument.values()
-            }
-            if account_name is None and current_account_names != included_account_names:
-                continue
-            values = [snapshot.value_gbp for snapshot in current_by_instrument.values()]
-            values_by_date[batch.as_of_date] = (
-                float(sum(value for value in values if value is not None)),
-                bool(values) and all(value is not None for value in values),
-            )
+    values_by_date = {
+        state.date: (state.value or 0.0, state.value is not None)
+        for state in states if coverage_start is None or state.date >= coverage_start
+    }
 
     candidate_dates = [
         date

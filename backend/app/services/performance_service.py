@@ -14,18 +14,18 @@ from __future__ import annotations
 import datetime as dt
 import math
 import statistics
-from collections import defaultdict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from app.models import HoldingSnapshot, ImportBatch, Instrument, Order
+from app.models import Order
 from app.services.market_data_service import fetch_history
+from app.services.performance_metadata import with_performance_metadata
 from app.services.portfolio_service import (
     MIN_ANNUALISATION_DAYS,
     classify_external_flows,
 )
+from app.services.valuation_service import valuation_states
 
 # Period -> trailing day count. ``ALL`` means "from the first snapshot".
 # ``YTD`` is resolved relative to the window end (Jan 1 of that year).
@@ -73,7 +73,7 @@ def _annualisation_factor(dates: list[dt.date]) -> float:
     return TRADING_DAYS_PER_YEAR / avg_period_days
 
 
-def compute_performance_metrics(
+def _compute_performance_metrics(
     points: list[tuple[dt.date, float]],
     *,
     risk_free_annual_pct: float = 0.0,
@@ -104,6 +104,11 @@ def compute_performance_metrics(
     }
     if not points:
         base["notes"].append("No dated portfolio values are available.")
+        return base
+    if any(not math.isfinite(value) or value < 0 for _, value in points):
+        base["period_start"] = points[0][0]
+        base["period_end"] = points[-1][0]
+        base["notes"].append("Missing, non-finite or negative snapshot values prevent raw metrics.")
         return base
     if len(points) < 2:
         base["period_start"] = points[0][0]
@@ -206,6 +211,23 @@ def compute_performance_metrics(
     return base
 
 
+def compute_performance_metrics(
+    points: list[tuple[dt.date, float]], *, risk_free_annual_pct: float = 0.0,
+) -> dict:
+    """Keep numerical overflow unavailable rather than emitting non-finite JSON."""
+    try:
+        result = _compute_performance_metrics(points, risk_free_annual_pct=risk_free_annual_pct)
+        if all(not isinstance(value, float) or math.isfinite(value) for value in result.values()):
+            return result
+    except (OverflowError, ValueError):
+        pass
+    result = _compute_performance_metrics([], risk_free_annual_pct=risk_free_annual_pct)
+    if points:
+        result.update(period_start=points[0][0], period_end=points[-1][0])
+    result["notes"] = ["Non-finite raw statistics are unavailable for this snapshot window."]
+    return result
+
+
 def _dietz_interval_return(
     value_prev: float,
     value_next: float,
@@ -254,6 +276,7 @@ def _interval_dietz_returns(
         span_end = dates[i]
         interval_days = (span_end - span_start).days
         if interval_days <= 0:
+            out.append((span_end, None))
             continue
         raw_flow = 0.0
         weighted_flow = 0.0
@@ -290,7 +313,9 @@ def build_flow_adjusted_curve(
         if interval_return is None:
             return []
         index = index * (1.0 + interval_return)
-        curve.append({"date": date, "index": round(index, 4)})
+        if not math.isfinite(index):
+            return []
+        curve.append({"date": date, "index": index})
     return curve
 
 
@@ -334,7 +359,7 @@ def max_flow_adjusted_drawdown(curve: list[dict]) -> float | None:
     return round(min(values), 4)
 
 
-def compute_flow_adjusted_metrics(
+def _compute_flow_adjusted_metrics(
     points: list[tuple[dt.date, float]],
     signed_flows: list[tuple[dt.date, float]],
     *,
@@ -385,13 +410,14 @@ def compute_flow_adjusted_metrics(
     # KPI, wealth curve and risk statistics share the same interval returns.
     total_days = (dates[-1] - dates[0]).days
     intervals = _interval_dietz_returns(points, signed_flows)
-    if len(intervals) != len(points) - 1 or any(value is None for _, value in intervals):
+    curve = build_flow_adjusted_curve(points, signed_flows)
+    if not curve:
         base["notes"].append("An unusable snapshot interval prevents a complete flow-adjusted return.")
         return base
     interval_returns = [value for _, value in intervals if value is not None]
     if interval_returns:
-        period_return = math.prod(1.0 + value for value in interval_returns) - 1.0
-        base["total_return_pct"] = round(period_return * 100.0, 4)
+        period_return = curve[-1]["index"] / 100.0 - 1.0
+        base["total_return_pct"] = curve[-1]["index"] - 100.0
         if total_days >= MIN_ANNUALISATION_DAYS and period_return > -1:
             years = total_days / TRADING_DAYS_PER_YEAR
             base["annualised_return_pct"] = round(
@@ -404,9 +430,9 @@ def compute_flow_adjusted_metrics(
 
     n = len(interval_returns)
     base["num_periods"] = n
-    if n == 0:
+    if n < 2:
         base["notes"].append(
-            "No usable interval returns for flow-adjusted volatility or risk ratios."
+            "At least two interval returns are required for volatility or risk ratios."
         )
         return base
 
@@ -432,75 +458,41 @@ def compute_flow_adjusted_metrics(
     return base
 
 
+def compute_flow_adjusted_metrics(
+    points: list[tuple[dt.date, float]], signed_flows: list[tuple[dt.date, float]],
+    *, contributions: float, withdrawals: float, risk_free_annual_pct: float = 0.0,
+) -> dict:
+    """Finite output even when otherwise finite inputs overflow the statistics."""
+    kwargs = {"contributions": contributions, "withdrawals": withdrawals,
+              "risk_free_annual_pct": risk_free_annual_pct}
+    try:
+        result = _compute_flow_adjusted_metrics(points, signed_flows, **kwargs)
+        if all(not isinstance(value, float) or math.isfinite(value) for value in result.values()):
+            return result
+    except (OverflowError, ValueError):
+        pass
+    result = _compute_flow_adjusted_metrics([], [], **kwargs)
+    for key, value in result.items():
+        if isinstance(value, float) and not math.isfinite(value):
+            result[key] = None
+    result["notes"].append("An unusable numerical result prevents complete flow-adjusted statistics.")
+    return result
+
+
 async def build_value_series(
     session: AsyncSession,
     *,
     account_name: str | None = None,
 ) -> tuple[list[dict], dt.date | None]:
-    """Reconstruct the portfolio value after each snapshot batch.
-
-    Returns ``(points, coverage_start)`` where each point is
-    ``{"as_of_date": dt.date, "value_gbp": float}`` in date order, and
-    ``coverage_start`` is the first snapshot date on which *every* account in
-    the selection had already been observed (``None`` when a single account is
-    selected or no accounts were found).
-
-    Carrying each account's last snapshot forward is how the app defines
-    portfolio value (see ``portfolio_value_timeseries``). For the all-account
-    view a value is only "complete" once all accounts have coverage, which is
-    what ``coverage_start`` encodes.
-    """
-    batches_result = await session.execute(
-        select(ImportBatch).order_by(ImportBatch.as_of_date, ImportBatch.id)
-    )
-    batches = list(batches_result.scalars().all())
-    if not batches:
-        return [], None
-
-    snapshot_query = (
-        select(HoldingSnapshot)
-        .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
-        .options(selectinload(HoldingSnapshot.instrument))
-        .order_by(HoldingSnapshot.import_batch_id)
-    )
-    if account_name is not None:
-        snapshot_query = snapshot_query.where(Instrument.account_name == account_name)
-    snapshots_result = await session.execute(snapshot_query)
-
-    by_batch: dict[int, list[HoldingSnapshot]] = defaultdict(list)
-    all_account_names: set[str] = set()
-    for snapshot in snapshots_result.scalars().all():
-        by_batch[snapshot.import_batch_id].append(snapshot)
-        all_account_names.add(snapshot.instrument.account_name)
-
-    # ``all_account_names`` is the full set of accounts in the selection, so
-    # the coverage anchor is judged against every account (not those seen so far).
-    current_by_instrument: dict[int, HoldingSnapshot] = {}
-    points: list[dict] = []
-    covered_accounts: set[str] = set()
-    coverage_start: dt.date | None = None
-
-    for batch in batches:
-        for snapshot in by_batch.get(batch.id, []):
-            current_by_instrument[snapshot.instrument_id] = snapshot
-        for closed in (batch.diff_summary or {}).get("closed", []):
-            instrument_id = closed.get("instrument_id")
-            if instrument_id is not None:
-                current_by_instrument.pop(int(instrument_id), None)
-
-        if not current_by_instrument:
-            continue
-        covered_accounts |= {s.instrument.account_name for s in current_by_instrument.values()}
-        if (
-            coverage_start is None
-            and len(all_account_names) > 1
-            and covered_accounts == all_account_names
-        ):
-            coverage_start = batch.as_of_date
-
-        total_value = sum(s.value_gbp or 0.0 for s in current_by_instrument.values())
-        points.append({"as_of_date": batch.as_of_date, "value_gbp": float(total_value)})
-    return points, coverage_start
+    """Use the shared daily state; NaN is an internal invalid-value sentinel only."""
+    states, coverage_start = await valuation_states(session, account_name=account_name)
+    return [
+        {"as_of_date": state.date,
+         "value_gbp": state.value if state.value is not None else math.nan,
+         "valuation_dates": [{"account_name": account, "date": date}
+                             for account, date in sorted(state.account_dates.items())]}
+        for state in states
+    ], coverage_start
 
 
 async def _flow_adjusted_block(
@@ -521,9 +513,9 @@ async def _flow_adjusted_block(
     so the rest of the payload still renders.
     """
     unavailable: dict = {
-        "contributions_gbp": 0.0,
-        "withdrawals_gbp": 0.0,
-        "net_external_flow_gbp": 0.0,
+        "contributions_gbp": None,
+        "withdrawals_gbp": None,
+        "net_external_flow_gbp": None,
         "total_return_pct": None,
         "annualised_return_pct": None,
         "annualised_volatility_pct": None,
@@ -539,7 +531,7 @@ async def _flow_adjusted_block(
     }
     try:
         orders_query = select(Order).where(
-            Order.order_date >= dt.datetime.combine(window_start, dt.time.min),
+            Order.order_date > dt.datetime.combine(window_start, dt.time.max),
             Order.order_date <= dt.datetime.combine(window_end, dt.time.max),
         )
         if account_name is not None:
@@ -561,7 +553,8 @@ async def _flow_adjusted_block(
 
     # Chain-linked flow-adjusted wealth index + its drawdown, so the KPI max
     # drawdown and the main curve agree on the same interval series.
-    flow_curve = build_flow_adjusted_curve(points, signed_flows)
+    flow_curve = (build_flow_adjusted_curve(points, signed_flows)
+                  if block["total_return_pct"] is not None else [])
     block["flow_adjusted_curve"] = flow_curve
     block["drawdown_curve"] = build_drawdown_curve(flow_curve)
     block["max_drawdown_pct"] = max_flow_adjusted_drawdown(flow_curve)
@@ -587,7 +580,7 @@ async def get_portfolio_performance(
 
     series, coverage_start = await build_value_series(session, account_name=account_name)
     if not series:
-        return {
+        return with_performance_metadata({
             "period": period,
             "period_start": None,
             "period_end": None,
@@ -613,7 +606,7 @@ async def get_portfolio_performance(
             "flow_adjusted_curve": [],
             "drawdown_curve": [],
             "flow_adjusted": None,
-        }
+        }, account_name=account_name)
 
     all_points: list[tuple[dt.date, float]] = [(p["as_of_date"], p["value_gbp"]) for p in series]
     all_points.sort(key=lambda p: p[0])
@@ -621,7 +614,8 @@ async def get_portfolio_performance(
     # All-account growth is only meaningful once every account has been
     # observed; anchor the window to that coverage date when it is available.
     reference = all_points[-1][0]
-    window_start = resolve_period_start(period, reference)
+    requested_start = resolve_period_start(period, reference)
+    window_start = requested_start
     if coverage_start is not None:
         window_start = (
             max(window_start, coverage_start) if window_start is not None else coverage_start
@@ -655,8 +649,8 @@ async def get_portfolio_performance(
         growth_curve.append(
             {
                 "as_of_date": d,
-                "value_gbp": round(v, 2),
-                "normalized_value": round(normalized, 4) if normalized is not None else None,
+                "value_gbp": round(v, 2) if math.isfinite(v) else None,
+                "normalized_value": round(normalized, 4) if normalized is not None and math.isfinite(normalized) else None,
             }
         )
 
@@ -707,10 +701,9 @@ async def get_portfolio_performance(
         # the UI's primary line and headline KPI share one interval series.
         "flow_adjusted_curve": flow_adjusted.get("flow_adjusted_curve", []),
         "drawdown_curve": flow_adjusted.get("drawdown_curve", []),
-        "max_drawdown_pct": (
-            flow_adjusted.get("max_drawdown_pct")
-            if flow_adjusted.get("max_drawdown_pct") is not None
-            else metrics.get("max_drawdown_pct")
-        ),
+        "max_drawdown_pct": flow_adjusted.get("max_drawdown_pct"),
     }
-    return payload
+    return with_performance_metadata(
+        payload, account_name=account_name, requested_start=requested_start,
+        valuation_dates=series[-1].get("valuation_dates", []),
+    )

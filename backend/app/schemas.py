@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 AllocationDimension = Literal["asset_class", "sector", "region", "account", "currency"]
 
@@ -371,9 +371,49 @@ class BenchmarkPoint(BaseModel):
     currency: str | None = None
 
 
+class MetricReason(BaseModel):
+    code: str
+    message: str
+    action_href: str | None = None
+
+
+class MetricState(BaseModel):
+    status: Literal["available", "unavailable"]
+    value: FiniteFloat | None
+    unit: Literal["GBP", "percent", "ratio"]
+    method: str
+    start_date: dt.date | None
+    end_date: dt.date | None
+    observations: int = Field(ge=0)
+    reasons: list[MetricReason] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def check_availability(self) -> Self:
+        if self.status == "available" and self.value is None:
+            raise ValueError("An available metric requires a finite value")
+        if self.status == "unavailable" and (self.value is not None or not self.reasons):
+            raise ValueError("An unavailable metric requires a null value and a reason")
+        return self
+
+
+class ValuationDate(BaseModel):
+    account_name: str
+    date: dt.date
+
+
+class AnalysisScope(BaseModel):
+    account_name: str | None = None
+    requested_start: dt.date | None = None
+    requested_end: dt.date | None = None
+    effective_start: dt.date | None = None
+    effective_end: dt.date | None = None
+    valuation_dates: list[ValuationDate] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class PerformancePoint(BaseModel):
     as_of_date: dt.date
-    value_gbp: float
+    value_gbp: float | None
     normalized_value: float | None = None
 
 
@@ -407,9 +447,9 @@ class PerformanceFlowAdjusted(BaseModel):
     market movement rather than money added to / taken from the account.
     """
 
-    contributions_gbp: float
-    withdrawals_gbp: float
-    net_external_flow_gbp: float
+    contributions_gbp: float | None
+    withdrawals_gbp: float | None
+    net_external_flow_gbp: float | None
     total_return_pct: float | None
     annualised_return_pct: float | None
     annualised_volatility_pct: float | None
@@ -427,6 +467,8 @@ class PerformanceFlowAdjusted(BaseModel):
 
 
 class PerformanceSummary(BaseModel):
+    metrics: dict[str, MetricState] = Field(default_factory=dict)
+    scope: AnalysisScope = Field(default_factory=AnalysisScope)
     period: str
     coverage_start: dt.date | None = None
     period_start: dt.date | None

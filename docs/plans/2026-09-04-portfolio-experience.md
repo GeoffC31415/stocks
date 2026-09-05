@@ -201,7 +201,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T01 — Canonicalise valuation dates and performance validity
 
-**Status:** [ ] Planned. **Dependencies:** T00. **Review coverage:** initial performance defect; 15, 16, 17.
+**Status:** [x] Canonical daily states, common validity and metric/scope metadata implemented. [Evidence](../verification/portfolio-experience.md#t01--canonical-dates-and-common-validity): 253 backend / 59 frontend tests; no new static diagnostic identities. **Dependencies:** T00. **Review coverage:** initial performance defect; 15, 16, 17.
 
 **Files:** Modify `backend/app/services/portfolio_service.py`, `backend/app/services/performance_service.py`, `backend/app/schemas.py`; tests `backend/tests/test_portfolio_service.py`, `backend/tests/test_performance_regressions.py`, `backend/tests/test_experience_contracts.py`.
 

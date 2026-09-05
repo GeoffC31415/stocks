@@ -164,7 +164,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
   });
   const perf = perfQ.data;
   const flow = perf?.flow_adjusted;
-  const hasFlow = flow != null && (flow.contributions_gbp > 0 || flow.withdrawals_gbp > 0);
+  const hasFlow = flow != null && ((flow.contributions_gbp ?? 0) > 0 || (flow.withdrawals_gbp ?? 0) > 0);
 
   const chartData = useMemo(() => {
     if (!perf) return { rows: [] as Array<Record<string, number | null>>, benchSymbols: [] as string[] };
@@ -279,7 +279,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
       </div>
 
       {/* Cash-flow strip: the money that moved during the window */}
-      {flow && (
+      {flow && flow.contributions_gbp != null && flow.withdrawals_gbp != null && flow.net_external_flow_gbp != null && (
         <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs">
           <span className="font-semibold uppercase tracking-wide text-slate-400">
             Cash flows

@@ -247,9 +247,30 @@ export type BenchmarkPoint = {
   rebased_value: number;
 };
 
+export type MetricReason = { code: string; message: string; action_href: string | null };
+export type MetricState = {
+  status: "available" | "unavailable";
+  value: number | null;
+  unit: "GBP" | "percent" | "ratio";
+  method: string;
+  start_date: string | null;
+  end_date: string | null;
+  observations: number;
+  reasons: MetricReason[];
+};
+export type AnalysisScope = {
+  account_name: string | null;
+  requested_start: string | null;
+  requested_end: string | null;
+  effective_start: string | null;
+  effective_end: string | null;
+  valuation_dates: Array<{ account_name: string; date: string }>;
+  warnings: string[];
+};
+
 export type PerformancePoint = {
   as_of_date: string;
-  value_gbp: number;
+  value_gbp: number | null;
   normalized_value: number | null;
 };
 
@@ -272,6 +293,8 @@ export type PerformanceDrawdownPoint = {
 };
 
 export type PerformanceSummary = {
+  metrics?: Record<string, MetricState>;
+  scope?: AnalysisScope;
   period: string;
   coverage_start: string | null;
   period_start: string | null;
@@ -300,9 +323,9 @@ export type PerformanceSummary = {
   drawdown_curve: PerformanceDrawdownPoint[];
   // Flow-adjusted (Modified Dietz) metrics — external cashflows netted out.
   flow_adjusted?: {
-    contributions_gbp: number;
-    withdrawals_gbp: number;
-    net_external_flow_gbp: number;
+    contributions_gbp: number | null;
+    withdrawals_gbp: number | null;
+    net_external_flow_gbp: number | null;
     total_return_pct: number | null;
     annualised_return_pct: number | null;
     annualised_volatility_pct: number | null;
@@ -315,7 +338,7 @@ export type PerformanceSummary = {
     flow_adjusted_curve: PerformanceFlowAdjustedPoint[];
     drawdown_curve: PerformanceDrawdownPoint[];
     max_drawdown_pct: number | null;
-  };
+  } | null;
 };
 
 export type InstrumentQuote = {
