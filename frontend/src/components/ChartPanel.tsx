@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { BenchmarkPoint, CashflowPoint, EstimatedTimeseriesPoint } from "../lib/api";
+import type { CashflowPoint, EstimatedTimeseriesPoint } from "../lib/api";
 import {
   chartUtcMs,
   formatChartMonthTick,
@@ -33,7 +33,7 @@ type TimeseriesPoint = {
 type ChartTab = "estimated" | "deployment" | "value";
 
 const TABS: { key: ChartTab; label: string }[] = [
-  { key: "estimated", label: "Historical estimate" },
+  { key: "estimated", label: "Current-price reconstruction" },
   { key: "deployment", label: "Capital deployment" },
   { key: "value", label: "Snapshot history" },
 ];
@@ -42,45 +42,25 @@ export function ChartPanel({
   cashflow,
   timeseries,
   estimatedTimeseries,
-  benchmarks,
   hasOrders,
 }: {
   cashflow: CashflowPoint[];
   timeseries: TimeseriesPoint[];
   estimatedTimeseries: EstimatedTimeseriesPoint[];
-  benchmarks: BenchmarkPoint[];
   hasOrders: boolean;
 }) {
   const [tab, setTab] = useState<ChartTab>("value");
 
   const mergedEstimated = useMemo(() => {
     const byMonth = new Map(cashflow.map((c) => [c.month, c]));
-    const benchmarkByMonth = new Map<string, Record<string, number>>();
-    for (const point of benchmarks) {
-      const month = point.date.slice(0, 7);
-      benchmarkByMonth.set(month, {
-        ...(benchmarkByMonth.get(month) ?? {}),
-        [`benchmark_${point.symbol.replace(/[^a-z0-9]/gi, "_")}`]: point.rebased_value,
-      });
-    }
     return estimatedTimeseries.map((e) => ({
       month: e.month,
       estimated_value_gbp: e.estimated_value_gbp,
       cumulative_net_deployed:
         byMonth.get(e.month)?.cumulative_net_deployed ?? null,
-      ...(benchmarkByMonth.get(e.month) ?? {}),
       chartTime: chartUtcMs(e.month),
     }));
-  }, [benchmarks, cashflow, estimatedTimeseries]);
-
-  const benchmarkKeys = useMemo(
-    () =>
-      Array.from(new Set(benchmarks.map((point) => point.symbol))).map((symbol) => ({
-        symbol,
-        key: `benchmark_${symbol.replace(/[^a-z0-9]/gi, "_")}`,
-      })),
-    [benchmarks],
-  );
+  }, [cashflow, estimatedTimeseries]);
 
   const cashflowWithTime = useMemo(
     () =>
@@ -126,11 +106,11 @@ export function ChartPanel({
           {activeTab === "estimated" && (
             <>
               <h2 className="text-base font-semibold text-white">
-                Portfolio value · historical estimate
+                Past holdings valued at today's prices
               </h2>
               <p className="mt-1 text-xs text-slate-500">
-                Order-derived quantities × current prices. Gap above the
-                deployed line is unrealised gain.
+                Order-derived quantities × current prices, not historical performance.
+                No historical benchmark is overlaid on this reconstruction.
               </p>
             </>
           )}
@@ -185,7 +165,9 @@ export function ChartPanel({
         )}
       </div>
 
-      <div className="mt-4 h-72">
+      {(activeTab === "estimated" ? mergedEstimated : activeTab === "deployment" ? cashflowWithTime : timeseriesWithTime).length === 0
+        ? <p role="status" className="mt-4 text-sm text-slate-400">No recorded observations for this view.</p>
+        : <div className="mt-4 h-72">
         <ResponsiveContainer width="100%" height="100%">
           {activeTab === "estimated" ? (
             <AreaChart data={mergedEstimated}>
@@ -236,18 +218,6 @@ export function ChartPanel({
                 fill="url(#estDep)"
                 name="Net cash deployed"
               />
-              {benchmarkKeys.map(({ symbol, key }, index) => (
-                <Line
-                  key={key}
-                  type="monotone"
-                  dataKey={key}
-                  stroke={index === 0 ? "#fbbf24" : "#f87171"}
-                  strokeWidth={1.25}
-                  strokeDasharray="4 3"
-                  dot={false}
-                  name={`Benchmark ${symbol.toUpperCase()}`}
-                />
-              ))}
             </AreaChart>
           ) : activeTab === "deployment" ? (
             <AreaChart data={cashflowWithTime}>
@@ -366,7 +336,7 @@ export function ChartPanel({
             </AreaChart>
           )}
         </ResponsiveContainer>
-      </div>
+      </div>}
     </div>
   );
 }

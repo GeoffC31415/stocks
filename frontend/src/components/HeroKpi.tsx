@@ -26,7 +26,7 @@ export function HeroKpi({
     <section
       className="surface-card relative min-w-0 p-4 sm:p-5"
     >
-      <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-center">
+      <div className="relative grid gap-3 lg:items-center">
         <div>
           <p className="text-sm font-medium text-slate-300">
             {label}
@@ -40,7 +40,7 @@ export function HeroKpi({
             </p>
           </div>
           <div className="mt-4 flex flex-wrap items-center gap-3">
-            <TrendChip value={trendPct ?? null} />
+            {trendPct != null && <TrendChip value={trendPct} />}
             {deltaAbs != null && (
               <span
                 className={`tabular text-sm ${
@@ -57,7 +57,7 @@ export function HeroKpi({
           </div>
         </div>
 
-        {sparkline && sparkline.length > 0 && (
+        {sparkline && sparkline.length > 1 && (
           <div className="relative h-24">
             <Sparkline
               data={sparkline}

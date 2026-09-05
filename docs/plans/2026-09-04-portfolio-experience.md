@@ -346,7 +346,7 @@ Do not use `make check` as a read-only gate: it depends on the mutating `format`
 
 ### T10 — Rebuild the compact dashboard and performance workspace
 
-**Status:** [ ] Planned. **Dependencies:** T02–T09. **Review coverage:** 1, 2, 3, 5, 14.
+**Status:** [x] Compact briefing and separate Performance workspace implemented. [Evidence](../verification/portfolio-experience.md#t10--compact-briefing-and-performance-workspace): 266 backend / 107 frontend tests; 90 browser cases; dashboard 1338px desktop / 2864px mobile. **Dependencies:** T02–T09. **Review coverage:** 1, 2, 3, 5, 14.
 
 **Files:** Modify `frontend/src/routes/Overview.tsx`, `frontend/src/routes/PortfolioWorkspace.tsx`, `frontend/src/components/HeroKpi.tsx`, `frontend/src/components/AttributionSummaryCard.tsx`, `frontend/src/components/AttributionWaterfall.tsx`, `frontend/src/components/ChartPanel.tsx`; create `frontend/src/routes/PerformanceWorkspace.tsx`; extend `frontend/src/routes/__tests__/Overview.test.tsx`, `frontend/src/components/__tests__/AttributionWaterfall.test.tsx`, and routing tests.
 

@@ -14,6 +14,11 @@ ROUTES = {
                  "/api/portfolio/benchmarks", "/api/orders/analytics",
                  "/api/orders/cashflow-timeseries", "/api/orders/estimated-timeseries"},
     },
+    "performance": {
+        "url": "/portfolio?tab=performance", "heading": "Performance workspace", "required": "/api/portfolio/performance",
+        "gets": {"/api/portfolio/performance", "/api/portfolio/returns", "/api/portfolio/timeseries",
+                 "/api/orders/analytics", "/api/orders/cashflow-timeseries", "/api/orders/estimated-timeseries"},
+    },
     "holdings": {
         "url": "/portfolio?tab=holdings", "heading": "Holdings", "required": "/api/instruments",
         "gets": {"/api/orders/analytics", "/api/orders/positions", "/api/groups",
@@ -112,6 +117,7 @@ def measure_page(page) -> dict:
         solidCards:cards.length, cardMinContrast:contrast.length ? Math.min(...contrast) : null,
         blurredCards:cards.filter(card=>getComputedStyle(card).backdropFilter!=='none').length,
         performanceDots, clippedObservations,
+        primaryTop:plotBox ? plotBox.top+scrollY : (performance ? box(performance).top+scrollY : null),
         clippedControls, performanceTop:performance ? box(performance).top+scrollY : null};
     }""")
 

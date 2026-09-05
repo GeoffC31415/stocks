@@ -77,7 +77,7 @@ function MetricTile({
   );
 }
 
-export function PerformancePanel({ accountName }: { accountName?: string }) {
+export function PerformancePanel({ accountName, compact = false }: { accountName?: string; compact?: boolean }) {
   const { period, setPeriod } = useAnalysisScope();
   // Raw account value is an optional overlay, off by default, so the primary
   // line (flow-adjusted) cannot be mistaken for investment return.
@@ -193,7 +193,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           onChange={(p) => setPeriod(p)} segments={PERIOD_SEGMENTS} />} />
 
       {/* Cash-flow strip: the money that moved during the window */}
-      {flow && flow.contributions_gbp != null && flow.withdrawals_gbp != null && flow.net_external_flow_gbp != null && (
+      {!compact && flow && flow.contributions_gbp != null && flow.withdrawals_gbp != null && flow.net_external_flow_gbp != null && (
         <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs">
           <span className="font-semibold uppercase tracking-wide text-slate-400">
             Cash flows
@@ -230,7 +230,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
         {(flow?.notes ?? []).filter((note) => note !== "flow-adjusted").map((note) => <p key={note} className="text-xs text-slate-300">{note}</p>)}
         <p className="text-xs text-slate-400">{flow?.method ?? "Chain-linked interval Modified Dietz"} · {perf.growth_curve.length} snapshot observations · {windowLabel}. Risk-free assumption: {perf.risk_free_annual_pct}%.</p>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      {!compact && <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <MetricTile
           infoKey="totalReturn" context={windowLabel}
           label="Snapshot investment return"
@@ -287,9 +287,9 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           }
           tone={sign(headlineDrawdown)}
         />
-      </div>
+      </div>}
 
-      <div className="mt-4 flex items-center gap-2">
+      {!compact && <div className="mt-4 flex items-center gap-2">
         <label className="flex cursor-pointer items-center gap-2 text-[11px] text-slate-400">
           <input
             type="checkbox"
@@ -299,7 +299,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           />
           Show raw account value (dashed)
         </label>
-      </div>
+      </div>}
 
       {(chainAvailable || showRaw) && <div role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
         <ResponsiveContainer width="100%" height="100%" onResize={(width) => setChartWidth(width)}>
@@ -381,7 +381,7 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
         </ResponsiveContainer>
       </div>}
 
-      {drawdownData.length > 0 ? (
+      {!compact && drawdownData.length > 0 ? (
         <div className="mt-3">
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Flow-adjusted drawdown
@@ -452,8 +452,8 @@ export function PerformancePanel({ accountName }: { accountName?: string }) {
           </span>
         ))}
         <span className="text-slate-600">
-          The primary line is flow-adjusted, so cash you added or withdrew is netted out. Toggle
-          the dashed raw value to see the unadjusted account curve.
+          Snapshot observations, not a measured daily path. Cash added or withdrawn is netted out.
+          {!compact && " Toggle the dashed raw value to see the unadjusted account curve."}
         </span>
       </div>
     </div>

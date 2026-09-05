@@ -4,7 +4,7 @@ import { Info } from "lucide-react";
 import { metricGlossary, type MetricTopic } from "../lib/metricGlossary";
 
 /** Non-modal, viewport-bounded definition popover with explicit focus return. */
-export function MetricInfo({ label, topic, context }: { label: string; topic: MetricTopic; context?: string }) {
+export function MetricInfo({ label, topic, context, iconOnly = false }: { label: string; topic: MetricTopic; context?: string; iconOnly?: boolean }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ top: 16, left: 16 });
   const button = useRef<HTMLButtonElement>(null);
@@ -53,8 +53,8 @@ export function MetricInfo({ label, topic, context }: { label: string; topic: Me
     <button ref={button} type="button" aria-label={`About ${label}`} aria-expanded={open}
       aria-haspopup="dialog" aria-controls={open ? id : undefined}
       onClick={() => open ? close() : setOpen(true)}
-      className="inline-flex min-h-9 min-w-0 max-w-full items-center gap-1 rounded-md px-1 text-xs text-slate-300 [overflow-wrap:anywhere] focus-visible:outline">
-      <Info size={14} aria-hidden="true" /><span>About {label}</span>
+      className={`inline-flex min-h-9 ${iconOnly ? "min-w-9 shrink-0 justify-center" : "min-w-0"} max-w-full items-center gap-1 rounded-md px-1 text-xs text-slate-300 [overflow-wrap:anywhere] focus-visible:outline`}>
+      <Info size={14} aria-hidden="true" />{!iconOnly && <span>About {label}</span>}
     </button>
     {open && createPortal(<div id={id} ref={popover} role="dialog" aria-label={`${label} definition`}
       tabIndex={-1} style={{ ...position, width: "min(320px, calc(100vw - 32px))", maxHeight: "calc(100dvh - 32px)" }}

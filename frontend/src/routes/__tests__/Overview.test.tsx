@@ -28,6 +28,7 @@ function show(account = "all") {
 
 beforeEach(() => {
   vi.spyOn(api, "getInstruments").mockResolvedValue([]);
+  vi.spyOn(api, "getPerformance").mockRejectedValue(new Error("performance offline"));
   vi.spyOn(api, "getTimeseries").mockResolvedValue([]);
   vi.spyOn(api, "getCashflowTimeseries").mockResolvedValue([]);
   vi.spyOn(api, "getOrderAnalytics").mockRejectedValue(new Error("orders offline"));
@@ -36,6 +37,15 @@ beforeEach(() => {
 });
 
 describe("Overview states", () => {
+  it("keeps the dashboard compact and links to the relocated full analysis", async () => {
+    vi.spyOn(api, "getSummary").mockResolvedValue(zero);
+    show();
+    await screen.findByText("Portfolio balance: 0");
+    expect(api.getOrderAnalytics).not.toHaveBeenCalled();
+    expect(api.getCashflowTimeseries).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Full performance analysis" })).toHaveAttribute("href", "/portfolio?tab=performance");
+    expect(screen.queryByText("Performance leaders")).not.toBeInTheDocument();
+  });
   it("uses the selected account API totals even when instrument details are empty", async () => {
     const summary = vi.spyOn(api, "getSummary").mockResolvedValue({ ...zero, position_count: 15, total_value_gbp: 12345 });
     show("ISA");
@@ -72,12 +82,12 @@ describe("Overview states", () => {
     show();
     expect(await screen.findByText("Portfolio balance: 0")).toBeInTheDocument();
     expect(screen.queryByText("Welcome to your portfolio")).not.toBeInTheDocument();
-    expect(await screen.findByText("Unable to load estimated money-weighted return.")).toBeInTheDocument();
+    expect(api.getPortfolioReturns).not.toHaveBeenCalled();
   });
   it("offers import only for a successful empty summary", async () => {
     vi.spyOn(api, "getSummary").mockResolvedValue({ ...zero, as_of_date: null, import_batch_id: null });
     show();
     expect(await screen.findByText("Welcome to your portfolio")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Import data" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Import data" })).toBeInTheDocument();
   });
 });

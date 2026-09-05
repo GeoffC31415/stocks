@@ -65,21 +65,22 @@ describe("AttributionSummaryCard", () => {
     render(<AttributionSummaryCard attribution={attribution} />);
 
     expect(screen.getByText("What changed")).toBeInTheDocument();
-    expect(screen.getByText(/£1,000.*£1,300/)).toBeInTheDocument();
-    expect(screen.getByText("Net external flows")).toBeInTheDocument();
-    expect(screen.getByText("+£50")).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: "Opening value £1,000" })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: "Closing value £1,300" })).toBeInTheDocument();
+    expect(screen.getAllByRole("table")).toHaveLength(1);
     expect(screen.getByText("DRIP proxy")).toBeInTheDocument();
-    expect(screen.getByText("£20")).toBeInTheDocument();
+    expect(screen.getByText("+£20")).toBeInTheDocument();
     expect(screen.getByText("Estimated market movement")).toBeInTheDocument();
     expect(screen.getByText("+£230")).toBeInTheDocument();
     expect(screen.getByText("Alpha fund")).toBeInTheDocument();
     expect(screen.getByText("Beta fund")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /full snapshot changes/i })).toHaveAttribute(
       "href",
-      "/diff?from=4&to=5",
+      "/activity?tab=changes&from=4&to=5",
     );
-    // Waterfall wired into the card above the stat tiles.
-    expect(screen.getByRole("heading", { name: "Value walk" })).toBeInTheDocument();
+    expect(screen.queryByText("Value walk")).not.toBeInTheDocument();
+    expect(screen.getByText("Residual market movement is an attribution estimate.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Alpha fund/ })).toHaveAttribute("href", "/portfolio?tab=holdings&from=4&to=5&account=ISA&inst=1");
     expect(
       screen.getByText("Exact reconciliation before display rounding."),
     ).toBeInTheDocument();

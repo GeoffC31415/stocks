@@ -341,3 +341,37 @@ mypy inherited diagnostics after correcting the new test import ordering.
 Review: the shared canonical snapshot service owns scope, no client aggregate
 calculator remains in Overview, and no new dependency or schema migration is
 needed. Screenshot capture is not manual visual approval.
+
+## T10 — Compact briefing and Performance workspace
+
+Dashboard now has one balance, one snapshot return, net flows, the primary plot
+(or honest unavailable state), one attribution breakdown, compact allocation and
+scoped detail links. Full risk metrics, raw snapshots, capital deployment,
+current-price reconstruction and the distinct money-weighted return are reachable
+at Portfolio → Performance. The hero's unmeasured reconstruction sparkline and
+null trend chip are removed. No optional hero sparkline is shown. Reconstruction
+is labelled “Past holdings valued at today's prices”; benchmark joins, plots and
+requests were removed from that non-performance view.
+
+Attribution is one visible accessible table: no value-walk SVG, duplicate tiles,
+or extra hidden running-total calculation. Missing components and reconciliation
+remain unavailable, with all material notes visible. Mover links retain account,
+comparison and period. The compact Performance variant preserves validity and
+warnings while leaving detailed ratios and raw-value controls in the workspace.
+
+RED: the dashboard structural regression exposed the old history requests.
+GREEN: **266 backend / 107 frontend tests**, typecheck and isolated build passed.
+Expanded browser matrix adds the full Performance workspace: **90 cases, zero
+failures**. After a detected mobile mover-list overflow, explicit grid tracks and
+min-widths were corrected and the entire matrix rerun. Default dashboard heights
+are **1338px at 1440px** and **2864px at 390px**, below the 2200/3600 budgets. The
+primary desktop plot begins at **y=645.5px**, inside the 1000px viewport. Height
+and first-screen assertions are now enforced by the harness, including long-name
+fixtures. Screenshots at 1440px and 390px were visually inspected; text, chart,
+links and single-column flow are readable. This is not full T23 release approval.
+
+Evidence: `/tmp/stocks-t10-browser`; build: `/tmp/stocks-briefing-dist`. Copy hash
+unchanged, no live mutation/deployment. Review: Overview reduced from hundreds of
+lines to a small composition; existing shared chart/metric primitives are reused;
+no new framework, client financial aggregate, or duplicated hidden table. The
+large API client was not changed for this task.

@@ -160,7 +160,7 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
                 raise AssertionError("No snapshot fixture loaded")
             if payload.get("flow_adjusted", {}).get("total_return_pct") is None and payload.get("flow_adjusted_curve"):
                 result["failures"].append("invalid-performance-publishes-curve")
-            attribution = page.get_by_role("region", name="Attribution waterfall", exact=True)
+            attribution = page.get_by_role("region", name="Snapshot change breakdown", exact=True)
             if attribution.locator("svg").count():
                 result["failures"].append("removed-value-walk-returned")
         if scenario == "error":
@@ -179,9 +179,14 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
             if not valid_curve and measurement["performanceDots"]:
                 result["failures"].append("unavailable-curve-plotted")
         if view == "overview" and scenario not in {"empty", "error"}:
+            if width == 1440 and (measurement["primaryTop"] is None or measurement["primaryTop"] >= 1000):
+                result["failures"].append("primary-performance-below-fold")
+            if (width == 1440 and measurement["height"] > 2200) or (width <= 390 and measurement["height"] > 3600):
+                result["failures"].append("dashboard-height-budget")
+        if view == "performance":
             tabs = page.get_by_role("group", name="History chart views")
             if tabs.count():
-                for label in ("Historical estimate", "Capital deployment", "Snapshot history"):
+                for label in ("Current-price reconstruction", "Capital deployment", "Snapshot history"):
                     button = tabs.get_by_role("button", name=label, exact=True)
                     button.focus()
                     button.press("Enter")

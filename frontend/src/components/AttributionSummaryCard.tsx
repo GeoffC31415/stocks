@@ -1,152 +1,40 @@
 import type { SnapshotAttribution, SnapshotAttributionInstrument } from "../lib/api";
 import { formatSnapshotDateIso } from "../lib/api";
-import { toGbp } from "../lib/formatters";
+import { signedGbp } from "../lib/formatters";
+import { scopedNavigationUrl } from "../routing";
 import { AttributionWaterfall } from "./AttributionWaterfall";
 
-const signedGbp = (value: number): string => `${value > 0 ? "+" : ""}${toGbp(value)}`;
-
-export function AttributionSummaryCard({
-  attribution,
-}: {
-  attribution: SnapshotAttribution | null;
-}) {
+export function AttributionSummaryCard({ attribution, search = "" }: { attribution: SnapshotAttribution | null; search?: string }) {
   if (!attribution) return null;
-
-  const marketMovement = attribution.residual_market_movement_gbp;
-  const available =
-    attribution.opening_value_gbp != null &&
-    attribution.closing_value_gbp != null &&
-    marketMovement != null;
-  const diffHref =
-    attribution.from_batch && attribution.to_batch
-      ? `/diff?from=${attribution.from_batch.id}&to=${attribution.to_batch.id}`
-      : null;
-
-  return (
-    <section className="glass rounded-2xl p-5" aria-labelledby="attribution-title">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-            What changed
-          </p>
-          <h2 id="attribution-title" className="mt-1 text-sm font-semibold text-white">
-            {available ? (
-              <>
-                {toGbp(attribution.opening_value_gbp)} → {toGbp(attribution.closing_value_gbp)}
-              </>
-            ) : (
-              "Attribution unavailable"
-            )}
-          </h2>
-          {attribution.from_batch && attribution.to_batch ? (
-            <p className="mt-1 text-xs text-slate-500">
-              {formatSnapshotDateIso(attribution.from_batch.as_of_date)} →{" "}
-              {formatSnapshotDateIso(attribution.to_batch.as_of_date)}
-            </p>
-          ) : null}
-        </div>
-        {diffHref ? (
-          <a href={diffHref} className="chip chip-muted">
-            Full snapshot changes
-          </a>
-        ) : null}
+  const available = attribution.opening_value_gbp != null && attribution.closing_value_gbp != null && attribution.residual_market_movement_gbp != null;
+  const comparison = attribution.from_batch && attribution.to_batch
+    ? `from=${attribution.from_batch.id}&to=${attribution.to_batch.id}` : null;
+  const href = comparison ? scopedNavigationUrl(`/activity?tab=changes&${comparison}`, search) : null;
+  const movers = (title: string, rows: SnapshotAttributionInstrument[]) => <div className="min-w-0">
+    <h3 className="mb-1 text-xs font-medium text-slate-400">{title}</h3>
+    {rows.length ? <ul className="space-y-2">{rows.slice(0, 2).map((row) => {
+      const params = new URLSearchParams(comparison ?? "");
+      params.set("account", row.account_name); params.set("inst", String(row.instrument_id));
+      return <li key={row.instrument_id}>
+        <a className="flex min-h-9 items-center justify-between gap-3 rounded text-sm focus-visible:outline" href={scopedNavigationUrl(`/portfolio?tab=holdings&${params}`, search)}>
+          <span className="min-w-0 truncate text-cyan-200" title={`${row.security_name} · ${row.identifier} · ${row.account_name}`}>{row.security_name}</span>
+          <span className={`tabular whitespace-nowrap ${row.estimated_market_movement_gbp >= 0 ? "text-pos" : "text-neg"}`}>{signedGbp(row.estimated_market_movement_gbp)}</span>
+        </a>
+      </li>;
+    })}</ul> : <p className="text-xs text-slate-400">None in this comparison</p>}
+  </div>;
+  return <section className="surface-card min-w-0 p-4 sm:p-5" aria-labelledby="attribution-title">
+    <h2 id="attribution-title" className="text-base font-semibold">What changed</h2>
+    <p className="mt-1 text-xs text-slate-400">Latest snapshot comparison{attribution.from_batch && attribution.to_batch
+      ? ` · ${formatSnapshotDateIso(attribution.from_batch.as_of_date)} – ${formatSnapshotDateIso(attribution.to_batch.as_of_date)}` : ""}</p>
+    {available ? <>
+      <AttributionWaterfall attribution={attribution} />
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
+        {movers("Top contributors", attribution.top_contributors)}
+        {movers("Top detractors", attribution.top_detractors)}
       </div>
-
-      {available ? (
-        <>
-          <AttributionWaterfall attribution={attribution} />
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <AttributionStat
-              label="Net external flows"
-              value={signedGbp(attribution.net_external_flow_gbp ?? 0)}
-              detail={`${toGbp(attribution.contributions_gbp)} in · ${toGbp(attribution.withdrawals_gbp)} out`}
-            />
-            <AttributionStat
-              label="DRIP"
-              value={toGbp(attribution.drip_proxy_gbp)}
-              detail="Internal reinvested income"
-            />
-            <AttributionStat
-              label="Estimated market movement"
-              value={toGbp(marketMovement ?? 0)}
-              detail="Residual after observed flows"
-              tone={(marketMovement ?? 0) >= 0 ? "pos" : "neg"}
-            />
-          </div>
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <MoverList title="Top contributors" rows={attribution.top_contributors} />
-            <MoverList title="Top detractors" rows={attribution.top_detractors} />
-          </div>
-        </>
-      ) : (
-        <p className="mt-3 rounded-xl bg-white/[0.02] p-3 text-xs text-slate-400">
-          {attribution.notes[attribution.notes.length - 1] ??
-            "Snapshot attribution is not available."}
-        </p>
-      )}
-    </section>
-  );
-}
-
-function AttributionStat({
-  label,
-  value,
-  detail,
-  tone = "muted",
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  tone?: "pos" | "neg" | "muted";
-}) {
-  const toneClass = tone === "pos" ? "text-pos" : tone === "neg" ? "text-neg" : "text-white";
-  return (
-    <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2">
-      <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className={`tabular mt-1 text-lg font-semibold ${toneClass}`}>{value}</p>
-      <p className="mt-1 text-[11px] text-slate-600">{detail}</p>
-    </div>
-  );
-}
-
-function MoverList({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: SnapshotAttributionInstrument[];
-}) {
-  return (
-    <div className="min-w-0">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-        {title}
-      </p>
-      {rows.length > 0 ? (
-        <div className="space-y-2">
-          {rows.slice(0, 3).map((row) => (
-            <div
-              key={row.instrument_id}
-              className="flex items-center gap-3 rounded-xl bg-white/[0.02] px-3 py-2"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-slate-200">{row.security_name}</p>
-                <p className="truncate text-[11px] text-slate-600">
-                  {row.identifier} · {row.account_name}
-                </p>
-              </div>
-              <span
-                className={`tabular text-xs font-semibold ${
-                  row.estimated_market_movement_gbp >= 0 ? "text-pos" : "text-neg"
-                }`}
-              >
-                {signedGbp(row.estimated_market_movement_gbp)}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="rounded-xl bg-white/[0.02] p-3 text-xs text-slate-600">None</p>
-      )}
-    </div>
-  );
+    </> : <p className="mt-3 text-sm text-amber-200">Attribution unavailable</p>}
+    <div className="mt-3 space-y-2">{attribution.notes.map((note) => <p key={note} className="text-xs text-slate-400">{note}</p>)}</div>
+    {href && <a href={href} className="mt-3 inline-flex min-h-9 items-center text-sm text-cyan-200 underline">Full snapshot changes</a>}
+  </section>;
 }
