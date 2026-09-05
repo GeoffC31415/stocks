@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
+import { TargetDriftPanel } from "../components/TargetDriftPanel";
 import { GroupsSection } from "../components/GroupsSection";
 
 export function Groups() {
@@ -42,6 +43,8 @@ export function Groups() {
         </span>
       </div>
 
+      <TargetDriftPanel />
+      <p className="text-sm text-slate-300">Group editor below includes all accounts; target analysis above follows the selected account. Editing memberships changes descriptive tags only; no portfolio orders are created.</p>
       <GroupsSection
         groups={groups}
         instruments={instruments}

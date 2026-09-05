@@ -71,6 +71,7 @@ export function GroupsSection({
       setNewGroupName("");
       setNewGroupTarget("");
       queryClient.invalidateQueries({ queryKey: ["groups"] });
+      queryClient.invalidateQueries({ queryKey: ["allocation-targets"] });
     },
   });
 
@@ -147,7 +148,7 @@ export function GroupsSection({
             <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-amber-200">
               Possible double-counting
             </h3>
-            <span className="chip chip-amber tabular text-[10px]">
+            <span className="chip chip-amber tabular text-xs">
               {duplicatedInstruments.length} holding
               {duplicatedInstruments.length === 1 ? "" : "s"}
             </span>
@@ -163,15 +164,15 @@ export function GroupsSection({
                 className="flex items-start justify-between gap-3 rounded-md border border-amber-500/10 bg-white/[0.02] px-3 py-2"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-sm text-slate-200">
                       {i.identifier}
                     </span>
-                    <span className="shrink-0 rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+                    <span className="min-w-0 break-words rounded-full [overflow-wrap:anywhere] border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-xs font-medium text-slate-400">
                       {i.account_name}
                     </span>
                   </div>
-                  <div className="truncate text-[11px] text-slate-500">
+                  <div className="truncate text-xs text-slate-400">
                     {i.security_name}
                   </div>
                 </div>
@@ -179,7 +180,7 @@ export function GroupsSection({
                   {i.group_ids.map((gid) => (
                     <span
                       key={gid}
-                      className="chip chip-amber tabular text-[10px]"
+                      className="chip chip-amber tabular text-xs"
                     >
                       {groupNameById.get(gid) ?? `Group #${gid}`}
                     </span>
@@ -192,17 +193,17 @@ export function GroupsSection({
       ) : null}
 
       {ungroupedInstruments.length > 0 ? (
-        <div className="glass rounded-2xl p-5">
+        <div className="glass min-w-0 max-w-full rounded-2xl p-5">
           <div className="flex items-center gap-2">
             <Inbox size={14} className="text-aurora-cyan" />
             <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
               Ungrouped holdings
             </h3>
-            <span className="chip chip-muted tabular text-[10px]">
+            <span className="chip chip-muted tabular text-xs">
               {ungroupedInstruments.length}
             </span>
           </div>
-          <p className="mt-1.5 text-[12px] text-slate-500">
+          <p className="mt-1.5 text-[12px] text-slate-400">
             {groups.length === 0
               ? "Create a group above, then assign these holdings to it."
               : "Holdings that don't belong to any group yet. Assign each one to keep your allocation complete."}
@@ -225,11 +226,11 @@ export function GroupsSection({
                         <span className="truncate text-sm text-slate-200">
                           {i.identifier}
                         </span>
-                        <span className="shrink-0 rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+                        <span className="min-w-0 break-words rounded-full [overflow-wrap:anywhere] border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-xs font-medium text-slate-400">
                           {i.account_name}
                         </span>
                       </div>
-                      <div className="truncate text-[11px] text-slate-500">
+                      <div className="truncate text-xs text-slate-400">
                         {i.security_name}
                       </div>
                     </div>
@@ -280,7 +281,7 @@ export function GroupsSection({
                     </div>
                   </div>
                   {addError ? (
-                    <p className="mt-1.5 text-[11px] text-rose-400">
+                    <p className="mt-1.5 text-xs text-rose-400">
                       {addError}
                     </p>
                   ) : null}
@@ -291,19 +292,19 @@ export function GroupsSection({
         </div>
       ) : null}
 
-      <div className="glass rounded-2xl p-5">
+      <div className="glass min-w-0 max-w-full rounded-2xl p-5">
         <div className="flex items-center gap-2">
           <Plus size={14} className="text-aurora-cyan" />
           <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
             New group
           </h3>
         </div>
-        <div className="mt-3 flex gap-2">
+        <div className="mt-3 flex flex-wrap gap-2">
           <input
             value={newGroupName}
             onChange={(e) => setNewGroupName(e.target.value)}
             placeholder="Group name (e.g. Tech, ETFs, EM)"
-            className="flex-1 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:border-aurora-cyan/60 focus:outline-none"
+            className="min-w-0 flex-1 basis-40 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-sm text-slate-200 placeholder:text-slate-400 focus:border-aurora-cyan/60 focus:outline-none"
           />
           <input
             value={newGroupTarget}
@@ -313,7 +314,7 @@ export function GroupsSection({
             min="0"
             max="100"
             step="0.1"
-            className="w-28 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-sm text-slate-200 placeholder:text-slate-600 focus:border-aurora-cyan/60 focus:outline-none"
+            className="w-28 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-sm text-slate-200 placeholder:text-slate-400 focus:border-aurora-cyan/60 focus:outline-none"
           />
           <button
             type="button"
@@ -334,9 +335,9 @@ export function GroupsSection({
 
       {groups.length === 0 ? (
         <div className="glass rounded-2xl p-8 text-center">
-          <Layers size={20} className="mx-auto text-slate-600" />
+          <Layers size={20} className="mx-auto text-slate-400" />
           <p className="mt-2 text-sm text-slate-400">No groups yet</p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-400">
             Organise instruments into custom buckets above.
           </p>
         </div>
@@ -386,6 +387,28 @@ function GroupEditor({
   const [selected, setSelected] = useState<number[]>(
     current.map((i) => i.id),
   );
+  const [hasPendingEdits, setHasPendingEdits] = useState(false);
+
+  // `current` can arrive after the group list (instruments and groups are
+  // separate queries), so the useState initializer above may have seen an
+  // empty membership. Reconcile until the user makes their own edit.
+  const currentKey = useMemo(
+    () => current.map((i) => i.id).sort((a, b) => a - b).join(","),
+    [current],
+  );
+  const selectedKey = useMemo(
+    () => [...selected].sort((a, b) => a - b).join(","),
+    [selected],
+  );
+  const inSync = currentKey === selectedKey;
+
+  useEffect(() => {
+    if (inSync) {
+      if (hasPendingEdits) setHasPendingEdits(false);
+      return;
+    }
+    if (!hasPendingEdits) setSelected(current.map((i) => i.id));
+  }, [currentKey, inSync, hasPendingEdits, current]);
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(group.name);
@@ -473,7 +496,8 @@ function GroupEditor({
 
   const submitTarget = async () => {
     const target = targetDraft.trim() ? Number(targetDraft) : null;
-    if (target != null && (Number.isNaN(target) || target < 0 || target > 100)) return;
+    if (target != null && (!Number.isFinite(target) || target < 0 || target > 100)) return;
+    if (target === group.target_allocation_pct) return;
     setIsSavingTarget(true);
     try {
       await onTargetSave(target);
@@ -483,18 +507,18 @@ function GroupEditor({
   };
 
   return (
-    <div className="glass rounded-2xl p-5">
+    <div className="glass min-w-0 max-w-full rounded-2xl p-5">
       {isConfirmingDelete ? (
         <div className="mb-3 rounded-xl border border-rose-500/30 bg-rose-500/[0.08] p-3">
           <p className="text-sm font-semibold text-rose-200">
             Delete &ldquo;{group.name}&rdquo;?
           </p>
-          <p className="mt-0.5 text-[11px] text-rose-300/80">
+          <p className="mt-0.5 text-xs text-rose-300/80">
             This removes the group and its {current.length} membership
             {current.length === 1 ? "" : "s"}. Instruments themselves are kept.
           </p>
           {deleteError ? (
-            <p className="mt-1 text-[11px] text-rose-400">{deleteError}</p>
+            <p className="mt-1 text-xs text-rose-400">{deleteError}</p>
           ) : null}
           <div className="mt-2 flex justify-end gap-2">
             <button
@@ -517,7 +541,7 @@ function GroupEditor({
           </div>
         </div>
       ) : null}
-      <div className="mb-3 flex items-center gap-3">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-aurora-accent-soft">
           <Layers size={14} className="text-aurora-cyan" />
         </div>
@@ -563,7 +587,7 @@ function GroupEditor({
                 type="button"
                 onClick={startEdit}
                 aria-label={`Rename ${group.name}`}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-500 opacity-0 transition-all hover:bg-white/[0.04] hover:text-slate-200 focus:opacity-100 group-hover:opacity-100"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-0 transition-all hover:bg-white/[0.04] hover:text-slate-200 focus:opacity-100 group-hover:opacity-100"
               >
                 <Pencil size={11} />
               </button>
@@ -571,19 +595,19 @@ function GroupEditor({
                 type="button"
                 onClick={startDeleteConfirm}
                 aria-label={`Delete ${group.name}`}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-500 opacity-0 transition-all hover:bg-rose-500/[0.12] hover:text-rose-300 focus:opacity-100 group-hover:opacity-100"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-slate-400 opacity-0 transition-all hover:bg-rose-500/[0.12] hover:text-rose-300 focus:opacity-100 group-hover:opacity-100"
               >
                 <Trash2 size={11} />
               </button>
             </div>
           )}
-          <p className="tabular text-[11px] text-slate-500">
+          <p className="tabular text-xs text-slate-400">
             {selected.length} members ·{" "}
             {group.total_value_gbp != null
               ? toGbp(group.total_value_gbp)
               : "—"}
           </p>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <input
               value={targetDraft}
               onChange={(e) => setTargetDraft(e.target.value)}
@@ -594,12 +618,12 @@ function GroupEditor({
               step="0.1"
               placeholder="Target %"
               disabled={isSavingTarget}
-              className="w-24 rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-[11px] text-slate-300 placeholder:text-slate-600 focus:border-aurora-cyan/60 focus:outline-none"
+              className="w-24 rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-1 text-xs text-slate-300 placeholder:text-slate-400 focus:border-aurora-cyan/60 focus:outline-none"
             />
-            <span className="text-[11px] text-slate-600">target allocation</span>
+            <span className="text-xs text-slate-400">target allocation</span>
           </div>
           {renameError ? (
-            <p className="mt-1 text-[11px] text-rose-400">{renameError}</p>
+            <p className="mt-1 text-xs text-rose-400">{renameError}</p>
           ) : null}
         </div>
         <button
@@ -607,7 +631,7 @@ function GroupEditor({
           className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors ${
             dirty
               ? "bg-aurora-accent text-white shadow-glow-accent"
-              : "border border-white/[0.06] bg-white/[0.02] text-slate-500"
+              : "border border-white/[0.06] bg-white/[0.02] text-slate-400"
           }`}
           onClick={() => onSave(selected)}
           disabled={!dirty}
@@ -637,23 +661,24 @@ function GroupEditor({
                 <input
                   type="checkbox"
                   checked={isOn}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setHasPendingEdits(true);
                     setSelected((prev) =>
                       e.target.checked
                         ? [...prev, i.id]
                         : prev.filter((id) => id !== i.id),
-                    )
-                  }
+                    );
+                  }}
                   className="accent-aurora-cyan"
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
+                  <span className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-slate-300">{i.identifier}</span>
-                    <span className="shrink-0 rounded-full border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+                    <span className="min-w-0 break-words rounded-full [overflow-wrap:anywhere] border border-white/[0.06] bg-white/[0.03] px-1.5 py-0.5 text-xs font-medium text-slate-400">
                       {i.account_name}
                     </span>
                   </span>
-                  <span className="block truncate text-[11px] text-slate-600">
+                  <span className="block truncate text-xs text-slate-400">
                     {i.security_name}
                   </span>
                 </span>

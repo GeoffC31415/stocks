@@ -5,6 +5,7 @@ import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.allocation_target_schemas import AllocationTargets
 from app.data_quality_schemas import DataConfidence
 from app.database import get_session
 from app.routers.analysis_scope import validate_analysis_scope
@@ -21,6 +22,7 @@ from app.schemas import (
     SnapshotAttributionResponse,
 )
 from app.services.allocation_service import get_allocation
+from app.services.allocation_target_service import get_allocation_targets
 from app.services.attribution_service import get_snapshot_attribution
 from app.services.data_quality_service import get_data_confidence
 from app.services.market_data_service import fetch_history
@@ -48,6 +50,15 @@ def _to_instrument_out(row: dict) -> InstrumentOut:
         row["snapshot"],
         snapshot_as_of_date=row.get("snapshot_as_of_date"),
     )
+
+
+@router.get("/allocation-targets", response_model=AllocationTargets, dependencies=[Depends(validate_analysis_scope)])
+async def allocation_targets(
+    account_name: str | None = None,
+    tolerance_pp: float = Query(2, ge=0, le=100, allow_inf_nan=False),
+    session: AsyncSession = Depends(get_session),
+) -> AllocationTargets:
+    return await get_allocation_targets(session, account_name=account_name, tolerance_pp=tolerance_pp)
 
 
 @router.get("/allocation", response_model=AllocationResponse)
