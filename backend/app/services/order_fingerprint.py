@@ -40,6 +40,7 @@ def order_fingerprint(
     quantity: float | None,
     cost_proceeds_gbp: float | None,
     country: str | None,
+    source_event_id: str | None = None,
 ) -> str:
     payload = {
         "account_name": _normalise_text(account_name),
@@ -51,5 +52,7 @@ def order_fingerprint(
         "security_name": _normalise_text(security_name),
         "side": _normalise_text(side),
     }
+    if source_event_id is not None:
+        payload["source_event_id"] = _normalise_text(source_event_id)
     encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()

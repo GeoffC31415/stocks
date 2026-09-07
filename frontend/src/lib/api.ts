@@ -246,6 +246,11 @@ export type OrderImportBatchOut = {
   row_count: number;
 };
 
+export type Trading212Status = {
+  configured: boolean;
+  account_name: string;
+};
+
 export type EstimatedTimeseriesPoint = {
   month: string;
   estimated_value_gbp: number;
@@ -849,6 +854,20 @@ export const api = {
       body: formData
     });
   },
+  getTrading212Status: () =>
+    requestJson<Trading212Status>("/api/trading212/status"),
+  syncTrading212Portfolio: (force = false) => {
+    const params = new URLSearchParams({ force: String(force) });
+    return requestJson<{ batch: ImportBatch; summary: Record<string, unknown> }>(
+      `/api/trading212/sync/portfolio?${params.toString()}`,
+      { method: "POST" },
+    );
+  },
+  syncTrading212Orders: (force = false) =>
+    requestJson<OrderImportBatchOut>(
+      `/api/trading212/sync/orders?force=${String(force)}`,
+      { method: "POST" },
+    ),
   getOrderAnalytics: (dripThreshold: number, accountName?: string | null) => {
     const params = new URLSearchParams();
     params.set("drip_threshold", String(dripThreshold));
@@ -984,14 +1003,4 @@ export const api = {
     return requestJson<CGTSummaryResponse>(`/api/cgt/summary?${params.toString()}`);
   },
 
-  // Fetch (Barclays Smart Investor)
-  fetchBarclays: () =>
-    requestJson<{ status: string; message: string }>(
-      "/api/fetch/barclays",
-      { method: "POST" },
-    ),
-  getFetchStatus: () =>
-    requestJson<{ status: string; message: string; report_path: string | null; error: string | null }>(
-      "/api/fetch/status",
-    ),
 };

@@ -20,6 +20,7 @@ class ParsedOrderRow:
     cost_proceeds_gbp: float | None
     country: str | None
     is_drip: bool
+    source_event_id: str | None = None
 
 
 def parse_barclays_order_xls_bytes(

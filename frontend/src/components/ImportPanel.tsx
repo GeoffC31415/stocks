@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Link, Upload } from "lucide-react";
 import {
@@ -26,6 +26,21 @@ export function ImportPanel() {
   const [orderFile, setOrderFile] = useState<File | null>(null);
   const [forceOrderImport, setForceOrderImport] = useState(false);
   const [orderSource, setOrderSource] = useState<BrokerSource>("barclays");
+
+  const { data: trading212Status } = useQuery({
+    queryKey: ["trading212Status"],
+    queryFn: api.getTrading212Status,
+  });
+
+  const syncTrading212Portfolio = useMutation({
+    mutationFn: () => api.syncTrading212Portfolio(forceImport),
+    onSuccess: () => queryClient.invalidateQueries(),
+  });
+
+  const syncTrading212Orders = useMutation({
+    mutationFn: () => api.syncTrading212Orders(forceOrderImport),
+    onSuccess: () => queryClient.invalidateQueries(),
+  });
 
   const snapshotPreview = useMemo(() => {
     if (!selectedFile) return null;
@@ -62,45 +77,6 @@ export function ImportPanel() {
     },
   });
 
-  // Fetch state
-  const [fetchStatus, setFetchStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [fetchMessage, setFetchMessage] = useState("");
-  const [fetchReportPath, setFetchReportPath] = useState<string | null>(null);
-  const [fetchError, setFetchError] = useState<string | null>(null);
-
-  const fetchMutation = useMutation({
-    mutationFn: api.fetchBarclays,
-    onSuccess: (data) => {
-      setFetchStatus("loading");
-      setFetchMessage(data.message);
-    },
-    onError: (error: any) => {
-      setFetchStatus("error");
-      setFetchError(error.message || "Fetch failed");
-    },
-  });
-
-  // Poll fetch status
-  const { data: statusData, refetch: refetchStatus } = useQuery({
-    queryKey: ["fetchStatus"],
-    queryFn: api.getFetchStatus,
-    enabled: fetchStatus === "loading",
-    refetchInterval: fetchStatus === "loading" ? 3000 : false,
-    refetchIntervalInBackground: false,
-  });
-
-  useEffect(() => {
-    if (statusData?.status === "success") {
-      setFetchStatus("success");
-      setFetchMessage(statusData.message);
-      setFetchReportPath(statusData.report_path);
-      queryClient.invalidateQueries({ queryKey: ["imports"] });
-    } else if (statusData?.status === "failed") {
-      setFetchStatus("error");
-      setFetchMessage(statusData.message);
-      setFetchError(statusData.error);
-    }
-  }, [statusData, queryClient]);
 
   const segments: Segment<Tab>[] = [
     { key: "portfolio", label: "Portfolio snapshot" },
@@ -203,41 +179,42 @@ export function ImportPanel() {
             </div>
           )}
 
-          <div className="pt-4 border-t border-white/[0.06]">
-            <p className="text-xs text-slate-500 mb-2">Or fetch automatically from Barclays Smart Investor:</p>
+          <div className="border-t border-white/[0.06] pt-4">
+            <p className="mb-2 text-xs text-slate-500">
+              Or sync the current portfolio directly from the read-only Trading 212 API.
+            </p>
             <button
               type="button"
-              onClick={() => fetchMutation.mutate()}
-              disabled={fetchStatus === "loading" || fetchMutation.isPending}
-              className="btn-primary w-full flex items-center justify-center gap-2"
+              onClick={() => syncTrading212Portfolio.mutate()}
+              disabled={!trading212Status?.configured || syncTrading212Portfolio.isPending}
+              className="btn-primary flex w-full items-center justify-center gap-2"
             >
-              {fetchStatus === "loading" || fetchMutation.isPending ? (
-                <>
-                  <span className="animate-spin">⟳</span>
-                  Fetching from Barclays…
-                </>
-              ) : fetchStatus === "success" ? (
-                <>
-                  <CheckCircle2 size={16} className="text-pos" />
-                  Fetch Complete
-                </>
-              ) : (
-                <>
-                  <Download size={16} />
-                  Fetch Barclays Snapshot
-                </>
-              )}
+              <Download size={16} />
+              {syncTrading212Portfolio.isPending
+                ? "Syncing Trading 212…"
+                : "Sync Trading 212 snapshot"}
             </button>
-            {fetchStatus === "loading" && (
-              <p className="text-xs text-slate-400 mt-1">{fetchMessage}</p>
+            {trading212Status && !trading212Status.configured && (
+              <p className="mt-1 text-xs text-amber-400">
+                Add the Trading 212 credentials to .env to enable sync.
+              </p>
             )}
-            {fetchStatus === "success" && fetchReportPath && (
-              <p className="text-xs text-pos mt-1">Report saved: {fetchReportPath.split("/").pop()}</p>
+            {syncTrading212Portfolio.isSuccess && (
+              <div className="mt-2 space-y-1">
+                <p className="flex items-center gap-1 text-xs text-pos">
+                  <CheckCircle2 size={12} /> Trading 212 snapshot synced.
+                </p>
+                <ImportSummary summary={syncTrading212Portfolio.data.summary} />
+              </div>
             )}
-            {fetchStatus === "error" && (
-              <p className="text-xs text-neg mt-1">{fetchError || fetchMessage}</p>
+            {syncTrading212Portfolio.isError && (
+              <p className="mt-1 text-xs text-neg">
+                {(syncTrading212Portfolio.error as Error).message}
+              </p>
             )}
           </div>
+
+
         </div>
       ) : (
         <div className="mt-5 space-y-3">
@@ -294,6 +271,35 @@ export function ImportPanel() {
               Imported {importOrdersMutation.data?.row_count} orders.
             </p>
           )}
+
+          <div className="border-t border-white/[0.06] pt-4">
+            <p className="mb-2 text-xs text-slate-500">
+              Or sync completed fills from Trading 212. These are imported as normal
+              buys and sells, not inferred dividend reinvestments.
+            </p>
+            <button
+              type="button"
+              onClick={() => syncTrading212Orders.mutate()}
+              disabled={!trading212Status?.configured || syncTrading212Orders.isPending}
+              className="btn-amber flex w-full items-center justify-center gap-2"
+            >
+              <Download size={16} />
+              {syncTrading212Orders.isPending
+                ? "Syncing Trading 212…"
+                : "Sync Trading 212 orders"}
+            </button>
+            {syncTrading212Orders.isSuccess && (
+              <p className="mt-2 flex items-center gap-1 text-xs text-pos">
+                <CheckCircle2 size={12} />
+                Imported {syncTrading212Orders.data.row_count} Trading 212 orders.
+              </p>
+            )}
+            {syncTrading212Orders.isError && (
+              <p className="mt-1 text-xs text-neg">
+                {(syncTrading212Orders.error as Error).message}
+              </p>
+            )}
+          </div>
         </div>
       )}
     </div>

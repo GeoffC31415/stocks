@@ -1,6 +1,6 @@
 # Portfolio Tracker
 
-A private portfolio analysis app combining imported holdings snapshots and order history. It supports Barclays XLS exports (`LoadDocstore.xls`, `Portfolio.xls`, `OrderHistory.xls`) and configured broker parsers. Snapshot values describe their import valuation dates, not live market wealth. Orders and snapshots are deduplicated; neither source proves complete cash-flow or dividend coverage.
+A private portfolio analysis app combining imported holdings snapshots and order history. It supports Hargreaves Lansdown CSV exports, local Barclays XLS imports, and read-only Trading 212 API sync. Snapshot values describe their import valuation dates, not live market wealth. Orders and snapshots are deduplicated; neither source proves complete cash-flow or dividend coverage.
 
 ## Workspaces
 
@@ -63,6 +63,18 @@ Drivers retain current, closed and unlinked records. Current/closed status uses 
 ### Repair workflow
 
 Start at Data confidence; identify affected accounts, dates and source records. Verify the broker file and import coverage, then resolve only evidenced matching/classification exceptions. Review the source account because repair queues can include all accounts. Keep a verified private backup before imports or bulk changes, refresh derived data afterward, and recheck confidence. Healthy matching alone does not prove complete cash-flow, market-history or income coverage.
+
+## Trading 212 read-only sync
+
+Create a Trading 212 API key with portfolio and historical-order read permissions only; do not grant order-placement permissions. Copy `.env.example` to `.env` and set:
+
+```dotenv
+PORTFOLIO_TRADING212_API_KEY=...
+PORTFOLIO_TRADING212_API_SECRET=...
+PORTFOLIO_TRADING212_ACCOUNT_NAME=Trading 212
+```
+
+Restart the backend after changing `.env`, then use **Data → Import** to sync the current snapshot or completed order history. The `.env` file is ignored by Git. A key without account-summary permission still imports positions, but deliberately omits cash because the API cannot verify it. Trading 212 purchases are imported as ordinary buys rather than inferred DRIPs.
 
 ## Development and safe verification
 

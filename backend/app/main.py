@@ -9,7 +9,6 @@ from fastapi.staticfiles import StaticFiles
 
 from app.database import init_db
 from app.routers.cgt import router as cgt_router
-from app.routers.fetch import router as fetch_router
 from app.routers.groups import router as groups_router
 from app.routers.imports import router as imports_router
 from app.routers.instruments import router as instruments_router
@@ -17,6 +16,7 @@ from app.routers.market_data import router as market_data_router
 from app.routers.matching import router as matching_router
 from app.routers.orders import router as orders_router
 from app.routers.portfolio import router as portfolio_router
+from app.routers.trading212 import router as trading212_router
 
 
 @asynccontextmanager
@@ -33,13 +33,18 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(cgt_router)
-app.include_router(fetch_router)
+
 app.include_router(imports_router)
 app.include_router(orders_router)
 app.include_router(portfolio_router)
@@ -47,6 +52,7 @@ app.include_router(instruments_router)
 app.include_router(groups_router)
 app.include_router(matching_router)
 app.include_router(market_data_router)
+app.include_router(trading212_router)
 
 
 @app.get("/api/health")

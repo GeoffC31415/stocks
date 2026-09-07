@@ -176,6 +176,7 @@ async def ingest_parsed_orders(
             quantity=row.quantity,
             cost_proceeds_gbp=row.cost_proceeds_gbp,
             country=row.country,
+            source_event_id=row.source_event_id,
         )
         if fingerprint in seen_fingerprints:
             continue

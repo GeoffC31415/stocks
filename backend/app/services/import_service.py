@@ -265,6 +265,7 @@ async def import_holding_snapshot(
     filename: str | None,
     file_sha256: str,
     force: bool = False,
+    preserve_missing_identifiers: set[str] | None = None,
 ) -> tuple[ImportBatch, dict[str, Any]]:
     if not force:
         dup = (
@@ -339,6 +340,9 @@ async def import_holding_snapshot(
     for iid, prev_s in prev_by_instrument.items():
         if iid not in curr_ids:
             inst = prev_s.instrument
+            if inst.identifier in (preserve_missing_identifiers or set()):
+                inst.closed_at = None
+                continue
             closed.append(
                 {
                     "instrument_id": iid,
