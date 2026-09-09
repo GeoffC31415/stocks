@@ -153,13 +153,22 @@ async def get_snapshot_attribution(
             note="A boundary snapshot has a missing or non-finite GBP value, so attribution is unavailable.",
         )
 
+    from app.services.cash_flow_service import CashFlowCoverageError, external_flows_for_period
+
+    try:
+        flows = await external_flows_for_period(session, start=from_batch.as_of_date,
+                                               end=to_batch.as_of_date, account_name=account_name,
+                                               through_batch=to_batch)
+    except CashFlowCoverageError as exc:
+        return _unavailable(from_batch=from_batch, to_batch=to_batch, note=str(exc))
+
     history_query = select(Order)
     if account_name is not None:
         history_query = history_query.where(order_account_scope(account_name))
     has_order_history = (
         await session.execute(history_query.limit(1))
     ).scalar_one_or_none() is not None
-    if not has_order_history:
+    if not has_order_history and not set(opening_state.account_dates).issubset(flows.ledger_accounts):
         result = _unavailable(
             from_batch=from_batch,
             to_batch=to_batch,
@@ -186,14 +195,18 @@ async def get_snapshot_attribution(
     unlinked_count = 0
     missing_amount_count = 0
     source_orders: dict[int, list[int]] = defaultdict(list)
+    instrument_accounts = {s.instrument_id: s.instrument.account_name for s in boundary_snapshots}
     for order in orders:
+        effective_account = instrument_accounts.get(order.instrument_id, order.account_name) if order.instrument_id is not None else order.account_name
+        ledger_backed = effective_account in flows.ledger_accounts
         if order.cost_proceeds_gbp is None or not math.isfinite(order.cost_proceeds_gbp) or order.side.lower() not in {"buy", "sell"}:
             missing_amount_count += 1
             continue
         amount = abs(float(order.cost_proceeds_gbp))
         side = order.side.lower()
         if side == "buy" and order.is_drip:
-            drip_proxy += amount
+            if not ledger_backed:
+                drip_proxy += amount
             if order.instrument_id is not None:
                 drip_by_instrument[order.instrument_id] += amount
         elif side == "buy":
@@ -211,6 +224,9 @@ async def get_snapshot_attribution(
         else:
             source_orders[order.instrument_id].append(order.id)
 
+    # Account funding comes from the ledger when available. Per-security trade
+    # allocations below remain useful but are internal, not additional funding.
+    contributions, withdrawals = flows.contributions, flows.withdrawals
     opening_value = sum(float(snapshot.value_gbp) for snapshot in opening.values())
     closing_value = sum(float(snapshot.value_gbp) for snapshot in closing.values())
     raw_change = closing_value - opening_value
@@ -247,7 +263,7 @@ async def get_snapshot_attribution(
                 "opening_value_gbp": opening_amount,
                 "closing_value_gbp": closing_amount,
                 "raw_value_change_gbp": raw,
-                "net_external_flow_gbp": external,
+                "net_external_flow_gbp": (0.0 if snapshot.instrument.account_name in flows.ledger_accounts else external),
                 "drip_proxy_gbp": drip,
                 "estimated_market_movement_gbp": raw - external - drip,
             }
@@ -262,6 +278,10 @@ async def get_snapshot_attribution(
         key=lambda row: row["estimated_market_movement_gbp"],
     )[:5]
     notes = list(BASE_NOTES)
+    if flows.ledger_accounts:
+        notes = [note for note in notes if not note.startswith("Sales are")]
+        notes.extend(flows.notes)
+        notes.append("Security-level movement estimates subtract purchases/sales as internal allocations; account cash funding is not allocated to individual securities. Cash and unallocated residuals may include those internal movements.")
     if unlinked_count:
         notes.append(
             f"{unlinked_count} flow order(s) were not linked to an instrument; per-instrument estimates do not allocate those flows."

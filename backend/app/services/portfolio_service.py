@@ -17,8 +17,7 @@ from app.models import (
     Order,
 )
 from app.schemas import InstrumentOut
-from app.services.order_scope_service import order_account_scope
-from app.services.valuation_service import valuation_states
+from app.services.valuation_service import scope_baseline_flows, valuation_states
 
 
 async def get_latest_batch(session: AsyncSession) -> ImportBatch | None:
@@ -501,6 +500,9 @@ async def get_portfolio_return_summary(
         return _unavailable_return_summary(notes + ["The requested start date is after the end date."])
 
     states, coverage_start = await valuation_states(session, account_name=account_name)
+    scope_baselines = scope_baseline_flows(states) if account_name is None else []
+    if account_name is None:
+        coverage_start = None
     if not states:
         return _unavailable_return_summary(notes + ["No portfolio snapshots are available for this selection."])
     if coverage_start is not None:
@@ -546,14 +548,21 @@ async def get_portfolio_return_summary(
         result.update({"period_start": period_start, "period_end": period_end})
         return result
 
-    orders_query = select(Order).where(
-        Order.order_date > dt.datetime.combine(period_start, dt.time.max),
-        Order.order_date <= dt.datetime.combine(period_end, dt.time.max),
-    )
-    if account_name is not None:
-        orders_query = orders_query.where(order_account_scope(account_name))
-    orders_result = await session.execute(orders_query.order_by(Order.order_date))
-    contributions, withdrawals, signed_flows = classify_external_flows(orders_result.scalars().all())
+    from app.services.cash_flow_service import CashFlowCoverageError, external_flows_for_period
+
+    try:
+        flows = await external_flows_for_period(session, start=period_start, end=period_end,
+                                               account_name=account_name)
+    except CashFlowCoverageError as exc:
+        return _unavailable_return_summary(notes + [str(exc)])
+    contributions, withdrawals, signed_flows = flows.contributions, flows.withdrawals, flows.signed_flows
+    baseline_flows = [(date, amount) for date, amount in scope_baselines
+                      if period_start < date <= period_end]
+    signed_flows.extend(baseline_flows)
+    contributions += sum(amount for _, amount in baseline_flows)
+    notes = flows.notes + [note for note in notes if not flows.ledger_accounts or not note.startswith("Imported sale proceeds")]
+    if baseline_flows:
+        notes.insert(0, "New accounts enter the all-account series at their first observed value as a scope baseline, not investment gain.")
 
     total_days = (period_end - period_start).days
     net_external_flow = contributions - withdrawals

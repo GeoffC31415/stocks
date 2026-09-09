@@ -854,6 +854,12 @@ export const api = {
       body: formData
     });
   },
+  syncTrading212: (force = false) =>
+    requestJson<{
+      account_name: string; snapshot: "imported" | "unchanged"; snapshot_rows: number | null;
+      orders: "imported" | "unchanged"; order_rows: number | null;
+      cash_flows_imported: number; cash_flows_total: number; fetched_at: string;
+    }>(`/api/trading212/sync?force=${String(force)}`, { method: "POST" }),
   getTrading212Status: () =>
     requestJson<Trading212Status>("/api/trading212/status"),
   syncTrading212Portfolio: (force = false) => {

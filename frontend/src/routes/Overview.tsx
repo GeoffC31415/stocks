@@ -57,7 +57,7 @@ export function Overview() {
         tone={returnValue == null ? "neutral" : returnValue >= 0 ? "positive" : "negative"}
         description={windowLabel} action={<MetricInfo iconOnly label="Snapshot investment return" topic="totalReturn" context={windowLabel} />} />
       <MetricCard label="Net external flows" value={flow != null ? signedGbp(flow) : unavailable}
-        description="Observed contributions less withdrawals in the performance window; not investment gain." />
+        description="API deposits less withdrawals where synced; trade proxies for other accounts. Performance window, not investment gain." />
     </div>
     <p className="text-xs text-slate-400 md:hidden">What changed below compares the latest snapshots; it has its own dates, separate from performance.</p>
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">

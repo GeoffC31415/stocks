@@ -96,3 +96,21 @@ async def valuation_state_at_batch(
     """Canonical valuation-date state, retaining selected same-date correction precedence."""
     states, _ = await valuation_states(session, account_name=account_name, through_batch=batch)
     return states[-1] if states else None
+
+
+def scope_baseline_flows(states: list[ValuationState]) -> list[tuple[dt.date, float]]:
+    """Treat a newly observed account's first value as a scope baseline, not gain."""
+    seen_accounts: set[str] = set()
+    flows: list[tuple[dt.date, float]] = []
+    for state in states:
+        joined = set(state.account_dates) - seen_accounts
+        for account in sorted(joined):
+            amount = sum(
+                float(snapshot.value_gbp)
+                for snapshot in state.snapshots
+                if snapshot.instrument.account_name == account and snapshot.value_gbp is not None
+            )
+            if amount > 0:
+                flows.append((state.date, amount))
+        seen_accounts.update(state.account_dates)
+    return flows

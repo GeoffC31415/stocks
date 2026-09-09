@@ -15,18 +15,14 @@ import datetime as dt
 import math
 import statistics
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Order
 from app.services.market_data_service import fetch_history
-from app.services.order_scope_service import order_account_scope
 from app.services.performance_metadata import with_performance_metadata
 from app.services.portfolio_service import (
     MIN_ANNUALISATION_DAYS,
-    classify_external_flows,
 )
-from app.services.valuation_service import valuation_states
+from app.services.valuation_service import scope_baseline_flows, valuation_states
 
 # Period -> trailing day count. ``ALL`` means "from the first snapshot".
 # ``YTD`` is resolved relative to the window end (Jan 1 of that year).
@@ -487,11 +483,13 @@ async def build_value_series(
 ) -> tuple[list[dict], dt.date | None]:
     """Use the shared daily state; NaN is an internal invalid-value sentinel only."""
     states, coverage_start = await valuation_states(session, account_name=account_name)
+    baselines = scope_baseline_flows(states) if account_name is None else []
     return [
         {"as_of_date": state.date,
          "value_gbp": state.value if state.value is not None else math.nan,
          "valuation_dates": [{"account_name": account, "date": date}
-                             for account, date in sorted(state.account_dates.items())]}
+                             for account, date in sorted(state.account_dates.items())],
+         "scope_baseline_flows": baselines}
         for state in states
     ], coverage_start
 
@@ -503,6 +501,7 @@ async def _flow_adjusted_block(
     points: list[tuple[dt.date, float]],
     window_start: dt.date,
     window_end: dt.date,
+    scope_baseline_flows: list[tuple[dt.date, float]],
     risk_free_annual_pct: float,
 ) -> dict:
     """Flow-adjusted (Modified Dietz) growth + risk for a window.
@@ -531,18 +530,18 @@ async def _flow_adjusted_block(
         "max_drawdown_pct": None,
     }
     try:
-        orders_query = select(Order).where(
-            Order.order_date > dt.datetime.combine(window_start, dt.time.max),
-            Order.order_date <= dt.datetime.combine(window_end, dt.time.max),
-        )
-        if account_name is not None:
-            orders_query = orders_query.where(order_account_scope(account_name))
-        orders_result = await session.execute(orders_query.order_by(Order.order_date))
-        contributions, withdrawals, signed_flows = classify_external_flows(
-            orders_result.scalars().all()
-        )
+        from app.services.cash_flow_service import external_flows_for_period
+
+        flows = await external_flows_for_period(session, start=window_start, end=window_end,
+                                               account_name=account_name)
+        contributions, withdrawals, signed_flows = flows.contributions, flows.withdrawals, flows.signed_flows
     except Exception:  # noqa: BLE001 - a flow query failure should not kill the panel
         return unavailable
+
+    signed_flows = signed_flows + scope_baseline_flows
+    baseline_contribution = sum(amount for date, amount in scope_baseline_flows
+                                if window_start < date <= window_end)
+    contributions += baseline_contribution
 
     block = compute_flow_adjusted_metrics(
         points,
@@ -551,6 +550,10 @@ async def _flow_adjusted_block(
         withdrawals=withdrawals,
         risk_free_annual_pct=risk_free_annual_pct,
     )
+
+    block["notes"] = flows.notes + block["notes"]
+    if baseline_contribution:
+        block["notes"].insert(0, "New accounts enter the all-account series at their first observed value as a scope baseline, not investment gain.")
 
     # Chain-linked flow-adjusted wealth index + its drawdown, so the KPI max
     # drawdown and the main curve agree on the same interval series.
@@ -580,6 +583,8 @@ async def get_portfolio_performance(
         raise ValueError(f"Unknown period: {period}")
 
     series, coverage_start = await build_value_series(session, account_name=account_name)
+    if account_name is None:
+        coverage_start = None
     if not series:
         return with_performance_metadata({
             "period": period,
@@ -610,6 +615,7 @@ async def get_portfolio_performance(
         }, account_name=account_name)
 
     all_points: list[tuple[dt.date, float]] = [(p["as_of_date"], p["value_gbp"]) for p in series]
+    scope_baselines = series[0].get("scope_baseline_flows", []) if account_name is None else []
     all_points.sort(key=lambda p: p[0])
 
     # All-account growth is only meaningful once every account has been
@@ -684,6 +690,7 @@ async def get_portfolio_performance(
         points=window,
         window_start=window_start_date,
         window_end=window_end_date,
+        scope_baseline_flows=scope_baselines,
         risk_free_annual_pct=risk_free_annual_pct,
     )
 

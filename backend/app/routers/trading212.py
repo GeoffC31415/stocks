@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime as dt  # noqa: TC003 - Pydantic runtime annotation.
 import logging
 
 import httpx
@@ -13,9 +14,11 @@ from app.schemas import ImportBatchOut, ImportResult, OrderImportBatchOut
 from app.services.import_service import DuplicateImportError
 from app.services.order_service import DuplicateOrderImportError
 from app.services.trading212 import (
+    Trading212CashReader,
     Trading212Client,
     Trading212DataError,
     Trading212Reader,
+    sync_cash_history,
     sync_order_history,
     sync_portfolio_snapshot,
 )
@@ -28,6 +31,24 @@ _TRUSTED_ORIGINS = {
     "http://localhost:8000",
     "http://127.0.0.1:8000",
 }
+
+
+class CashFlowSyncResult(BaseModel):
+    account_name: str
+    imported_count: int
+    total_count: int
+    fetched_at: dt.datetime
+
+
+class Trading212SyncResult(BaseModel):
+    account_name: str
+    snapshot: str
+    snapshot_rows: int | None = None
+    orders: str
+    order_rows: int | None = None
+    cash_flows_imported: int
+    cash_flows_total: int
+    fetched_at: dt.datetime
 
 
 class Trading212Status(BaseModel):
@@ -70,15 +91,103 @@ def _provider_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail="Trading 212 sync failed.")
 
 
+@router.post("/sync/cash-flows", response_model=CashFlowSyncResult)
+async def sync_trading212_cash_flows(
+    _origin_guard: None = Depends(require_local_origin),
+    session: AsyncSession = Depends(get_session),
+    client: Trading212CashReader = Depends(get_trading212_client),
+) -> CashFlowSyncResult:
+    try:
+        result = await sync_cash_history(
+            session, client, account_name=settings.trading212_account_name
+        )
+    except Exception as exc:
+        await session.rollback()
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 403:
+            raise HTTPException(
+                status_code=502,
+                detail="Trading 212 cash history requires the read-only history:transactions permission.",
+            ) from exc
+        raise _provider_error(exc) from exc
+    return CashFlowSyncResult.model_validate(result)
+
+
+@router.post("/sync", response_model=Trading212SyncResult)
+async def sync_trading212_all(
+    force: bool = Query(default=False),
+    _origin_guard: None = Depends(require_local_origin),
+    session: AsyncSession = Depends(get_session),
+    client: Trading212Client = Depends(get_trading212_client),
+) -> Trading212SyncResult:
+    """Refresh the complete read-only Trading 212 dataset in one action."""
+    batch = None
+    order_batch = None
+    batch_id = None
+    order_batch_id = None
+    try:
+        try:
+            batch, summary = await sync_portfolio_snapshot(
+                session,
+                client,
+                account_name=settings.trading212_account_name,
+                force=force,
+                commit=False,
+            )
+            snapshot = "imported"
+            batch_id = batch.id
+            snapshot_rows = summary.get("row_count") if isinstance(summary, dict) else None
+        except DuplicateImportError:
+            snapshot, snapshot_rows = "unchanged", None
+        try:
+            order_batch, _inserted = await sync_order_history(
+                session,
+                client,
+                account_name=settings.trading212_account_name,
+                force=force,
+                commit=False,
+            )
+            orders, order_rows = "imported", order_batch.row_count
+            order_batch_id = order_batch.id
+        except DuplicateOrderImportError:
+            orders, order_rows = "unchanged", None
+        cash = await sync_cash_history(
+            session, client, account_name=settings.trading212_account_name, commit=False
+        )
+        await session.commit()
+    except Exception as exc:
+        await session.rollback()
+        # Defensive cleanup protects all-or-nothing semantics even if a future
+        # collaborator accidentally reintroduces an inner commit.
+        from sqlalchemy import delete
+
+        from app.models import ImportBatch, OrderImportBatch
+
+        if batch_id is not None:
+            await session.execute(delete(ImportBatch).where(ImportBatch.id == batch_id))
+        if order_batch_id is not None:
+            await session.execute(
+                delete(OrderImportBatch).where(OrderImportBatch.id == order_batch_id)
+            )
+        await session.commit()
+        raise _provider_error(exc) from exc
+    return Trading212SyncResult(
+        account_name=settings.trading212_account_name,
+        snapshot=snapshot,
+        snapshot_rows=snapshot_rows,
+        orders=orders,
+        order_rows=order_rows,
+        cash_flows_imported=cash["imported_count"],
+        cash_flows_total=cash["total_count"],
+        fetched_at=cash["fetched_at"],
+    )
+
+
 @router.get("/status", response_model=Trading212Status)
 async def trading212_status() -> Trading212Status:
     key = settings.trading212_api_key
     secret = settings.trading212_api_secret
     configured = bool(
-        key
-        and secret
-        and key.get_secret_value().strip()
-        and secret.get_secret_value().strip()
+        key and secret and key.get_secret_value().strip() and secret.get_secret_value().strip()
     )
     return Trading212Status(
         configured=configured,

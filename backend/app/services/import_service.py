@@ -266,6 +266,7 @@ async def import_holding_snapshot(
     file_sha256: str,
     force: bool = False,
     preserve_missing_identifiers: set[str] | None = None,
+    commit: bool = True,
 ) -> tuple[ImportBatch, dict[str, Any]]:
     if not force:
         dup = (
@@ -396,6 +397,7 @@ async def import_holding_snapshot(
         "orders_linked": orders_linked,
     }
     batch.diff_summary = summary
-    await session.commit()
+    if commit:
+        await session.commit()
     await session.refresh(batch)
     return batch, summary

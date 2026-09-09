@@ -493,6 +493,17 @@ class FakeTrading212Client:
             }
         ]
 
+    async def fetch_transactions(self):
+        return [
+            {
+                "reference": "deposit-1",
+                "type": "DEPOSIT",
+                "amount": 50,
+                "currency": "GBP",
+                "dateTime": "2026-09-01T12:00:00Z",
+            }
+        ]
+
 
 class PortfolioOnlyTrading212Client(FakeTrading212Client):
     async def fetch_account_summary(self):
@@ -636,6 +647,7 @@ async def test_trading212_sync_endpoints_use_configured_reader(monkeypatch) -> N
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
+
         async def override_session():
             yield session
 
@@ -649,6 +661,8 @@ async def test_trading212_sync_endpoints_use_configured_reader(monkeypatch) -> N
                 status_response = await client.get("/api/trading212/status")
                 portfolio_response = await client.post("/api/trading212/sync/portfolio")
                 orders_response = await client.post("/api/trading212/sync/orders")
+                combined_response = await client.post("/api/trading212/sync")
+                repeated_combined_response = await client.post("/api/trading212/sync")
         finally:
             app.dependency_overrides.pop(get_session, None)
             app.dependency_overrides.pop(get_trading212_client, None)
@@ -661,3 +675,42 @@ async def test_trading212_sync_endpoints_use_configured_reader(monkeypatch) -> N
     assert portfolio_response.json()["summary"]["row_count"] == 2
     assert orders_response.status_code == 201
     assert orders_response.json()["row_count"] == 1
+    assert combined_response.status_code == 200
+    assert combined_response.json()["snapshot"] == "unchanged"
+    assert combined_response.json()["orders"] == "unchanged"
+    assert combined_response.json()["cash_flows_imported"] == 1
+    assert repeated_combined_response.status_code == 200
+    assert repeated_combined_response.json()["cash_flows_imported"] == 0
+
+
+@pytest.mark.asyncio
+async def test_combined_sync_rolls_back_snapshot_and_orders_when_cash_fails() -> None:
+    from app.models import ImportBatch, OrderImportBatch
+    from app.services.trading212 import Trading212DataError
+    from sqlalchemy import func
+
+    class CashFailureClient(FakeTrading212Client):
+        async def fetch_transactions(self):
+            raise Trading212DataError("cash history failed")
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+
+        async def override_session():
+            yield session
+
+        app.dependency_overrides[get_session] = override_session
+        app.dependency_overrides[get_trading212_client] = CashFailureClient
+        try:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://test"
+            ) as client:
+                response = await client.post("/api/trading212/sync")
+            assert response.status_code == 400
+            assert await session.scalar(select(func.count()).select_from(ImportBatch)) == 0
+            assert await session.scalar(select(func.count()).select_from(OrderImportBatch)) == 0
+        finally:
+            app.dependency_overrides.clear()
+    await engine.dispose()

@@ -169,14 +169,15 @@ async def test_historical_import_cannot_move_current_account_value_backwards(val
 
 
 @pytest.mark.asyncio
-async def test_account_boundaries_do_not_become_returns_or_extra_observations(valuation_db):
+async def test_account_boundaries_become_scope_baselines_without_extra_observations(valuation_db):
     await add_valuation(valuation_db, 1, 1, {1: 100})
     await add_valuation(valuation_db, 2, 5, {2: 200})
     await add_valuation(valuation_db, 3, 10, {1: 110})
     perf = await get_portfolio_performance(valuation_db)
-    assert perf["period_start"] == dt.date(2026, 1, 5)
-    assert perf["start_value_gbp"] == 300
-    assert perf["flow_adjusted"]["total_return_pct"] == pytest.approx(100 / 30, abs=.0001)
+    assert perf["period_start"] == dt.date(2026, 1, 1)
+    assert perf["start_value_gbp"] == 100
+    assert perf["flow_adjusted"]["total_return_pct"] == pytest.approx(3.3333333333)
+    assert any("scope baseline" in note.lower() for note in perf["flow_adjusted"]["notes"])
     points, _ = await build_value_series(valuation_db, account_name="ISA")
     assert [p["as_of_date"].day for p in points] == [1, 10]
     assert perf["scope"]["valuation_dates"] == [

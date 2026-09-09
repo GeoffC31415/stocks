@@ -42,6 +42,7 @@ describe("Overview states", () => {
     vi.spyOn(api, "getSummary").mockResolvedValue(zero);
     show();
     await screen.findByText("Portfolio balance: 0");
+    expect(screen.getByText(/API deposits less withdrawals where synced; trade proxies for other accounts/)).toBeInTheDocument();
     expect(api.getOrderAnalytics).not.toHaveBeenCalled();
     expect(api.getCashflowTimeseries).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Full performance analysis" })).toHaveAttribute("href", "/portfolio?tab=performance");

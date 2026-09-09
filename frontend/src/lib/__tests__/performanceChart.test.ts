@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { joinPerformanceSeries, performanceIndexDomain, sparseDateTicks } from "../performanceChart";
+import { joinPerformanceSeries, performanceIndexDomain, performanceIndexTicks, sparseDateTicks } from "../performanceChart";
 import { chartUtcMs } from "../chartDates";
 
 describe("performance presentation geometry", () => {
@@ -32,6 +32,10 @@ describe("performance presentation geometry", () => {
     expect(new Set(ticks).size).toBe(ticks.length);
     expect(ticks.length).toBeLessThan(days.length - 1);
     expect(sparseDateTicks([], 300)).toEqual([]);
+  });
+  it("anchors clean dynamic performance ticks at 100", () => {
+    expect(performanceIndexTicks([98.6, 106.6, 114.6])).toEqual([100, 110, 120]);
+    expect(performanceIndexTicks([70, 100, 135])).toContain(100);
   });
   it("keeps baseline 100 and extrema in the index domain", () => {
     const [min, max] = performanceIndexDomain([0, 90, 104, 1000]);

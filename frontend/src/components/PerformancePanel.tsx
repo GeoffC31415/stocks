@@ -30,7 +30,7 @@ import { TimelineMarkerLabel } from "./TimelineMarkerLabel";
 import type { MetricTopic } from "../lib/metricGlossary";
 import { performanceMetric, type PerformanceMetricKey } from "../lib/analysisState";
 import type { MetricReason } from "../lib/api";
-import { benchmarkKey as benchKey, joinPerformanceSeries, performanceIndexDomain, sparseDateTicks } from "../lib/performanceChart";
+import { benchmarkKey as benchKey, joinPerformanceSeries, performanceIndexDomain, performanceIndexTicks, sparseDateTicks } from "../lib/performanceChart";
 
 import { PERIODS, useAnalysisScope } from "../state/useAnalysisScope";
 const PERIOD_SEGMENTS = PERIODS.map((key) => ({ key, label: key === "ALL" ? "All" : key }));
@@ -134,6 +134,10 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
   const ticks = sparseDateTicks(chartData.rows.map((row) => row.chartTime as number), chartWidth - 100);
   const drawdownTicks = sparseDateTicks(drawdownData.map((row) => row.chartTime as number), chartWidth - 100);
   const indexDomain = performanceIndexDomain(chartData.rows.flatMap((row) => [
+    row.flowAdjusted, ...(showRaw ? [row.rawValue] : []),
+    ...chartData.benchSymbols.map((symbol) => row[benchKey(symbol)]),
+  ]));
+  const indexTicks = performanceIndexTicks(chartData.rows.flatMap((row) => [
     row.flowAdjusted, ...(showRaw ? [row.rawValue] : []),
     ...chartData.benchSymbols.map((symbol) => row[benchKey(symbol)]),
   ]));
@@ -347,6 +351,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
               tick={{ fontSize: 12, fill: chartTheme.axis }}
               tickFormatter={(v) => indexFmt.format(Number(v))}
               domain={indexDomain}
+              ticks={indexTicks}
               tickLine={false}
               axisLine={false}
               width={48}

@@ -51,30 +51,20 @@ describe("ImportPanel Trading 212 sync", () => {
     });
   });
 
-  it("syncs a portfolio snapshot without a file upload", async () => {
-    show();
-
-    const button = await screen.findByRole("button", {
-      name: "Sync Trading 212 snapshot",
+  it("syncs external cash flows separately and refreshes Dashboard data", async () => {
+    const sync = vi.spyOn(api, "syncTrading212").mockResolvedValue({
+      account_name: "Trading 212", snapshot: "imported", snapshot_rows: 2,
+      orders: "imported", order_rows: 1, cash_flows_imported: 4, cash_flows_total: 4,
+      fetched_at: "2026-09-09T12:00:00Z",
     });
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    show();
+    const button = await screen.findByRole("button", { name: "Sync Trading 212" });
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
-
-    await waitFor(() => expect(api.syncTrading212Portfolio).toHaveBeenCalledOnce());
-    expect(await screen.findByText("Trading 212 snapshot synced.")).toBeInTheDocument();
+    await waitFor(() => expect(sync).toHaveBeenCalledOnce());
+    expect(await screen.findByText(/cash: 4 new \/ 4 total/)).toBeInTheDocument();
+    expect(invalidate).toHaveBeenCalled();
   });
 
-  it("syncs order history without applying the DRIP threshold", async () => {
-    show();
-    fireEvent.click(screen.getByRole("button", { name: "Order history" }));
-
-    const button = await screen.findByRole("button", {
-      name: "Sync Trading 212 orders",
-    });
-    await waitFor(() => expect(button).toBeEnabled());
-    fireEvent.click(button);
-
-    await waitFor(() => expect(api.syncTrading212Orders).toHaveBeenCalledOnce());
-    expect(await screen.findByText("Imported 1 Trading 212 orders.")).toBeInTheDocument();
-  });
 });

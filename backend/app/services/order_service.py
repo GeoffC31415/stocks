@@ -143,6 +143,7 @@ async def ingest_parsed_orders(
     file_bytes: bytes,
     filename: str | None,
     force: bool = False,
+    commit: bool = True,
 ) -> tuple[OrderImportBatch, int]:
     sha = hashlib.sha256(file_bytes).hexdigest()
     if not force:
@@ -202,7 +203,8 @@ async def ingest_parsed_orders(
     await session.flush()
     await link_orders_to_instruments(session, new_orders)
 
-    await session.commit()
+    if commit:
+        await session.commit()
     await session.refresh(batch)
     return batch, len(new_orders)
 

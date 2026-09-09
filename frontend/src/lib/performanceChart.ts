@@ -45,3 +45,20 @@ export function performanceIndexDomain(values: Array<number | null | undefined>)
   const padding = Math.max(1, (high - low) * 0.05);
   return [low - padding, high + padding];
 }
+
+export function performanceIndexTicks(values: Array<number | null | undefined>): number[] {
+  const finite = values.filter((value): value is number => value != null && Number.isFinite(value));
+  if (!finite.length) return [100];
+  const low = Math.min(100, ...finite), high = Math.max(100, ...finite);
+  const rawStep = Math.max(1, (high - low) / 3);
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalized = rawStep / magnitude;
+  const multiplier = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  const step = multiplier * magnitude;
+  const first = 100 + Math.ceil((low - 100) / step) * step;
+  const last = 100 + Math.ceil((high - 100) / step) * step;
+  const ticks: number[] = [];
+  for (let value = first; value <= last + step * 0.001; value += step) ticks.push(Number(value.toFixed(10)));
+  if (!ticks.includes(100)) ticks.push(100);
+  return [...new Set(ticks)].sort((a, b) => a - b);
+}

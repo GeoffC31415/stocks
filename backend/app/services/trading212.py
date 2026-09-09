@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 from collections.abc import Awaitable, Callable, Iterable, Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import parse_qs, urlsplit
 
@@ -132,6 +133,67 @@ class Trading212Client:
             path = next_path
         return items
 
+    _TRANSACTIONS_PATH = "/api/v0/equity/history/transactions"
+    _MAX_TRANSACTION_PAGES = 1000
+
+    def _validate_transactions_path(self, path: str, *, continuation: bool) -> None:
+        parsed = urlsplit(path)
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        if (
+            not path.startswith(self._TRANSACTIONS_PATH + "?")
+            or parsed.scheme
+            or parsed.netloc
+            or parsed.path != self._TRANSACTIONS_PATH
+            or "#" in path
+            or set(query) != ({"cursor", "limit"} if continuation else {"limit"})
+            or any(len(v) != 1 for v in query.values())
+        ):
+            raise Trading212DataError("Trading 212 returned an invalid cash pagination path.")
+        limit = query["limit"][0]
+        cursor = query.get("cursor", ["initial"])[0]
+        # Transaction cursors are opaque strings, unlike numeric order cursors.
+        if (
+            limit not in {str(n) for n in range(1, 51)}
+            or not cursor
+            or len(cursor) > 512
+            or any(not (c.isascii() and (c.isalnum() or c in "_-")) for c in cursor)
+        ):
+            raise Trading212DataError("Trading 212 returned an invalid cash pagination path.")
+
+    async def fetch_transactions(self) -> list[Mapping[str, Any]]:
+        path = f"{self._TRANSACTIONS_PATH}?limit=50"
+        seen: set[str] = set()
+        items: list[Mapping[str, Any]] = []
+        while True:
+            self._validate_transactions_path(path, continuation=bool(seen))
+            if path in seen or len(seen) >= self._MAX_TRANSACTION_PAGES:
+                raise Trading212DataError("Trading 212 cash pagination exceeded the safety limit.")
+            seen.add(path)
+            result = await self._get(path)
+            if (
+                not isinstance(result, Mapping)
+                or not isinstance(result.get("items"), list)
+                or len(result["items"]) > 50
+                or any(not isinstance(item, Mapping) for item in result["items"])
+                or "nextPagePath" not in result
+            ):
+                raise Trading212DataError("Trading 212 returned invalid cash transaction history.")
+            items.extend(result["items"])
+            next_path = result["nextPagePath"]
+            if next_path in (None, ""):
+                return items
+            if not isinstance(next_path, str):
+                raise Trading212DataError("Trading 212 returned an invalid cash pagination path.")
+            self._validate_transactions_path(next_path, continuation=True)
+            if next_path in seen:
+                raise Trading212DataError("Trading 212 cash pagination repeated a page.")
+            await self._sleep(self._page_delay)
+            path = next_path
+
+
+class Trading212CashReader(Protocol):
+    async def fetch_transactions(self) -> list[Mapping[str, Any]]: ...
+
 
 class Trading212Reader(Protocol):
     async def fetch_account_summary(self) -> Mapping[str, Any]: ...
@@ -147,6 +209,7 @@ async def sync_portfolio_snapshot(
     *,
     account_name: str,
     force: bool = False,
+    commit: bool = True,
 ) -> tuple[ImportBatch, dict[str, Any]]:
     from app.services.import_service import import_holding_snapshot
 
@@ -190,6 +253,7 @@ async def sync_portfolio_snapshot(
         file_sha256=hashlib.sha256(source_payload).hexdigest(),
         force=force,
         preserve_missing_identifiers={"CASH"} if not account_summary_available else None,
+        commit=commit,
     )
 
 
@@ -199,6 +263,7 @@ async def sync_order_history(
     *,
     account_name: str,
     force: bool = False,
+    commit: bool = True,
 ) -> tuple[OrderImportBatch, int]:
     from app.services.order_service import ingest_parsed_orders
 
@@ -216,7 +281,133 @@ async def sync_order_history(
         file_bytes=source_payload,
         filename="trading212-api-orders.json",
         force=force,
+        commit=commit,
     )
+
+
+async def sync_cash_history(
+    session: AsyncSession,
+    client: Trading212CashReader,
+    *,
+    account_name: str,
+    commit: bool = True,
+) -> dict[str, Any]:
+    from sqlalchemy import select
+
+    from app.models import CashFlowCoverage, ExternalCashFlow
+
+    observed_at = dt.datetime.now(dt.UTC)
+    rows = transactions_to_rows(await client.fetch_transactions())
+    if any(row.occurred_at > observed_at for row in rows):
+        raise Trading212DataError("Trading 212 returned a future cash transaction.")
+    existing = {
+        row.reference: row
+        for row in (
+            await session.scalars(
+                select(ExternalCashFlow).where(
+                    ExternalCashFlow.source == "trading212",
+                    ExternalCashFlow.account_name == account_name,
+                )
+            )
+        ).all()
+    }
+    incoming = {row.reference: row for row in rows}
+    # A full-history refresh must not silently erase or change prior evidence.
+    for reference, previous in existing.items():
+        row = incoming.get(reference)
+        if (
+            row is None
+            or previous.amount_gbp != row.amount_gbp
+            or previous.occurred_at.replace(tzinfo=dt.UTC) != row.occurred_at
+        ):
+            raise Trading212DataError(
+                "Trading 212 cash history conflicts with previously imported events."
+            )
+    new_rows = [row for row in rows if row.reference not in existing]
+    coverage = await session.get(CashFlowCoverage, account_name)
+    if coverage is not None and coverage.source != "trading212":
+        raise Trading212DataError("This account already has a different cash-history source.")
+    for row in new_rows:
+        session.add(
+            ExternalCashFlow(
+                source="trading212",
+                account_name=account_name,
+                reference=row.reference,
+                occurred_at=row.occurred_at,
+                amount_gbp=row.amount_gbp,
+            )
+        )
+    if coverage is None:
+        coverage = CashFlowCoverage(
+            account_name=account_name, source="trading212", fetched_at=observed_at
+        )
+        session.add(coverage)
+    else:
+        coverage.fetched_at = observed_at
+    if commit:
+        await session.commit()
+    return {
+        "account_name": account_name,
+        "imported_count": len(new_rows),
+        "total_count": len(rows),
+        "fetched_at": observed_at,
+    }
+
+
+@dataclass(frozen=True)
+class CashFlowRow:
+    reference: str
+    occurred_at: dt.datetime
+    amount_gbp: float
+
+
+def transactions_to_rows(items: Iterable[Mapping[str, Any]]) -> list[CashFlowRow]:
+    """Only explicit funding events are external; trading/income is internal."""
+    rows: dict[str, CashFlowRow] = {}
+    seen: dict[str, tuple[str, dt.datetime, float, str]] = {}
+    for item in items:
+        if not isinstance(item, Mapping):
+            raise Trading212DataError("Trading 212 returned an invalid cash transaction.")
+        kind = item.get("type")
+        if kind not in ("DEPOSIT", "WITHDRAW", "FEE", "INTEREST_ON_FREE_CASH", "LENDING_INTEREST"):
+            raise Trading212DataError(
+                "Trading 212 returned an unsupported cash transaction type; transfers need manual classification."
+            )
+        reference = item.get("reference")
+        amount = _number(item.get("amount"))
+        timestamp = item.get("dateTime")
+        if not isinstance(timestamp, str):
+            raise Trading212DataError("Trading 212 returned an invalid cash transaction date.")
+        try:
+            occurred_at = dt.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise Trading212DataError(
+                "Trading 212 returned an invalid cash transaction date."
+            ) from exc
+        if (
+            not isinstance(reference, str)
+            or not reference
+            or reference != reference.strip()
+            or len(reference) > 512
+            or occurred_at.tzinfo is None
+            or amount is None
+            or (kind in ("DEPOSIT", "WITHDRAW") and amount == 0)
+            or (kind == "DEPOSIT" and amount < 0)
+        ):
+            raise Trading212DataError("Trading 212 returned an invalid cash transaction.")
+        _require_gbp(item.get("currency"))
+        occurred_at = occurred_at.astimezone(dt.UTC)
+        identity = (kind, occurred_at, amount, item["currency"])
+        if reference in seen and seen[reference] != identity:
+            raise Trading212DataError(
+                "Trading 212 returned conflicting cash transaction references."
+            )
+        seen[reference] = identity
+        if kind in ("DEPOSIT", "WITHDRAW"):
+            rows[reference] = CashFlowRow(
+                reference, occurred_at, abs(amount) * (1 if kind == "DEPOSIT" else -1)
+            )
+    return list(rows.values())
 
 
 def _number(value: Any) -> float | None:

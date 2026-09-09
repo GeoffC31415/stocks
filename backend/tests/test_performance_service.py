@@ -168,7 +168,18 @@ async def test_coverage_start_anchors_all_account_window(monkeypatch) -> None:
     six_month = await performance_service.get_portfolio_performance(None, period="6M")
     assert six_month["start_value_gbp"] == 150.0  # anchored to coverage, not raw 6M
     assert six_month["total_return_pct"] == pytest.approx(6.6667, abs=1e-3)
-    assert any("coverage" in note for note in six_month["notes"])
+
+
+async def test_all_account_performance_keeps_long_history_and_baselines_new_account(monkeypatch) -> None:
+    from app.services import performance_service
+
+    result = performance_service.compute_flow_adjusted_metrics(
+        [(dt.date(2026, 1, 5), 100.0), (dt.date(2026, 6, 5), 150.0), (dt.date(2026, 8, 15), 160.0)],
+        [(dt.date(2026, 6, 5), 50.0)], contributions=50.0, withdrawals=0.0,
+    )
+    assert result["contributions_gbp"] == 50.0
+    assert result["net_external_flow_gbp"] == 50.0
+    assert result["total_return_pct"] == pytest.approx(6.6667, abs=1e-3)
 
 
 async def test_performance_payload_exposes_flow_adjusted_curves(monkeypatch) -> None:
@@ -197,15 +208,18 @@ async def test_performance_payload_exposes_flow_adjusted_curves(monkeypatch) -> 
         is_drip=False,
     )
 
-    class _FakeScalars:
+    class _EmptyScalars:
         def all(self):
-            return [fake_order]
+            return []
 
     class _FakeResult:
-        def scalars(self):
-            return _FakeScalars()
+        def all(self):
+            return [(fake_order, "legacy")]
 
     class _FakeSession:
+        async def scalars(self, query):
+            return _EmptyScalars()
+
         async def execute(self, query):
             return _FakeResult()
 

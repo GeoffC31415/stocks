@@ -204,7 +204,7 @@ def test_portfolio_return_filters_snapshots_and_orders_to_one_account() -> None:
     assert result["modified_dietz_return_pct"] == pytest.approx(100 / 1050 * 100)
 
 
-def test_all_account_return_starts_only_after_every_account_has_snapshot_coverage() -> None:
+def test_all_account_return_keeps_history_and_baselines_later_account() -> None:
     result = calculate(
         [
             ("ISA", dt.date(2025, 1, 1), 1000),
@@ -215,8 +215,9 @@ def test_all_account_return_starts_only_after_every_account_has_snapshot_coverag
         ]
     )
 
-    assert result["period_start"] == dt.date(2025, 1, 10)
-    assert result["start_value_gbp"] == 6100
+    assert result["period_start"] == dt.date(2025, 1, 1)
+    assert result["start_value_gbp"] == 1000
     assert result["end_value_gbp"] == 6300
-    assert result["modified_dietz_return_pct"] == pytest.approx(200 / 6100 * 100)
-    assert any("every included account" in note.lower() for note in result["notes"])
+    assert result["contributions_gbp"] == 5000
+    assert result["modified_dietz_return_pct"] == pytest.approx(8.2608695652)
+    assert any("scope baseline" in note.lower() for note in result["notes"])

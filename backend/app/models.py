@@ -95,6 +95,29 @@ class HoldingSnapshot(Base):
     instrument: Mapped[Instrument] = relationship(back_populates="snapshots")
 
 
+class ExternalCashFlow(Base):
+    """Verified broker funding events, independent of security trades."""
+
+    __tablename__ = "external_cash_flows"
+    __table_args__ = (UniqueConstraint("source", "account_name", "reference", name="uq_external_cash_flow"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(32))
+    account_name: Mapped[str] = mapped_column(String(512), index=True)
+    reference: Mapped[str] = mapped_column(String(512))
+    occurred_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), index=True)
+    amount_gbp: Mapped[float] = mapped_column(Float)
+
+
+class CashFlowCoverage(Base):
+    """Full unfiltered transaction history was fetched successfully up to this time."""
+
+    __tablename__ = "cash_flow_coverage"
+    account_name: Mapped[str] = mapped_column(String(512), primary_key=True)
+    source: Mapped[str] = mapped_column(String(32))
+    fetched_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True))
+
+
 class OrderImportBatch(Base):
     __tablename__ = "order_import_batches"
 

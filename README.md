@@ -37,8 +37,9 @@ Legacy URLs remain redirects: `/holdings` → Portfolio Holdings, `/positions` �
 - **Position gain/cost:** unrealised gain against recorded book cost. Lifetime position MWR includes transaction timing; neither is interchangeable with selected-period portfolio performance.
 - **Past holdings valued at today’s prices:** order-derived quantities valued at current prices. This renamed reconstruction is not historical portfolio wealth, benchmarked actual return, or a valid performance benchmark overlay.
 - **Current-composition risk:** historical modelling of today's holdings, not a record of what the investor actually held. Missing history must remain unavailable, not replaced with fabricated analytics.
+- **All-account history:** the Dashboard retains the longest available account history. When an account first appears, its first observed value is added as a scope baseline rather than being treated as investment return; subsequent changes participate normally. This makes the return representative over the full available period while clearly distinguishing account-scope additions from market performance.
 
-Observed non-DRIP buys are contribution proxies; sales are treated as withdrawal proxies where retained cash cannot be distinguished from money leaving the account. The residual after observed flows and reinvestment is **not pure price effects**: FX, fees, missing transactions, timing and valuation differences can contribute. Holding contribution attribution is not a causal price decomposition.
+For accounts with successfully synced Trading 212 cash history, external flows are actual API deposits less withdrawals; purchases and sales are internal and are not counted again. Other accounts retain observed non-DRIP buy contribution proxies and sale withdrawal proxies where retained cash cannot be distinguished from money leaving the account. The residual after observed flows and reinvestment is **not pure price effects**: FX, fees, missing transactions, timing and valuation differences can contribute. Holding contribution attribution is not a causal price decomposition.
 
 The shared period applies to Performance. Holdings, allocation and groups use latest snapshots; Returns uses lifetime transactions. Income uses its own calendar comparison and trailing windows; Tax uses the chosen tax year; Changes uses the selected snapshot pair. Matching/classification repair queues may span all accounts. Orders has its own search and `from_date`/`to_date` filters. Full-filter totals cover all matching orders independently of pagination; changing the query must update totals, while changing only the page must not redefine their scope.
 
@@ -66,7 +67,7 @@ Start at Data confidence; identify affected accounts, dates and source records. 
 
 ## Trading 212 read-only sync
 
-Create a Trading 212 API key with portfolio and historical-order read permissions only; do not grant order-placement permissions. Copy `.env.example` to `.env` and set:
+Use **Data → Import → Sync Trading 212** for one complete read-only refresh: current portfolio snapshot, completed fills/order history, and deposits/withdrawals. The API key needs portfolio, historical-order and historical-transaction (`history:transactions`) read permissions; do not grant order-placement permissions.
 
 ```dotenv
 PORTFOLIO_TRADING212_API_KEY=...
@@ -74,7 +75,21 @@ PORTFOLIO_TRADING212_API_SECRET=...
 PORTFOLIO_TRADING212_ACCOUNT_NAME=Trading 212
 ```
 
-Restart the backend after changing `.env`, then use **Data → Import** to sync the current snapshot or completed order history. The `.env` file is ignored by Git. A key without account-summary permission still imports positions, but deliberately omits cash because the API cannot verify it. Trading 212 purchases are imported as ordinary buys rather than inferred DRIPs.
+Restart the backend after changing `.env`, then use **Data → Import** to run the combined sync. The `.env` file is ignored by Git. A key without account-summary permission still imports positions, but deliberately omits cash because the API cannot verify it. Trading 212 purchases are imported as ordinary buys rather than inferred DRIPs.
+
+If you click **Sync Trading 212** multiple times in one day, the API is queried again. An unchanged snapshot and unchanged order history are reported as `unchanged`; new cash events are imported by provider reference, while already-seen cash events report zero new rows. A changed same-day portfolio snapshot is retained as a same-day correction according to the existing snapshot rules. The operation is read-only at the broker and safe to repeat, although it still consumes the provider's rate limits.
+
+### Cash deposits and withdrawals
+
+The combined sync imports the full transaction history as part of the same operation. This read-only broker request writes only the local cash ledger and its coverage marker, not new snapshots or trades. It refreshes Dashboard **Net external flows**, flow-adjusted performance/returns and snapshot attribution. Re-syncing is idempotent by account and provider reference.
+
+The importer uses `GET /api/v0/equity/history/transactions` (6 requests/minute, maximum 50 items/page, bounded pagination), importing `DEPOSIT` positively and `WITHDRAW` negatively. Fees and cash/lending interest are not external funding. Ambiguous `TRANSFER` events, unsupported currencies (only GBP is currently supported), malformed records and conflicting historical references reject the whole sync rather than inventing flows. Missing `history:transactions` permission reports an error without changing the ledger.
+
+A successful empty history is distinct from an unavailable history: it records verified zero funding and suppresses buy/sell proxies for that account. Accounts without synced cash history keep their existing proxies. Cash history must be fetched after the closing snapshot cutoff, including its time for same-day API snapshots; otherwise the cash-adjusted result is unavailable until you sync again. Full-history coverage means all pages returned by this beta API, not an independent audit of the broker's records.
+
+Flows on the opening snapshot date are assumed already in that valuation and excluded, retaining the app's daily opening-boundary convention. The closing cutoff is the recorded import observation time for API snapshots, or end of day for dated file snapshots. Later cash movements are excluded. Opening-day timing and daily Dietz weighting remain approximations. Spending a deposit on holdings does not create another external flow. Security-level attribution uses trades as internal allocations; account funding and unallocated residuals are not a causal price decomposition.
+
+Existing installations need Alembic revision `7e4b8c2a901d` (two additive tables). Make a verified SQLite backup before applying it. **Development servers run with `--reload`: edits can reload the live process and run migrations automatically. Inspect the running process before editing a live checkout; use an isolated checkout for changes needing a release gate.**
 
 ## Development and safe verification
 

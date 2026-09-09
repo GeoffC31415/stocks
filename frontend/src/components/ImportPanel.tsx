@@ -32,13 +32,8 @@ export function ImportPanel() {
     queryFn: api.getTrading212Status,
   });
 
-  const syncTrading212Portfolio = useMutation({
-    mutationFn: () => api.syncTrading212Portfolio(forceImport),
-    onSuccess: () => queryClient.invalidateQueries(),
-  });
-
-  const syncTrading212Orders = useMutation({
-    mutationFn: () => api.syncTrading212Orders(forceOrderImport),
+  const syncTrading212 = useMutation({
+    mutationFn: () => api.syncTrading212(forceImport),
     onSuccess: () => queryClient.invalidateQueries(),
   });
 
@@ -179,40 +174,6 @@ export function ImportPanel() {
             </div>
           )}
 
-          <div className="border-t border-white/[0.06] pt-4">
-            <p className="mb-2 text-xs text-slate-500">
-              Or sync the current portfolio directly from the read-only Trading 212 API.
-            </p>
-            <button
-              type="button"
-              onClick={() => syncTrading212Portfolio.mutate()}
-              disabled={!trading212Status?.configured || syncTrading212Portfolio.isPending}
-              className="btn-primary flex w-full items-center justify-center gap-2"
-            >
-              <Download size={16} />
-              {syncTrading212Portfolio.isPending
-                ? "Syncing Trading 212…"
-                : "Sync Trading 212 snapshot"}
-            </button>
-            {trading212Status && !trading212Status.configured && (
-              <p className="mt-1 text-xs text-amber-400">
-                Add the Trading 212 credentials to .env to enable sync.
-              </p>
-            )}
-            {syncTrading212Portfolio.isSuccess && (
-              <div className="mt-2 space-y-1">
-                <p className="flex items-center gap-1 text-xs text-pos">
-                  <CheckCircle2 size={12} /> Trading 212 snapshot synced.
-                </p>
-                <ImportSummary summary={syncTrading212Portfolio.data.summary} />
-              </div>
-            )}
-            {syncTrading212Portfolio.isError && (
-              <p className="mt-1 text-xs text-neg">
-                {(syncTrading212Portfolio.error as Error).message}
-              </p>
-            )}
-          </div>
 
 
         </div>
@@ -272,36 +233,32 @@ export function ImportPanel() {
             </p>
           )}
 
-          <div className="border-t border-white/[0.06] pt-4">
-            <p className="mb-2 text-xs text-slate-500">
-              Or sync completed fills from Trading 212. These are imported as normal
-              buys and sells, not inferred dividend reinvestments.
-            </p>
-            <button
-              type="button"
-              onClick={() => syncTrading212Orders.mutate()}
-              disabled={!trading212Status?.configured || syncTrading212Orders.isPending}
-              className="btn-amber flex w-full items-center justify-center gap-2"
-            >
-              <Download size={16} />
-              {syncTrading212Orders.isPending
-                ? "Syncing Trading 212…"
-                : "Sync Trading 212 orders"}
-            </button>
-            {syncTrading212Orders.isSuccess && (
-              <p className="mt-2 flex items-center gap-1 text-xs text-pos">
-                <CheckCircle2 size={12} />
-                Imported {syncTrading212Orders.data.row_count} Trading 212 orders.
-              </p>
-            )}
-            {syncTrading212Orders.isError && (
-              <p className="mt-1 text-xs text-neg">
-                {(syncTrading212Orders.error as Error).message}
-              </p>
-            )}
-          </div>
         </div>
       )}
+      <section className="mt-5 border-t border-white/[0.06] pt-4">
+        <h3 className="text-sm font-medium text-slate-200">Trading 212</h3>
+        <p className="my-2 text-xs text-slate-400">
+          One read-only sync refreshes the current portfolio, completed fills and deposits/withdrawals.
+          It does not place trades or move money.
+        </p>
+        <button type="button" className="btn-primary flex w-full items-center justify-center gap-2"
+          onClick={() => syncTrading212.mutate()}
+          disabled={!trading212Status?.configured || syncTrading212.isPending}>
+          <Download size={16} />
+          {syncTrading212.isPending ? "Syncing Trading 212…" : "Sync Trading 212"}
+        </button>
+        {trading212Status && !trading212Status.configured && (
+          <p className="mt-1 text-xs text-amber-400">Add the Trading 212 credentials to .env to enable sync.</p>
+        )}
+        {syncTrading212.isSuccess && <p role="status" className="mt-2 text-xs text-pos">
+          Snapshot: {syncTrading212.data.snapshot}; orders: {syncTrading212.data.orders};
+          cash: {syncTrading212.data.cash_flows_imported} new / {syncTrading212.data.cash_flows_total} total.
+          Re-syncing is safe and does not duplicate records.
+        </p>}
+        {syncTrading212.isError && <p role="alert" className="mt-2 text-xs text-neg">
+          {(syncTrading212.error as Error).message}
+        </p>}
+      </section>
     </div>
   );
 }
