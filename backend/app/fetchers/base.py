@@ -96,6 +96,9 @@ async def broker_context(
             timezone_id="Europe/London",
             accept_downloads=True,
             viewport={"width": 1366, "height": 900},
+            # The Surface's systemd sandbox (NoNewPrivileges, no user namespaces
+            # under AppArmor) blocks Chromium's own sandbox; the unit confines it.
+            chromium_sandbox=False,
         )
 
         async def _guard(route: Any) -> None:

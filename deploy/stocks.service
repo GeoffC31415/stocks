@@ -14,6 +14,8 @@ EnvironmentFile=/etc/stocks/production.env
 Environment=PYTHONPATH=/opt/stocks/current/backend
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
+# Read-only view of the scheduled sync's last result (stocks-sync.service writes it).
+Environment=PORTFOLIO_SYNC_INBOX=/var/lib/stocks/inbox
 ExecStart=/opt/stocks/current/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --limit-concurrency 16 --timeout-keep-alive 5 --timeout-graceful-shutdown 30 --no-access-log --no-server-header
 Restart=on-failure
 RestartSec=5

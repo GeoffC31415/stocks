@@ -1,0 +1,41 @@
+[Unit]
+Description=Stocks read-only broker sync (HL downloads, inbox import, Trading 212)
+Wants=network-online.target
+After=network-online.target stocks.service
+
+[Service]
+Type=oneshot
+User=stocks
+Group=stocks
+WorkingDirectory=/opt/stocks/current
+EnvironmentFile=/etc/stocks/production.env
+EnvironmentFile=-/etc/stocks/brokers.env
+Environment=PYTHONPATH=/opt/stocks/current/backend
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=PORTFOLIO_SYNC_INBOX=/var/lib/stocks/inbox
+Environment=PORTFOLIO_BROWSER_PROFILE=/var/lib/stocks/browser
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/stocks/playwright
+Environment=HOME=/var/lib/stocks
+ExecStart=/opt/stocks/current/.venv/bin/python -m app.sync_cli
+TimeoutStartSec=15min
+UMask=0077
+StateDirectory=stocks
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+MemoryHigh=1536M
+MemoryMax=2G
+TasksMax=256
