@@ -18,7 +18,7 @@ if [[ ${1:-} == --activate ]]; then
     [[ -L /opt/stocks/current ]] || fail 'No existing installation; use install-surface.sh.'
     PREVIOUS=$(readlink -f /opt/stocks/current)
     ID=$(basename "$STAGE"); RELEASE="/opt/stocks/releases/$ID"
-    [[ ! -e $RELEASE ]] || fail "Release already exists: $RELEASE"
+    [[ $RELEASE != "$PREVIOUS" ]] || fail "Release is already current: $RELEASE"
     TS=$(date +%Y%m%d-%H%M%S)
     # Consistent online snapshot via SQLite's backup API, taken as the service user.
     runuser -u stocks -- "$PREVIOUS/.venv/bin/python" -c "
@@ -33,7 +33,10 @@ assert sqlite3.connect('/var/lib/stocks/.pre-upgrade.db').execute('pragma integr
     chown -R root:root "$RELEASE"; chmod -R u=rwX,go=rX "$RELEASE"
     # Chromium for the scheduled HL download: root-owned, read-only to the service.
     install -d -m 0755 /opt/stocks/playwright
-    PLAYWRIGHT_BROWSERS_PATH=/opt/stocks/playwright "$RELEASE/.venv/bin/python" -m playwright install --only-shell chromium >/dev/null
+    # Playwright has no ubuntu26.04 build yet; the 24.04 headless shell runs with
+    # the libraries already present (verified with ldd before first use).
+    PLAYWRIGHT_BROWSERS_PATH=/opt/stocks/playwright PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64 \
+        "$RELEASE/.venv/bin/python" -m playwright install --only-shell chromium >/dev/null
     chown -R root:root /opt/stocks/playwright; chmod -R u=rwX,go=rX /opt/stocks/playwright
     install -d -o stocks -g stocks -m 0700 /var/lib/stocks/inbox /var/lib/stocks/browser
     [[ -f /etc/stocks/brokers.env ]] || install -o root -g root -m 0600 /dev/null /etc/stocks/brokers.env

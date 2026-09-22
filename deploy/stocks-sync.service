@@ -16,6 +16,7 @@ Environment=PYTHONUNBUFFERED=1
 Environment=PORTFOLIO_SYNC_INBOX=/var/lib/stocks/inbox
 Environment=PORTFOLIO_BROWSER_PROFILE=/var/lib/stocks/browser
 Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/stocks/playwright
+Environment=PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64
 Environment=HOME=/var/lib/stocks
 ExecStart=/opt/stocks/current/.venv/bin/python -m app.sync_cli
 TimeoutStartSec=15min
