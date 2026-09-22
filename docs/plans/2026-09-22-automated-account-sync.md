@@ -186,3 +186,24 @@ Action policy for all fetchers, scripted or LLM: allowed hosts `*.hl.co.uk`, `*.
 - Review 2 unmatched orders (Data → Matching) in production.
 - Pre-existing lint (30) and mypy (23) debt is unchanged.
 - `install-surface.sh --check` tests fail on the Surface once installed, by design (they refuse an existing install). Run them on a fresh VM or skip them there.
+
+## Next session checklist (left open 2026-09-23 ~00:50)
+1. **Verify the first unattended run:** the 18:30 `stocks-sync.timer` run and the 18:45 WhatsApp summary (Surface Hermes cron `b29835e1f4e9`). On the Surface, check `journalctl -u stocks-sync --since today`, and check the Import tab freshness on the live site.
+2. **Barclays** (blocked; the account is locked after one automated attempt plus the user's own attempts):
+   - The user restores access with Barclays.
+   - Check the `PORTFOLIO_BARCLAYS_*` values. PIN and passcode were identical in `.env`, which is suspicious.
+   - Add them to `/etc/stocks/brokers.env` on the Surface.
+   - Delete any `barclays-login-blocked` marker.
+   - Make ONE `--headed` attempt from this PC, then map the export downloads after login (holdings plus orders `LoadDocstore.xls`). Barclays is not deployed as a download step yet.
+3. **Matching:** 2 unmatched orders in production (Data → Matching). One is the HL BCHS sale, probably because the holding shows as closed. The Barclays buys matched to another account's holding also need checking.
+4. **Housekeeping on the Surface:**
+   - prune older DB snapshots in `/var/backups/stocks/` (keep the newest and `stocks-install.kOvgvno0.db`);
+   - drop the stash "pre-deploy WIP 2026-09-23" once happy (it was verified identical to commit 57d2262);
+   - remove the old release `/opt/stocks/releases/stocks-install.kOvgvno0` once the new one has proven itself.
+5. **Housekeeping on this PC:** drop the stash "pre-merge local WIP" (also backed up in `~/.local/share/stocks-db-backups/local-wip-*`). The local `portfolio.db` is stale, so refresh it from the Surface master (skill `surface-stocks-db-sync`) and never push it the other way.
+6. **Later:**
+   - pre-existing lint (30) and mypy (23) debt;
+   - `test_surface_installer` fails on an already-installed host, so skip it there;
+   - Playwright uses the ubuntu24.04 fallback build on the Surface (26.04), so re-check this after Playwright upgrades;
+   - optional Bedrock LLM repair (phase 4) is not started.
+7. If the HL password changes, update both `.env` (PC) and `/etc/stocks/brokers.env` (Surface), then delete any `hl-login-blocked` marker.
