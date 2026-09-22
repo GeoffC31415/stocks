@@ -1,0 +1,36 @@
+# Set STOCKS_ORIGIN to the exact HTTPS origin also used by the application.
+# This configuration is for a dedicated Caddy instance on the Surface.
+# Do NOT replace an existing shared proxy configuration without merging/review.
+{
+    servers {
+        protocols h1 h2
+        strict_sni_host on
+        max_header_size 16KB
+        timeouts {
+            read_header 10s
+            read_body 30s
+            idle 60s
+        }
+    }
+}
+
+{$STOCKS_ORIGIN} {
+    request_body {
+        max_size 10MiB
+    }
+    header {
+        -Server
+        Cache-Control "no-store"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "no-referrer"
+    }
+    # No HSTS: solarpi.hopto.org may also have HTTP Grafana on other ports.
+    # Do not enable access logging containing portfolio query strings.
+    reverse_proxy 127.0.0.1:8000 {
+        header_up -Forwarded
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+    }
+}

@@ -68,8 +68,12 @@ async def import_orders(
             status_code=409,
             detail=f"This order history file was already imported (batch {exc.batch_id}).",
         ) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Import failed: {exc}") from exc
+    except Exception:
+        await session.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Import failed. Check the broker file format and try again.",
+        ) from None
 
     return OrderImportBatchOut(
         id=batch.id,
@@ -105,8 +109,12 @@ async def import_hl_orders(
             status_code=409,
             detail=f"This order history file was already imported (batch {exc.batch_id}).",
         ) from exc
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Import failed: {exc}") from exc
+    except Exception:
+        await session.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Import failed. Check the broker file format and try again.",
+        ) from None
 
     return OrderImportBatchOut(
         id=batch.id,

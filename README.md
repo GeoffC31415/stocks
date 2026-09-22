@@ -91,6 +91,16 @@ Flows on the opening snapshot date are assumed already in that valuation and exc
 
 Existing installations need Alembic revision `7e4b8c2a901d` (two additive tables). Make a verified SQLite backup before applying it. **Development servers run with `--reload`: edits can reload the live process and run migrations automatically. Inspect the running process before editing a live checkout; use an isolated checkout for changes needing a release gate.**
 
+## Secure hosting from the Surface
+
+See [public hosting and recovery](docs/public-hosting.md) for the single-user HTTPS
+setup, private credentials, Caddy/systemd templates, database backups, deployment
+checks and rollback. Public mode is explicit and fail-closed; local mode is
+loopback-only. **Do not forward a development server port to the internet.**
+Preparing this repository does not install services, configure router forwarding,
+copy private portfolio data, or provision a public TLS certificate. Existing Grafana
+services on `solarpi.hopto.org:3000` and `:4000` must remain unchanged.
+
 ## Development and safe verification
 
 Backend: FastAPI, Pydantic, async SQLAlchemy and SQLite. Frontend: React, TypeScript, Vite, TanStack Query, Tailwind and React Router. Dependencies are declared in `requirements.txt` and `frontend/package.json`.

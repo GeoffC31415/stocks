@@ -5,6 +5,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from starlette.requests import Request as ASGIRequest
 
 from app.config import Settings
 from app.database import get_session
@@ -359,7 +360,7 @@ def test_local_origin_guard_rejects_remote_webpage() -> None:
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        require_local_origin(request)
+        require_local_origin(ASGIRequest({"type": "http", "headers": [(key.lower(), value) for key, value in request.headers.raw]}))
 
     assert exc_info.value.status_code == 403
 
@@ -371,7 +372,7 @@ def test_local_origin_guard_accepts_local_frontend() -> None:
         headers={"Origin": "http://localhost:5173"},
     )
 
-    require_local_origin(request)
+    require_local_origin(ASGIRequest({"type": "http", "headers": [(key.lower(), value) for key, value in request.headers.raw]}))
 
 
 @pytest.mark.parametrize(
@@ -392,7 +393,7 @@ def test_local_origin_guard_rejects_untrusted_local_ports_and_schemes(origin: st
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        require_local_origin(request)
+        require_local_origin(ASGIRequest({"type": "http", "headers": [(key.lower(), value) for key, value in request.headers.raw]}))
 
     assert exc_info.value.status_code == 403
 
@@ -685,9 +686,10 @@ async def test_trading212_sync_endpoints_use_configured_reader(monkeypatch) -> N
 
 @pytest.mark.asyncio
 async def test_combined_sync_rolls_back_snapshot_and_orders_when_cash_fails() -> None:
+    from sqlalchemy import func
+
     from app.models import ImportBatch, OrderImportBatch
     from app.services.trading212 import Trading212DataError
-    from sqlalchemy import func
 
     class CashFailureClient(FakeTrading212Client):
         async def fetch_transactions(self):

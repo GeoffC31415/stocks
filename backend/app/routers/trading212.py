@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import datetime as dt  # noqa: TC003 - Pydantic runtime annotation.
 import logging
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -22,6 +24,10 @@ from app.services.trading212 import (
     sync_order_history,
     sync_portfolio_snapshot,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 
 router = APIRouter(prefix="/api/trading212", tags=["trading212"])
 logger = logging.getLogger(__name__)
@@ -56,12 +62,43 @@ class Trading212Status(BaseModel):
     account_name: str
 
 
+@dataclass(frozen=True)
+class _FetchedTrading212Data:
+    """Replay fetched responses to import services without any network access."""
+
+    positions: list[Mapping[str, Any]]
+    account_summary: Mapping[str, Any] | httpx.HTTPStatusError
+    historical_orders: list[Mapping[str, Any]]
+    transactions: list[Mapping[str, Any]]
+
+    async def fetch_positions(self) -> list[Mapping[str, Any]]:
+        return self.positions
+
+    async def fetch_account_summary(self) -> Mapping[str, Any]:
+        if isinstance(self.account_summary, httpx.HTTPStatusError):
+            # Preserve the service's verified-currency/no-invented-cash fallback.
+            raise self.account_summary
+        return self.account_summary
+
+    async def fetch_historical_orders(self) -> list[Mapping[str, Any]]:
+        return self.historical_orders
+
+    async def fetch_transactions(self) -> list[Mapping[str, Any]]:
+        return self.transactions
+
+
 def require_local_origin(request: Request) -> None:
-    """Block browser-triggered credential use from non-local web origins."""
-    origin = request.headers.get("origin")
-    if origin is None:
+    """Preserve local development protection; public mode uses its exact origin."""
+    application = request.scope.get("app")
+    config = getattr(getattr(application, "state", None), "web_config", settings)
+    origins = request.headers.getlist("origin")
+    if config.deployment_mode == "public":
+        if origins != [config.public_origin]:
+            raise HTTPException(status_code=403, detail="Untrusted request origin.")
         return
-    if origin not in _TRUSTED_ORIGINS:
+    if not origins:
+        return
+    if len(origins) != 1 or origins[0] not in _TRUSTED_ORIGINS:
         raise HTTPException(status_code=403, detail="Untrusted request origin.")
 
 
@@ -120,55 +157,59 @@ async def sync_trading212_all(
     client: Trading212Client = Depends(get_trading212_client),
 ) -> Trading212SyncResult:
     """Refresh the complete read-only Trading 212 dataset in one action."""
-    batch = None
-    order_batch = None
-    batch_id = None
-    order_batch_id = None
     try:
+        # Complete all broker I/O before opening a transaction or taking a writer lock.
+        positions = await client.fetch_positions()
+        account_summary: Mapping[str, Any] | httpx.HTTPStatusError
         try:
-            batch, summary = await sync_portfolio_snapshot(
-                session,
-                client,
-                account_name=settings.trading212_account_name,
-                force=force,
-                commit=False,
-            )
-            snapshot = "imported"
-            batch_id = batch.id
-            snapshot_rows = summary.get("row_count") if isinstance(summary, dict) else None
-        except DuplicateImportError:
-            snapshot, snapshot_rows = "unchanged", None
-        try:
-            order_batch, _inserted = await sync_order_history(
-                session,
-                client,
-                account_name=settings.trading212_account_name,
-                force=force,
-                commit=False,
-            )
-            orders, order_rows = "imported", order_batch.row_count
-            order_batch_id = order_batch.id
-        except DuplicateOrderImportError:
-            orders, order_rows = "unchanged", None
-        cash = await sync_cash_history(
-            session, client, account_name=settings.trading212_account_name, commit=False
+            account_summary = await client.fetch_account_summary()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 403:
+                raise
+            account_summary = exc
+        fetched = _FetchedTrading212Data(
+            positions=positions,
+            account_summary=account_summary,
+            historical_orders=await client.fetch_historical_orders(),
+            transactions=await client.fetch_transactions(),
         )
+        # Legacy matching helpers commit internally. Join the caller's transaction
+        # without allowing those commits to reach the database connection.
+        async with AsyncSession(
+            bind=await session.connection(),
+            join_transaction_mode="rollback_only",
+            expire_on_commit=False,
+        ) as import_session:
+            try:
+                _batch, summary = await sync_portfolio_snapshot(
+                    import_session,
+                    fetched,
+                    account_name=settings.trading212_account_name,
+                    force=force,
+                    commit=False,
+                )
+                snapshot = "imported"
+                snapshot_rows = summary.get("row_count") if isinstance(summary, dict) else None
+            except DuplicateImportError:
+                snapshot, snapshot_rows = "unchanged", None
+            try:
+                order_batch, _inserted = await sync_order_history(
+                    import_session,
+                    fetched,
+                    account_name=settings.trading212_account_name,
+                    force=force,
+                    commit=False,
+                )
+                orders, order_rows = "imported", order_batch.row_count
+            except DuplicateOrderImportError:
+                orders, order_rows = "unchanged", None
+            cash = await sync_cash_history(
+                import_session, fetched, account_name=settings.trading212_account_name, commit=False
+            )
+            await import_session.flush()
         await session.commit()
     except Exception as exc:
         await session.rollback()
-        # Defensive cleanup protects all-or-nothing semantics even if a future
-        # collaborator accidentally reintroduces an inner commit.
-        from sqlalchemy import delete
-
-        from app.models import ImportBatch, OrderImportBatch
-
-        if batch_id is not None:
-            await session.execute(delete(ImportBatch).where(ImportBatch.id == batch_id))
-        if order_batch_id is not None:
-            await session.execute(
-                delete(OrderImportBatch).where(OrderImportBatch.id == order_batch_id)
-            )
-        await session.commit()
         raise _provider_error(exc) from exc
     return Trading212SyncResult(
         account_name=settings.trading212_account_name,

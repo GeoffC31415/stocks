@@ -52,8 +52,12 @@ async def create_import(
                 "existing_batch_id": exc.batch_id,
             },
         ) from exc
-    except Exception as exc:  # pragma: no cover - safety for malformed broker files
-        raise HTTPException(status_code=400, detail=f"Import failed: {exc}") from exc
+    except Exception:  # pragma: no cover - safety for malformed broker files
+        await session.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Import failed. Check the broker file format and try again.",
+        ) from None
 
     return ImportResult(
         batch=ImportBatchOut.model_validate(batch),
@@ -92,8 +96,12 @@ async def create_hl_import(
                 "existing_batch_id": exc.batch_id,
             },
         ) from exc
-    except Exception as exc:  # pragma: no cover - safety for malformed broker files
-        raise HTTPException(status_code=400, detail=f"Import failed: {exc}") from exc
+    except Exception:  # pragma: no cover - safety for malformed broker files
+        await session.rollback()
+        raise HTTPException(
+            status_code=400,
+            detail="Import failed. Check the broker file format and try again.",
+        ) from None
 
     return ImportResult(
         batch=ImportBatchOut.model_validate(batch),
