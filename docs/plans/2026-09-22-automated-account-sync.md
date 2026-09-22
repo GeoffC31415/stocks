@@ -161,3 +161,28 @@ Action policy for all fetchers, scripted or LLM: allowed hosts `*.hl.co.uk`, `*.
 
 **Review items**
 - 3 new orders need matching review: 2 Barclays buys matched cross-account (`auto_review`), 1 HL sale unmatched (instrument `BCHS` closed, and the name has a `*1` suffix).
+
+## Status (2026-09-23 00:45) - deployed on the Surface
+
+**Live on the Surface (production, https://solarpi.hopto.org:5000)**
+- The Surface production database (`/var/lib/stocks/portfolio.db`) is the master. This PC's `portfolio.db` is a stale working copy.
+- Release: `/opt/stocks/current` → `releases/stocks-upgrade.3w7KTcNz` (commit 4584a45). Rollback target: `releases/stocks-install.kOvgvno0`.
+- `stocks-sync.timer`: Mon-Fri 18:30 Europe/London → `stocks-sync.service` (`User=stocks`, same systemd sandbox as the web app, bounded to 15 min, each fetcher 5 min).
+- Broker logins read `/etc/stocks/brokers.env` (root 0600, HL only). The web service never loads it.
+- The public web app cannot trigger a sync (`POST /api/sync/all` → 403 in public mode). The Import tab shows per-account freshness and the last run only.
+- Hermes cron `b29835e1f4e9` on the Surface: 18:45 weekdays, sends the WhatsApp summary from the journal. No agent or LLM runs.
+- Chromium headless shell: `/opt/stocks/playwright`, using the ubuntu24.04 fallback build because Playwright doesn't support 26.04 yet.
+- Verified twice by running the unit by hand: HL ok, Trading 212 ok, Barclays skipped (not configured), DB integrity ok.
+
+**Lockout safety**
+- HL or Barclays rejecting a login writes `/var/lib/stocks/browser/{hl,barclays}-login-blocked`, and no further attempts are made until it is deleted (`sudo -u stocks rm ...`).
+
+**Deploy procedure**
+- `bash deploy/upgrade-surface.sh --prepare-only` (as geoff, no sudo) then `--upgrade`.
+- It snapshots the DB into `/var/backups/stocks/`, switches the release, health-checks, and rolls back automatically if the check fails.
+
+**Open**
+- Barclays: the account is locked. The user must restore access with Barclays, then add `PORTFOLIO_BARCLAYS_*` to `/etc/stocks/brokers.env`. The first run should be one attempt with `--headed` on this PC. The export route after login is not yet mapped.
+- Review 2 unmatched orders (Data → Matching) in production.
+- Pre-existing lint (30) and mypy (23) debt is unchanged.
+- `install-surface.sh --check` tests fail on the Surface once installed, by design (they refuse an existing install). Run them on a fresh VM or skip them there.
