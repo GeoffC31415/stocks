@@ -158,6 +158,19 @@ async def sync_trading212_all(
 ) -> Trading212SyncResult:
     """Refresh the complete read-only Trading 212 dataset in one action."""
     try:
+        return await run_trading212_sync(session, client, force=force)
+    except Exception as exc:
+        raise _provider_error(exc) from exc
+
+
+async def run_trading212_sync(
+    session: AsyncSession, client: Trading212Client, *, force: bool = False
+) -> Trading212SyncResult:
+    """All-or-nothing snapshot + orders + cash sync, shared by the API and sync-all.
+
+    Raises the underlying provider/data error; callers map it to HTTP or a report.
+    """
+    try:
         # Complete all broker I/O before opening a transaction or taking a writer lock.
         positions = await client.fetch_positions()
         account_summary: Mapping[str, Any] | httpx.HTTPStatusError
@@ -208,9 +221,9 @@ async def sync_trading212_all(
             )
             await import_session.flush()
         await session.commit()
-    except Exception as exc:
+    except Exception:
         await session.rollback()
-        raise _provider_error(exc) from exc
+        raise
     return Trading212SyncResult(
         account_name=settings.trading212_account_name,
         snapshot=snapshot,

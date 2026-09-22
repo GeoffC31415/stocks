@@ -32,6 +32,17 @@ export function ImportPanel() {
     queryFn: api.getTrading212Status,
   });
 
+  const { data: syncStatus } = useQuery({
+    queryKey: ["syncStatus"],
+    queryFn: api.getSyncStatus,
+  });
+
+  const syncAll = useMutation({
+    mutationFn: () => api.syncAll(true),
+    onSuccess: () => queryClient.invalidateQueries(),
+    onError: () => queryClient.invalidateQueries({ queryKey: ["syncStatus"] }),
+  });
+
   const syncTrading212 = useMutation({
     mutationFn: () => api.syncTrading212(forceImport),
     onSuccess: () => queryClient.invalidateQueries(),
@@ -235,6 +246,57 @@ export function ImportPanel() {
 
         </div>
       )}
+      <section aria-labelledby="sync-all-heading" className="mt-5 border-t border-white/[0.06] pt-4">
+        <h3 id="sync-all-heading" className="text-sm font-medium text-slate-200">Sync all accounts</h3>
+        <p className="my-2 text-xs text-slate-400">
+          Downloads the latest Hargreaves Lansdown and Barclays exports, imports them by content,
+          then refreshes Trading 212. Read-only: it never deals or moves money, and repeating a
+          sync does not duplicate records.
+        </p>
+        {syncStatus && syncStatus.accounts.length > 0 && (
+          <ul className="mb-2 space-y-1 text-xs" aria-label="Account freshness">
+            {syncStatus.accounts.map((a) => (
+              <li key={a.account_name} className="flex justify-between gap-2">
+                <span className="truncate text-slate-300">{a.account_name}</span>
+                <span className={a.stale ? "text-amber-400" : "text-slate-400"}>
+                  {a.last_snapshot_date ?? "never"}
+                  {a.age_days != null && ` (${a.age_days === 0 ? "today" : `${a.age_days}d ago`})`}
+                  {a.stale && " · stale"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {syncStatus && !syncStatus.manual_sync_enabled && (
+          <p className="text-xs text-slate-400">
+            Syncs automatically on weekdays at 18:30.
+            {syncStatus.last_run && ` Last run ${new Date(syncStatus.last_run.started_at).toLocaleString("en-GB")}: `}
+            {syncStatus.last_run?.steps.map((s) => `${s.name} ${s.status.replace("_", " ")}`).join(" · ")}
+          </p>
+        )}
+        {syncStatus?.manual_sync_enabled && (
+        <button type="button" className="btn-primary flex w-full items-center justify-center gap-2"
+          onClick={() => syncAll.mutate()}
+          disabled={syncAll.isPending || syncStatus?.running}>
+          <Download size={16} />
+          {syncAll.isPending || syncStatus?.running ? "Syncing all accounts…" : "Sync all accounts"}
+        </button>
+        )}
+        {syncAll.isSuccess && (
+          <ul role="status" className="mt-2 space-y-0.5 text-xs">
+            {syncAll.data.steps.map((step) => (
+              <li key={step.name} className={
+                step.status === "failed" || step.status === "needs_attention" ? "text-neg"
+                  : step.status === "ok" ? "text-pos" : "text-slate-400"}>
+                {step.name}: {step.status.replace("_", " ")}{step.detail ? ` — ${step.detail}` : ""}
+              </li>
+            ))}
+          </ul>
+        )}
+        {syncAll.isError && <p role="alert" className="mt-2 text-xs text-neg">
+          {(syncAll.error as Error).message}
+        </p>}
+      </section>
       <section className="mt-5 border-t border-white/[0.06] pt-4">
         <h3 className="text-sm font-medium text-slate-200">Trading 212</h3>
         <p className="my-2 text-xs text-slate-400">

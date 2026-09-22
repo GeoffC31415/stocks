@@ -28,6 +28,27 @@ class Settings(BaseSettings):
     trading212_api_secret: SecretStr | None = None
     trading212_account_name: str = "Trading 212"
 
+    # Browser download automation (values live only in the git-ignored .env).
+    hl_username: SecretStr | None = None
+    hl_date_of_birth: SecretStr | None = None
+    hl_password: SecretStr | None = None
+    hl_secure_number: SecretStr | None = None
+    barclays_surname: SecretStr | None = None
+    barclays_membership_number: SecretStr | None = None
+    barclays_pin: SecretStr | None = None
+    barclays_passcode: SecretStr | None = None
+    barclays_memorable_word: SecretStr | None = None
+    sync_inbox: Path = Path("data/auto_downloaded")
+    browser_profile: Path = Path("~/.local/share/stocks-browser")
+    sync_stale_days: int = 7
+
+    def resolved_sync_inbox(self) -> Path:
+        path = self.sync_inbox.expanduser()
+        return path if path.is_absolute() else (self.project_root / path).resolve()
+
+    def resolved_browser_profile(self) -> Path:
+        return self.browser_profile.expanduser().resolve()
+
     def resolved_database_url(self) -> str:
         if self.database_url:
             return self.database_url

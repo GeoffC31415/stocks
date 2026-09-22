@@ -19,6 +19,7 @@ import datetime as dt
 
 from app.models import Instrument
 from app.services.matching.normalisation import (
+    as_utc,
     character_similarity,
     instrument_type_compatibility,
     issuer_prefix,
@@ -102,9 +103,7 @@ def score_candidate(
         # (SQLite stores DateTime(timezone=True) as naive on some drivers)
         closed_at = instrument.closed_at
         if order_date is not None:
-            if closed_at.tzinfo is None and order_date.tzinfo is not None:
-                closed_at = closed_at.replace(tzinfo=order_date.tzinfo)
-            if order_date > closed_at:
+            if as_utc(order_date) > as_utc(closed_at):
                 date_score = 0.0
             else:
                 date_score = 0.7  # Partial credit for closed instruments

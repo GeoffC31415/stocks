@@ -246,6 +246,17 @@ export type OrderImportBatchOut = {
   row_count: number;
 };
 
+export type SyncStep = { name: string; status: string; detail: string | null };
+export type SyncFile = { filename: string; kind: string | null; as_of: string | null; status: string; detail: string | null };
+export type SyncRun = { started_at: string; finished_at: string | null; ok: boolean; steps: SyncStep[]; files: SyncFile[] };
+export type SyncStatus = {
+  manual_sync_enabled: boolean;
+  accounts: Array<{ account_name: string; last_snapshot_date: string | null; age_days: number | null; stale: boolean }>;
+  stale_after_days: number;
+  last_run: SyncRun | null;
+  running: boolean;
+};
+
 export type Trading212Status = {
   configured: boolean;
   account_name: string;
@@ -860,6 +871,9 @@ export const api = {
       orders: "imported" | "unchanged"; order_rows: number | null;
       cash_flows_imported: number; cash_flows_total: number; fetched_at: string;
     }>(`/api/trading212/sync?force=${String(force)}`, { method: "POST" }),
+  getSyncStatus: () => requestJson<SyncStatus>("/api/sync/status"),
+  syncAll: (fetch = true) =>
+    requestJson<SyncRun>(`/api/sync/all?fetch=${String(fetch)}`, { method: "POST" }),
   getTrading212Status: () =>
     requestJson<Trading212Status>("/api/trading212/status"),
   syncTrading212Portfolio: (force = false) => {

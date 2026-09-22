@@ -14,6 +14,7 @@ Provides a single reusable normalizer with explicit handling for:
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 import unicodedata
 
@@ -219,3 +220,8 @@ def instrument_type_compatibility(name_a: str, name_b: str) -> float:
         return 0.3
 
     return 1.0
+
+
+def as_utc(value: dt.datetime) -> dt.datetime:
+    """Treat naive datetimes (SQLite round-trips) as UTC so mixed values compare safely."""
+    return value.replace(tzinfo=dt.UTC) if value.tzinfo is None else value.astimezone(dt.UTC)

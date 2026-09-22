@@ -861,3 +861,24 @@ async def test_small_multipart_reaches_real_parser(public_app):
         )
     assert response.status_code == 200
     assert response.json() == {"content": "small"}
+
+
+@pytest.mark.asyncio
+async def test_public_mode_never_triggers_broker_sync_from_the_web(public_app, monkeypatch):
+    import app.routers.sync as sync_router
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Public web requests must not start a broker sync")
+
+    monkeypatch.setattr(sync_router, "run_sync_all", forbidden)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=public_app),
+        base_url="https://example.test",
+        auth=("owner", "test-password"),
+    ) as client:
+        for query in ("", "?fetch=false"):
+            response = await client.post(
+                f"/api/sync/all{query}", headers={"Origin": "https://example.test"}
+            )
+            assert response.status_code == 403
+            assert "schedule" in response.json()["detail"]

@@ -20,6 +20,7 @@ from app.routers.market_data import router as market_data_router
 from app.routers.matching import router as matching_router
 from app.routers.orders import router as orders_router
 from app.routers.portfolio import router as portfolio_router
+from app.routers.sync import router as sync_router
 from app.routers.trading212 import router as trading212_router
 from app.security import WebSecurityMiddleware, validate_public_settings
 
@@ -126,6 +127,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
         matching_router,
         market_data_router,
         trading212_router,
+        sync_router,
     ):
         application.include_router(router)
 

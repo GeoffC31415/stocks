@@ -750,3 +750,16 @@ async def test_resolve_group_with_preexisting_alias(async_db: AsyncSession) -> N
     order = await async_db.get(Order, 1)
     assert order.instrument_id == 43
     assert order.match_status == "manual"
+
+
+def test_as_utc_compares_naive_and_aware_either_way() -> None:
+    import datetime as _dt
+
+    from app.services.matching.normalisation import as_utc
+
+    naive = _dt.datetime(2026, 5, 7, 20, 0)
+    aware = _dt.datetime(2026, 9, 18, 10, 0, tzinfo=_dt.UTC)
+    # Previously only the naive-closed/aware-order direction was handled.
+    assert as_utc(aware) > as_utc(naive)
+    assert as_utc(naive) < as_utc(aware)
+    assert as_utc(naive).tzinfo is _dt.UTC

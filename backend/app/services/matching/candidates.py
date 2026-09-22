@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AccountAlias, Instrument, InstrumentAlias
-from app.services.matching.normalisation import normalise_name
+from app.services.matching.normalisation import as_utc, normalise_name
 
 
 async def resolve_canonical_account(
@@ -109,12 +109,9 @@ async def build_candidates(
             # Ensure both datetimes are timezone-aware before comparing
             # (SQLite stores DateTime(timezone=True) as naive on some drivers)
             closed_at = inst.closed_at
-            if order_date is not None:
-                if closed_at.tzinfo is None and order_date.tzinfo is not None:
-                    closed_at = closed_at.replace(tzinfo=order_date.tzinfo)
-                if order_date > closed_at:
-                    # Order is after instrument was closed - skip unless very close
-                    continue
+            if order_date is not None and as_utc(order_date) > as_utc(closed_at):
+                # Order is after instrument was closed - skip unless very close
+                continue
             # Include closed instruments but deprioritize them
             other_account.append(inst)
             continue
