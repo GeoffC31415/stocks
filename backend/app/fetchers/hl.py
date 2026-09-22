@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from pathlib import Path  # noqa: TC003 - annotations only; kept simple
 from typing import TYPE_CHECKING
 
 from app.config import settings
@@ -18,13 +19,22 @@ from app.services.export_classifier import ExportKind, UnrecognisedExport, class
 from app.services.sync_runner import StepResult
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from playwright.async_api import Page
 
 HL_HOSTS = ("hl.co.uk",)
 LOGIN_URL = "https://online.hl.co.uk/my-accounts/login-step-one"
 HOME_URL = "https://online.hl.co.uk/my-accounts"
+
+
+def block_marker() -> Path:
+    return settings.resolved_browser_profile() / "hl-login-blocked"
+
+
+def _block(reason: str) -> None:
+    """Stop further automatic logins after a rejected credential (lockout safety)."""
+    marker = block_marker()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(reason + "\nDelete this file after checking the HL details to re-enable.\n")
 
 
 def _secret(name: str) -> str:
@@ -59,7 +69,8 @@ async def login(page: Page) -> None:
     try:
         await page.wait_for_selector("#online-password-verification", timeout=15_000)
     except Exception as exc:
-        raise FetchError("HL: step 1 was not accepted (username/date of birth).") from exc
+        _block("HL did not accept step 1 (username/date of birth).")
+        raise NeedsAttention("HL: step 1 was not accepted; auto-login paused.") from exc
 
     await page.fill("#online-password-verification", _secret("hl_password"))
     secure = _secret("hl_secure_number")
@@ -74,7 +85,8 @@ async def login(page: Page) -> None:
     await page.wait_for_timeout(3000)
 
     if await page.locator("#online-password-verification").count():
-        raise FetchError("HL: step 2 was rejected (password/Secure Number).")
+        _block("HL rejected step 2 (password/Secure Number).")
+        raise NeedsAttention("HL: step 2 was rejected; auto-login paused.")
     body = (await page.locator("body").inner_text()).lower()
     if "verification code" in body or "one-time" in body or "passcode" in body:
         raise NeedsAttention("HL asked for a verification code.")
@@ -113,6 +125,12 @@ async def _save(page: Page, url: str, inbox: Path, prefix: str, expected: Export
 
 async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
     """Download HL holdings and recent capital-account activity into the inbox."""
+    if block_marker().exists():
+        return StepResult(
+            "Hargreaves Lansdown",
+            "needs_attention",
+            f"auto-login paused; delete {block_marker()} to retry",
+        )
     async with broker_context(
         settings.resolved_browser_profile() / "hl", HL_HOSTS, headless=headless
     ) as ctx:

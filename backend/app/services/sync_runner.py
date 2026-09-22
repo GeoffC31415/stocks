@@ -8,6 +8,7 @@ and never blocks the others. The last run report is written to
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import logging
@@ -25,6 +26,9 @@ from app.config import settings
 from app.services.sync_all_service import SyncReport, sync_inbox
 
 logger = logging.getLogger(__name__)
+
+# A hung browser must never stop the inbox import or Trading 212 from running.
+FETCH_TIMEOUT_SECONDS = 300
 
 # A fetcher downloads exports into the inbox and returns a short status line.
 Fetcher = Callable[[Path], Awaitable["StepResult"]]
@@ -124,7 +128,12 @@ async def run_sync_all(
             report.steps.append(StepResult(name, "skipped", "dry run"))
             continue
         try:
-            report.steps.append(await fetch(inbox))
+            report.steps.append(await asyncio.wait_for(fetch(inbox), FETCH_TIMEOUT_SECONDS))
+        except TimeoutError:
+            logger.error("%s fetcher timed out", name)
+            report.steps.append(
+                StepResult(name, "failed", f"timed out after {FETCH_TIMEOUT_SECONDS}s")
+            )
         except Exception as exc:
             logger.exception("%s fetcher crashed", name)
             report.steps.append(StepResult(name, "failed", f"{type(exc).__name__}"))

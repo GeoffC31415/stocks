@@ -12,6 +12,7 @@ failures can lock the online-banking account.
 from __future__ import annotations
 
 import re
+from pathlib import Path  # noqa: TC003 - annotations only; kept simple
 from typing import TYPE_CHECKING
 
 from app.config import settings
@@ -26,8 +27,6 @@ from app.fetchers.base import (
 from app.services.sync_runner import StepResult
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from playwright.async_api import Page
 
 BARCLAYS_HOSTS = ("barclays.co.uk", "barclays.com")
@@ -152,6 +151,16 @@ async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
     under automation), so after a successful login this reports
     ``needs_attention`` rather than guessing at navigation.
     """
+    needed = (
+        "barclays_surname",
+        "barclays_membership_number",
+        "barclays_passcode",
+        "barclays_memorable_word",
+    )
+    if not all(
+        getattr(settings, n) and getattr(settings, n).get_secret_value().strip() for n in needed
+    ):
+        return StepResult("Barclays", "skipped", "not configured")
     if block_marker().exists():
         return StepResult(
             "Barclays", "needs_attention", f"auto-login paused; delete {block_marker()} to retry"
