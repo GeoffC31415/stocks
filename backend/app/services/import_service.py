@@ -383,7 +383,7 @@ async def import_holding_snapshot(
 
     from app.services.instrument_matcher import link_orders_to_instruments
 
-    orders_linked = await link_orders_to_instruments(session)
+    orders_linked = await link_orders_to_instruments(session, commit=commit)
 
     summary: dict[str, Any] = {
         "previous_batch_id": prev_batch.id if prev_batch is not None else None,
@@ -399,5 +399,7 @@ async def import_holding_snapshot(
     batch.diff_summary = summary
     if commit:
         await session.commit()
-    await session.refresh(batch)
+        await session.refresh(batch)
+    else:
+        await session.flush()
     return batch, summary

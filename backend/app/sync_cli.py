@@ -43,8 +43,6 @@ def _fetchers(args: argparse.Namespace) -> list:
     out = []
     if "hl" in wanted:
         out.append(("Hargreaves Lansdown", lambda inbox: hl.fetch(inbox, headless=not args.headed)))
-    if "barclays" in wanted:
-        pass  # Barclays runs as a session step (atomic pair import); see _session_steps.
     return out
 
 

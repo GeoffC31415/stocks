@@ -18,6 +18,8 @@ from app.models import Order
 async def link_orders_to_instruments(
     session: AsyncSession,
     orders: Sequence[Order] | None = None,
+    *,
+    commit: bool = True,
 ) -> int:
     """
     Resolve instrument_id for orders that don't have one yet.
@@ -32,5 +34,6 @@ async def link_orders_to_instruments(
         session,
         source="barclays_orders",
         mode="unmatched_only",
+        commit=commit,
     )
     return result["orders_linked"]

@@ -149,7 +149,12 @@ async def _guard_closures(session: AsyncSession, account: str, rows, orders) -> 
     from app.services.import_service import _snapshots_for_batch
 
     current = {r.identifier for r in rows}
-    sold = {normalise_name(o.security_name) for o in orders if o.side.lower() == "sell"}
+    since = dt.datetime.combine(previous.as_of_date, dt.time.min, tzinfo=dt.UTC)
+    sold = {
+        normalise_name(o.security_name)
+        for o in orders
+        if o.side.lower() == "sell" and o.order_date >= since
+    }
     unexplained = [
         s
         for s in await _snapshots_for_batch(session, previous.id)

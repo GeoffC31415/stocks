@@ -201,11 +201,11 @@ async def ingest_parsed_orders(
 
     batch.row_count = len(new_orders)
     await session.flush()
-    await link_orders_to_instruments(session, new_orders)
+    await link_orders_to_instruments(session, new_orders, commit=commit)
 
     if commit:
         await session.commit()
-    await session.refresh(batch)
+        await session.refresh(batch)
     return batch, len(new_orders)
 
 

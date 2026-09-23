@@ -187,14 +187,42 @@ async def test_mass_closure_needs_attention_instead_of_closing_holdings(session)
         )
     ).scalar_one()
     assert open_count == 9  # 8 funds + cash, none closed
+    # The refused pair must leave NO trace: its orders were not committed either.
+    assert await _count(session, OrderImportBatch) == 1
+    assert await _count(session, Order) == 2
+
+
+@pytest.mark.asyncio
+async def test_holdings_failure_after_real_order_ingest_rolls_back_orders(session, monkeypatch):
+    """Unmocked orders path (incl. instrument matching) must not commit early."""
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("holdings failed")
+
+    monkeypatch.setattr(pair, "import_holding_snapshot", boom)
+    with pytest.raises(RuntimeError):
+        await import_barclays_pair(session, holdings_xls(), orders_xls(), as_of=TODAY)
+    assert await _count(session, OrderImportBatch) == 0
+    assert await _count(session, Order) == 0
 
 
 @pytest.mark.asyncio
 async def test_closure_explained_by_sells_is_allowed(session):
     many = [holding(f"Fund {i}", f"F{i:02d}") for i in range(4)]
     await import_barclays_pair(session, holdings_xls(*many), orders_xls(), as_of=TODAY)
-    sells = [order(f"Fund {i}", 5, "Sell", 900.0) for i in (1, 2, 3)]
+    sells = [order(f"Fund {i}", 23, "Sell", 900.0) for i in (1, 2, 3)]
     result = await import_barclays_pair(
         session, holdings_xls(many[0]), orders_xls(*sells), as_of=TODAY + dt.timedelta(days=1)
     )
     assert result.closed == 3
+
+
+@pytest.mark.asyncio
+async def test_old_sells_do_not_explain_new_disappearances(session):
+    many = [holding(f"Fund {i}", f"F{i:02d}") for i in range(4)]
+    await import_barclays_pair(session, holdings_xls(*many), orders_xls(), as_of=TODAY)
+    stale = [order(f"Fund {i}", 1, "Sell", 900.0) for i in (1, 2, 3)]  # before last snapshot
+    with pytest.raises(BarclaysExportInvalid, match="would close"):
+        await import_barclays_pair(
+            session, holdings_xls(many[0]), orders_xls(*stale), as_of=TODAY + dt.timedelta(days=1)
+        )

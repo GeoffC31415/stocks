@@ -270,9 +270,13 @@ async def resolve_batch(
     mode: str = "unmatched_only",
     min_auto_confidence: float = CONFIDENCE_HIGH,
     overwrite_manual: bool = False,
+    commit: bool = True,
 ) -> dict:
     """
     Resolve a batch of orders.
+
+    ``commit=False`` only flushes, so callers can keep matching inside their
+    own transaction (e.g. the atomic Barclays pair import).
 
     Modes:
     - unmatched_only: Only orders with no instrument
@@ -321,7 +325,10 @@ async def resolve_batch(
         elif r.get("match_status") == "unmatched":
             unmatched += 1
 
-    await session.commit()
+    if commit:
+        await session.commit()
+    else:
+        await session.flush()
 
     return {
         "orders_examined": len(orders),
