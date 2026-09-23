@@ -113,6 +113,7 @@ async def run_sync_all(
     session: AsyncSession,
     *,
     fetchers: Iterable[tuple[str, Fetcher]] = (),
+    session_steps: Iterable[tuple[str, Callable[[AsyncSession], Awaitable[StepResult]]]] = (),
     include_trading212: bool = True,
     extra_sources: Iterable[Path] = (),
     dry_run: bool = False,
@@ -137,6 +138,24 @@ async def run_sync_all(
         except Exception as exc:
             logger.exception("%s fetcher crashed", name)
             report.steps.append(StepResult(name, "failed", f"{type(exc).__name__}"))
+
+    # Barclays imports its own validated pair atomically (never via the inbox).
+    for name, step in session_steps:
+        if dry_run:
+            report.steps.append(StepResult(name, "skipped", "dry run"))
+            continue
+        try:
+            report.steps.append(await asyncio.wait_for(step(session), FETCH_TIMEOUT_SECONDS))
+        except TimeoutError:
+            await session.rollback()
+            logger.error("%s step timed out", name)
+            report.steps.append(
+                StepResult(name, "needs_attention", f"timed out after {FETCH_TIMEOUT_SECONDS}s")
+            )
+        except Exception as exc:
+            await session.rollback()
+            logger.exception("%s step crashed", name)
+            report.steps.append(StepResult(name, "needs_attention", type(exc).__name__))
 
     files: SyncReport = await sync_inbox(
         session, inbox, extra_sources=extra_sources, dry_run=dry_run

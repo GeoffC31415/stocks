@@ -38,9 +38,17 @@ class SyncStatus(BaseModel):
 def _fetchers(include_fetch: bool) -> list:
     if not include_fetch:
         return []
-    from app.fetchers import barclays, hl
+    from app.fetchers import hl
 
-    return [("Hargreaves Lansdown", hl.fetch), ("Barclays", barclays.fetch)]
+    return [("Hargreaves Lansdown", hl.fetch)]
+
+
+def _session_steps(include_fetch: bool) -> list:
+    if not include_fetch:
+        return []
+    from app.fetchers import barclays
+
+    return [("Barclays", barclays.sync)]
 
 
 def require_manual_sync(request: Request) -> None:
@@ -64,7 +72,9 @@ async def sync_all(
     if _lock.locked():
         raise HTTPException(status_code=409, detail="A sync is already running.")
     async with _lock:
-        report = await run_sync_all(session, fetchers=_fetchers(fetch))
+        report = await run_sync_all(
+            session, fetchers=_fetchers(fetch), session_steps=_session_steps(fetch)
+        )
     return report.to_json()
 
 

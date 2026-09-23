@@ -317,3 +317,74 @@ async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
         "needs_attention",
         "unattended login disabled pending authentication and import verification",
     )
+
+
+def _rearm_after_verified_success() -> None:
+    """Only a verified login + validated export pair clears the attempt latch."""
+    block_marker().unlink(missing_ok=True)
+
+
+async def sync(session, *, headless: bool = True, today=None) -> StepResult:  # noqa: ANN001
+    """Guarded end-to-end Barclays refresh: one login, both exports, one transaction.
+
+    Refuses unless ``barclays_auto_login`` is armed, credentials are configured
+    and no latch exists. The latch is written before bank interaction and is
+    cleared only after a verified login AND a successful atomic import; any
+    other outcome (rejection, MFA, timeout, crash, invalid export) keeps it.
+    """
+    import datetime as dt
+
+    from app.fetchers.base import broker_context
+    from app.services.barclays_pair_import import BarclaysExportInvalid, import_barclays_pair
+
+    preflight = await fetch(Path("."))
+    if preflight.status == "skipped" or block_marker().exists():
+        return preflight
+    if not settings.barclays_auto_login:
+        return StepResult("Barclays", "skipped", "unattended login not armed")
+
+    async with broker_context(
+        settings.resolved_browser_profile() / "barclays", BARCLAYS_HOSTS, headless=headless
+    ) as ctx:
+        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        try:
+            await login(page)  # writes the latch first; raises NeedsAttention otherwise
+            await _open_investment_overview(page)
+            holdings, orders = await collect_exports(page)
+        except NeedsAttention as exc:
+            return StepResult("Barclays", "needs_attention", str(exc))
+        except FetchError as exc:
+            return StepResult("Barclays", "needs_attention", f"{exc} Auto-login paused.")
+        finally:
+            await _logout(page)
+    try:
+        result = await import_barclays_pair(
+            session, holdings, orders, as_of=today or dt.date.today()
+        )
+    except BarclaysExportInvalid as exc:
+        return StepResult("Barclays", "needs_attention", f"{exc} Auto-login paused.")
+    _rearm_after_verified_success()
+    return StepResult(
+        "Barclays",
+        "ok" if "imported" in (result.holdings, result.orders) else "unchanged",
+        f"holdings {result.holdings}, {result.new_orders} new orders",
+    )
+
+
+async def _open_investment_overview(page: Page) -> None:
+    """From the banking landing page, open the (single) investment account Overview."""
+    if urlsplit(page.url).hostname == "www.investments.barclays.co.uk":
+        _account_root(page.url)
+        return
+    raise NeedsAttention(
+        "Barclays: route from banking login to the investment account is not mapped yet."
+    )
+
+
+async def _logout(page: Page) -> None:
+    try:
+        control = page.get_by_role("link", name=re.compile(r"log ?out", re.I))
+        if await control.count():
+            await control.first.click(timeout=5000)
+    except Exception:  # noqa: BLE001, S110 - best effort; the session expires anyway
+        pass

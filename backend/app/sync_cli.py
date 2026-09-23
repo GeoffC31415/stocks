@@ -37,15 +37,23 @@ def _parse() -> argparse.Namespace:
 def _fetchers(args: argparse.Namespace) -> list:
     if args.no_fetch:
         return []
-    from app.fetchers import barclays, hl
+    from app.fetchers import hl
 
     wanted = set(args.only or ("hl", "barclays"))
     out = []
     if "hl" in wanted:
         out.append(("Hargreaves Lansdown", lambda inbox: hl.fetch(inbox, headless=not args.headed)))
     if "barclays" in wanted:
-        out.append(("Barclays", lambda inbox: barclays.fetch(inbox, headless=not args.headed)))
+        pass  # Barclays runs as a session step (atomic pair import); see _session_steps.
     return out
+
+
+def _session_steps(args: argparse.Namespace) -> list:
+    if args.no_fetch or "barclays" not in set(args.only or ("hl", "barclays")):
+        return []
+    from app.fetchers import barclays
+
+    return [("Barclays", lambda session: barclays.sync(session, headless=not args.headed))]
 
 
 async def _run(args: argparse.Namespace) -> int:
@@ -55,6 +63,7 @@ async def _run(args: argparse.Namespace) -> int:
         report = await run_sync_all(
             session,
             fetchers=_fetchers(args),
+            session_steps=_session_steps(args),
             include_trading212=not args.no_trading212,
             extra_sources=extra,
             dry_run=args.dry_run,
