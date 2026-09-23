@@ -4,26 +4,28 @@ Login route (verified 2026-09-22): surname + 12-digit membership number with
 "remember me" -> "Passcode and memorable word" -> 5-digit passcode plus two
 requested memorable-word characters. The PIN is not used on this route.
 
-Lockout safety: a rejected credential writes a block marker; no further
-automatic attempts are made until the marker is removed, because repeated
-failures can lock the online-banking account.
+Lockout safety: every login attempt writes a persistent block marker before
+bank interaction. Further automatic attempts remain paused for operator review,
+because repeated failures can lock the online-banking account.
 """
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path  # noqa: TC003 - annotations only; kept simple
 from typing import TYPE_CHECKING
+from urllib.parse import urljoin, urlsplit
 
 from app.config import settings
 from app.fetchers.base import (
     FetchError,
     NeedsAttention,
-    broker_context,
     dismiss_cookies,
     pick_characters,
     requested_positions,
 )
+from app.services.export_classifier import ExportKind, UnrecognisedExport, classify_export
 from app.services.sync_runner import StepResult
 
 if TYPE_CHECKING:
@@ -47,11 +49,11 @@ def _secret(name: str) -> str:
 def _block(reason: str) -> None:
     marker = block_marker()
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(reason + "\nDelete this file after checking your details to re-enable.\n")
+    marker.write_text(reason + "\nAuto-login paused. Operator review required.\n")
 
 
 async def _is_logged_in(page: Page) -> bool:
-    if "authlogin" in page.url:
+    if urlsplit(page.url).hostname != "www.investments.barclays.co.uk":
         return False
     return await page.get_by_role("link", name=re.compile(r"log ?out", re.I)).count() > 0 or (
         await page.get_by_role("button", name=re.compile(r"log ?out", re.I)).count() > 0
@@ -59,11 +61,34 @@ async def _is_logged_in(page: Page) -> bool:
 
 
 async def login(page: Page) -> None:
-    if block_marker().exists():
-        raise NeedsAttention(
-            "Barclays automatic login is paused after a rejected attempt; "
-            f"check .env then delete {block_marker()}."
-        )
+    # Write BEFORE any bank interaction. Exclusive creation serializes attempts;
+    # a crash, cancellation, timeout or machine restart leaves the latch intact.
+    marker = block_marker()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        raise NeedsAttention("Barclays auto-login paused; operator review required.") from None
+    with os.fdopen(fd, "w") as stream:
+        stream.write("Attempt in progress or outcome uncertain. Operator review required.\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    # Persist the directory entry too: losing the latch on reboot risks retries.
+    directory_fd = os.open(marker.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+    try:
+        await _login_once(page)
+        if not await _is_logged_in(page):
+            raise NeedsAttention("Barclays authentication not verified; auto-login paused.")
+    except Exception:
+        # Never include provider text, Playwright call logs or credential values.
+        raise NeedsAttention("Barclays login not verified; auto-login paused.") from None
+
+
+async def _login_once(page: Page) -> None:
     await page.goto(LOGIN_URL, wait_until="domcontentloaded")
     await page.wait_for_timeout(3000)
     await dismiss_cookies(page)
@@ -144,12 +169,134 @@ async def login(page: Page) -> None:
         raise NeedsAttention(f"Barclays login did not complete ({reason}); auto-login paused.")
 
 
-async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
-    """Log in and download Barclays exports.
+def _account_root(url: str) -> str:
+    parsed = urlsplit(url)
+    match = re.match(r"^(/en-gb/SubAccount/[A-Za-z0-9-]+)/", parsed.path)
+    if parsed.scheme != "https" or parsed.netloc != "www.investments.barclays.co.uk" or not match:
+        raise FetchError("Barclays: authenticated investment account page required.")
+    return "https://www.investments.barclays.co.uk" + match.group(1)
 
-    The post-login export route is not yet recorded (login has not completed
-    under automation), so after a successful login this reports
-    ``needs_attention`` rather than guessing at navigation.
+
+async def read_export(
+    page: Page,
+    href: str,
+    suffix: str,
+    expected: ExportKind,
+    *,
+    account_root: str | None = None,
+) -> bytes:
+    """GET only the observed export for the pinned account; never follow redirects."""
+    try:
+        return await _read_export(page, href, suffix, expected, account_root=account_root)
+    except Exception:
+        # Browser call logs and network errors can contain private URLs or credentials.
+        raise FetchError("Barclays: account export not verified; no retry attempted.") from None
+
+
+async def _read_export(
+    page: Page,
+    href: str,
+    suffix: str,
+    expected: ExportKind,
+    *,
+    account_root: str | None,
+) -> bytes:
+    approved = {
+        ExportKind.BARCLAYS_HOLDINGS: "/Portfolio/InvestmentsOverview/GetInvestmentsFile",
+        ExportKind.BARCLAYS_ORDERS: "/Orders/History/GetDocumentFile",
+    }
+    if approved.get(expected) != suffix:
+        raise FetchError("Barclays: unapproved export endpoint.")
+    url = urljoin(page.url, href)
+    parsed = urlsplit(url)
+    root = account_root if account_root is not None else _account_root(page.url)
+    if _account_root(page.url) != root:
+        raise FetchError("Barclays: account or session changed.")
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc != "www.investments.barclays.co.uk"
+        or parsed.fragment
+        or "https://" + parsed.netloc + parsed.path != root + suffix
+    ):
+        raise FetchError("Barclays: refused unexpected export link.")
+    response = await page.request.get(url, max_redirects=0, max_retries=0, timeout=20000)
+    if response.status != 200:
+        raise FetchError("Barclays: export unavailable; no retry attempted.")
+    data = await response.body()
+    if _account_root(page.url) != root:
+        raise FetchError("Barclays: account or session changed.")
+    if not data or len(data) > 10 * 1024 * 1024:
+        raise FetchError("Barclays: export empty or oversized.")
+    try:
+        kind = classify_export("export.xls", data).kind
+    except UnrecognisedExport:
+        raise FetchError("Barclays: export content invalid.") from None
+    if kind != expected:
+        raise FetchError("Barclays: wrong export type.")
+    return data
+
+
+async def collect_exports(page: Page) -> tuple[bytes, bytes]:
+    """Collect a validated pair in memory; no login, persistence or dealing actions.
+
+    Caller must start on the authenticated account Overview. Deliberately not
+    wired into the scheduler until login-to-investments and atomic import are
+    verified. A failed second export cannot publish a partial pair.
+    """
+    try:
+        return await _collect_exports(page)
+    except NeedsAttention:
+        raise NeedsAttention("Barclays: authenticated investment account page required.") from None
+    except Exception:
+        raise FetchError("Barclays: account exports not verified; no retry attempted.") from None
+
+
+async def _collect_exports(page: Page) -> tuple[bytes, bytes]:
+    root = _account_root(page.url)
+    if not await _is_logged_in(page):
+        raise NeedsAttention("Barclays: authenticated investment account page required.")
+    holdings_link = page.locator("a").filter(has_text="Download investments")
+    href = await holdings_link.get_attribute("href", timeout=5000)
+    if not href:
+        raise FetchError("Barclays: holdings export link missing.")
+    holdings = await read_export(
+        page,
+        href,
+        "/Portfolio/InvestmentsOverview/GetInvestmentsFile",
+        ExportKind.BARCLAYS_HOLDINGS,
+        account_root=root,
+    )
+    orders_link = page.get_by_role("link", name="Orders", exact=True)
+    href = await orders_link.get_attribute("href", timeout=5000)
+    if not href or urljoin(page.url, href) != root + "/Orders":
+        raise FetchError("Barclays: unexpected orders navigation.")
+    await orders_link.click(timeout=5000)
+    await page.wait_for_load_state("domcontentloaded")
+    if _account_root(page.url) != root or not await _is_logged_in(page):
+        raise FetchError("Barclays: account or session changed.")
+    await page.locator("#history-tab").click(timeout=5000)
+    href = (
+        await page.locator("a")
+        .filter(has_text="Download order history")
+        .get_attribute("href", timeout=5000)
+    )
+    if not href:
+        raise FetchError("Barclays: orders export link missing.")
+    orders = await read_export(
+        page,
+        href,
+        "/Orders/History/GetDocumentFile",
+        ExportKind.BARCLAYS_ORDERS,
+        account_root=root,
+    )
+    return holdings, orders
+
+
+async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
+    """Fail closed until unattended authentication and atomic import are verified.
+
+    Post-login exports are mapped by collect_exports; that is not evidence that
+    automated credentials are safe. Configuration alone must not enable login.
     """
     needed = (
         "barclays_surname",
@@ -163,16 +310,10 @@ async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
         return StepResult("Barclays", "skipped", "not configured")
     if block_marker().exists():
         return StepResult(
-            "Barclays", "needs_attention", f"auto-login paused; delete {block_marker()} to retry"
+            "Barclays", "needs_attention", "auto-login paused; operator review required"
         )
-    async with broker_context(
-        settings.resolved_browser_profile() / "barclays", BARCLAYS_HOSTS, headless=headless
-    ) as ctx:
-        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-        try:
-            await login(page)
-        except NeedsAttention as exc:
-            return StepResult("Barclays", "needs_attention", str(exc))
-        except FetchError as exc:
-            return StepResult("Barclays", "failed", str(exc))
-    return StepResult("Barclays", "needs_attention", "logged in; export route not yet recorded")
+    return StepResult(
+        "Barclays",
+        "needs_attention",
+        "unattended login disabled pending authentication and import verification",
+    )

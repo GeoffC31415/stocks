@@ -62,7 +62,7 @@ async def test_login_block_markers_stop_further_attempts(tmp_path, monkeypatch):
         raise AssertionError("a blocked fetcher must not open a browser")
 
     monkeypatch.setattr(hl, "broker_context", no_browser)
-    monkeypatch.setattr(barclays, "broker_context", no_browser)
+    monkeypatch.setattr(barclays, "broker_context", no_browser, raising=False)
     hl._block("test")
     barclays._block("test")
     assert (await hl.fetch(tmp_path)).status == "needs_attention"
@@ -77,6 +77,9 @@ async def test_unconfigured_barclays_is_skipped_without_a_browser(tmp_path, monk
     monkeypatch.setattr(settings, "browser_profile", tmp_path)
     monkeypatch.setattr(settings, "barclays_surname", None)
     monkeypatch.setattr(
-        barclays, "broker_context", lambda *a, **k: (_ for _ in ()).throw(AssertionError)
+        barclays,
+        "broker_context",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError),
+        raising=False,
     )
     assert (await barclays.fetch(tmp_path)) == StepResult("Barclays", "skipped", "not configured")
