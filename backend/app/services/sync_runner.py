@@ -12,6 +12,7 @@ import asyncio
 import datetime as dt
 import json
 import logging
+import os
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -23,7 +24,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config import settings
+from app.services.barclays_sync_service import FetchedPair, import_pair
 from app.services.sync_all_service import SyncReport, sync_inbox
+from app.services.sync_control import atomic_json, file_lock, validated_invocation_id
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +34,7 @@ logger = logging.getLogger(__name__)
 FETCH_TIMEOUT_SECONDS = 300
 
 # A fetcher downloads exports into the inbox and returns a short status line.
-Fetcher = Callable[[Path], Awaitable["StepResult"]]
+Fetcher = Callable[[Path], Awaitable["StepResult | FetchedPair"]]
 
 
 @dataclass
@@ -47,6 +50,7 @@ class RunReport:
     finished_at: str | None = None
     steps: list[StepResult] = field(default_factory=list)
     files: list[dict[str, Any]] = field(default_factory=list)
+    invocation_id: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -57,6 +61,7 @@ class RunReport:
     def to_json(self) -> dict[str, Any]:
         return {
             "started_at": self.started_at,
+            "invocation_id": self.invocation_id,
             "finished_at": self.finished_at,
             "ok": self.ok,
             "steps": [asdict(s) for s in self.steps],
@@ -113,7 +118,29 @@ async def run_sync_all(
     session: AsyncSession,
     *,
     fetchers: Iterable[tuple[str, Fetcher]] = (),
-    session_steps: Iterable[tuple[str, Callable[[AsyncSession], Awaitable[StepResult]]]] = (),
+    include_trading212: bool = True,
+    extra_sources: Iterable[Path] = (),
+    dry_run: bool = False,
+    inbox: Path | None = None,
+    write_status: bool = True,
+) -> RunReport:
+    inbox = inbox or settings.resolved_sync_inbox()
+    with file_lock(inbox / "sync-run.lock"):
+        return await _run_sync_all_locked(
+            session,
+            fetchers=fetchers,
+            include_trading212=include_trading212,
+            extra_sources=extra_sources,
+            dry_run=dry_run,
+            inbox=inbox,
+            write_status=write_status,
+        )
+
+
+async def _run_sync_all_locked(
+    session: AsyncSession,
+    *,
+    fetchers: Iterable[tuple[str, Fetcher]] = (),
     include_trading212: bool = True,
     extra_sources: Iterable[Path] = (),
     dry_run: bool = False,
@@ -122,40 +149,50 @@ async def run_sync_all(
 ) -> RunReport:
     inbox = inbox or settings.resolved_sync_inbox()
     inbox.mkdir(parents=True, exist_ok=True)
-    report = RunReport(started_at=dt.datetime.now(dt.UTC).isoformat(timespec="seconds"))
+    report = RunReport(
+        started_at=dt.datetime.now(dt.UTC).isoformat(),
+        invocation_id=validated_invocation_id(os.environ.get("INVOCATION_ID")),
+    )
+    if write_status and not dry_run:
+        atomic_json(inbox / "last-sync.json", report.to_json())
 
     for name, fetch in fetchers:
         if dry_run:
             report.steps.append(StepResult(name, "skipped", "dry run"))
             continue
         try:
-            report.steps.append(await asyncio.wait_for(fetch(inbox), FETCH_TIMEOUT_SECONDS))
+            # Bound the entire broker operation, not just the browser fetch.
+            # Cancellation reaches import_pair, which rolls back before exit.
+            async with asyncio.timeout(FETCH_TIMEOUT_SECONDS):
+                fetched = await fetch(inbox)
+                if isinstance(fetched, FetchedPair):
+                    imported_pair = await import_pair(
+                        session, fetched.holdings, fetched.orders, as_of=fetched.as_of
+                    )
+                    # No further login is permitted until the whole pair commits.
+                    fetched.acknowledge()
+                    changed = (
+                        imported_pair["snapshot"] == "imported"
+                        or imported_pair["orders"] == "imported"
+                    )
+                    report.steps.append(
+                        StepResult(
+                            name,
+                            "ok" if changed else "unchanged",
+                            f"snapshot {imported_pair['snapshot']}, orders {imported_pair['orders']}; "
+                            f"{imported_pair['cancelled_orders']} cancelled orders excluded",
+                        )
+                    )
+                else:
+                    report.steps.append(fetched)
         except TimeoutError:
             logger.error("%s fetcher timed out", name)
             report.steps.append(
                 StepResult(name, "failed", f"timed out after {FETCH_TIMEOUT_SECONDS}s")
             )
         except Exception as exc:
-            logger.exception("%s fetcher crashed", name)
+            logger.error("%s sync failed (%s)", name, type(exc).__name__)
             report.steps.append(StepResult(name, "failed", f"{type(exc).__name__}"))
-
-    # Barclays imports its own validated pair atomically (never via the inbox).
-    for name, step in session_steps:
-        if dry_run:
-            report.steps.append(StepResult(name, "skipped", "dry run"))
-            continue
-        try:
-            report.steps.append(await asyncio.wait_for(step(session), FETCH_TIMEOUT_SECONDS))
-        except TimeoutError:
-            await session.rollback()
-            logger.error("%s step timed out", name)
-            report.steps.append(
-                StepResult(name, "needs_attention", f"timed out after {FETCH_TIMEOUT_SECONDS}s")
-            )
-        except Exception as exc:
-            await session.rollback()
-            logger.exception("%s step crashed", name)
-            report.steps.append(StepResult(name, "needs_attention", type(exc).__name__))
 
     files: SyncReport = await sync_inbox(
         session, inbox, extra_sources=extra_sources, dry_run=dry_run
@@ -180,7 +217,7 @@ async def run_sync_all(
 
     report.finished_at = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     if write_status and not dry_run:
-        (inbox / "last-sync.json").write_text(json.dumps(report.to_json(), indent=2))
+        atomic_json(inbox / "last-sync.json", report.to_json())
     return report
 
 

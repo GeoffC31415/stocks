@@ -14,6 +14,12 @@ from app.config import settings
 from app.database import get_session
 from app.models import HoldingSnapshot, ImportBatch, Instrument
 from app.routers.trading212 import require_local_origin
+from app.services.sync_control import (
+    SyncBusy,
+    public_report,
+    request_service_sync,
+    service_sync_status,
+)
 from app.services.sync_runner import read_last_sync, run_sync_all
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -29,6 +35,7 @@ class AccountFreshness(BaseModel):
 
 class SyncStatus(BaseModel):
     manual_sync_enabled: bool
+    service_trigger_enabled: bool = False
     accounts: list[AccountFreshness]
     stale_after_days: int
     last_run: dict | None
@@ -38,17 +45,9 @@ class SyncStatus(BaseModel):
 def _fetchers(include_fetch: bool) -> list:
     if not include_fetch:
         return []
-    from app.fetchers import hl
+    from app.fetchers import barclays, hl
 
-    return [("Hargreaves Lansdown", hl.fetch)]
-
-
-def _session_steps(include_fetch: bool) -> list:
-    if not include_fetch:
-        return []
-    from app.fetchers import barclays
-
-    return [("Barclays", barclays.sync)]
+    return [("Hargreaves Lansdown", hl.fetch), ("Barclays", barclays.fetch)]
 
 
 def require_manual_sync(request: Request) -> None:
@@ -62,6 +61,26 @@ def require_manual_sync(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Sync runs on the daily schedule.")
 
 
+@router.post("/request", status_code=202)
+async def request_sync(request: Request) -> dict:
+    config = getattr(getattr(request.scope.get("app"), "state", None), "web_config", settings)
+    if config.deployment_mode != "public" or not config.sync_service_trigger_enabled:
+        raise HTTPException(status_code=403, detail="Service sync is disabled.")
+    if request.headers.getlist("origin") != [config.public_origin]:
+        raise HTTPException(status_code=403, detail="Cross-origin request forbidden")
+    if request.query_params or await request.body():
+        raise HTTPException(status_code=400, detail="This endpoint accepts no parameters.")
+    return await asyncio.to_thread(request_service_sync, config.resolved_sync_inbox())
+
+
+@router.get("/request")
+async def requested_sync_status(request: Request) -> dict:
+    config = getattr(getattr(request.scope.get("app"), "state", None), "web_config", settings)
+    if config.deployment_mode != "public" or not config.sync_service_trigger_enabled:
+        return {"state": "disabled", "request_id": None, "last_run": None}
+    return await asyncio.to_thread(service_sync_status, config.resolved_sync_inbox())
+
+
 @router.post("/all")
 async def sync_all(
     fetch: bool = Query(default=True, description="Log in to brokers and download exports"),
@@ -72,9 +91,10 @@ async def sync_all(
     if _lock.locked():
         raise HTTPException(status_code=409, detail="A sync is already running.")
     async with _lock:
-        report = await run_sync_all(
-            session, fetchers=_fetchers(fetch), session_steps=_session_steps(fetch)
-        )
+        try:
+            report = await run_sync_all(session, fetchers=_fetchers(fetch))
+        except SyncBusy:
+            raise HTTPException(status_code=409, detail="A sync is already running.") from None
     return report.to_json()
 
 
@@ -103,8 +123,12 @@ async def sync_status(request: Request, session: AsyncSession = Depends(get_sess
         )
     return SyncStatus(
         manual_sync_enabled=config.deployment_mode != "public",
+        service_trigger_enabled=config.deployment_mode == "public"
+        and config.sync_service_trigger_enabled,
         accounts=accounts,
         stale_after_days=limit,
-        last_run=read_last_sync(),
+        last_run=public_report(read_last_sync(config.resolved_sync_inbox()))
+        if config.deployment_mode == "public"
+        else read_last_sync(config.resolved_sync_inbox()),
         running=_lock.locked(),
     )

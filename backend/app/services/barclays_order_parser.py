@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from python_calamine import CalamineWorkbook
 
@@ -75,6 +75,8 @@ def parse_barclays_order_xls_bytes(
             date_val = row[date_col] if date_col is not None else None
             if isinstance(date_val, datetime):
                 order_date = date_val.replace(tzinfo=UTC)
+            elif isinstance(date_val, date):
+                order_date = datetime.combine(date_val, datetime.min.time(), tzinfo=UTC)
             else:
                 continue
 

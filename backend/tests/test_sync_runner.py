@@ -83,3 +83,45 @@ async def test_unconfigured_barclays_is_skipped_without_a_browser(tmp_path, monk
         raising=False,
     )
     assert (await barclays.fetch(tmp_path)) == StepResult("Barclays", "skipped", "not configured")
+
+
+@pytest.mark.parametrize("invocation_id", ["a" * 32, None, "not-an-id", "a" * 31, "A" * 32])
+async def test_run_report_carries_only_valid_systemd_invocation(
+    session, tmp_path, monkeypatch, invocation_id
+):
+    import json
+
+    if invocation_id is None:
+        monkeypatch.delenv("INVOCATION_ID", raising=False)
+    else:
+        monkeypatch.setenv("INVOCATION_ID", invocation_id)
+    expected = invocation_id if invocation_id == "a" * 32 else None
+
+    async def inspect_initial_report(_inbox):
+        initial = json.loads((tmp_path / "last-sync.json").read_text())
+        assert "invocation_id" in initial
+        assert initial["invocation_id"] == expected
+        assert initial["finished_at"] is None
+        # Final serialization must retain the invocation captured at run start.
+        monkeypatch.setenv("INVOCATION_ID", "b" * 32)
+        return StepResult("Synthetic", "ok")
+
+    report = await run_sync_all(
+        session, fetchers=[("Synthetic", inspect_initial_report)],
+        include_trading212=False, inbox=tmp_path,
+    )
+    assert report.ok
+    assert report.to_json()["invocation_id"] == expected
+    assert json.loads((tmp_path / "last-sync.json").read_text())["invocation_id"] == expected
+
+
+async def test_fetch_failure_never_logs_private_exception_details(session, tmp_path, caplog):
+    async def fails(inbox):
+        raise RuntimeError("PRIVATE_SENTINEL")
+
+    report = await run_sync_all(
+        session, fetchers=[("Barclays", fails)], include_trading212=False, inbox=tmp_path
+    )
+    assert report.steps[0].status == "failed"
+    assert "PRIVATE_SENTINEL" not in caplog.text
+    assert "PRIVATE_SENTINEL" not in (tmp_path / "last-sync.json").read_text()
