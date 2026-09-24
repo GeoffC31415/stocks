@@ -38,12 +38,12 @@ class Settings(BaseSettings):
     barclays_pin: SecretStr | None = None
     barclays_passcode: SecretStr | None = None
     barclays_memorable_word: SecretStr | None = None
-    # Barclays unattended login stays OFF unless explicitly armed. Arming allows
-    # exactly one attempt per run and only while no block marker exists.
-    barclays_auto_login: bool = False
+    barclays_automation_enabled: bool = False
+    barclays_expected_account: SecretStr | None = None
     sync_inbox: Path = Path("data/auto_downloaded")
     browser_profile: Path = Path("~/.local/share/stocks-browser")
     sync_stale_days: int = 7
+    sync_service_trigger_enabled: bool = False
 
     def resolved_sync_inbox(self) -> Path:
         path = self.sync_inbox.expanduser()

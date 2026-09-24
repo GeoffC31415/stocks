@@ -249,8 +249,14 @@ export type OrderImportBatchOut = {
 export type SyncStep = { name: string; status: string; detail: string | null };
 export type SyncFile = { filename: string; kind: string | null; as_of: string | null; status: string; detail: string | null };
 export type SyncRun = { started_at: string; finished_at: string | null; ok: boolean; steps: SyncStep[]; files: SyncFile[] };
+export type ServiceSync = {
+  state: "accepted" | "running" | "completed" | "failed" | "unknown" | "busy" | "disabled" | "inactive";
+  request_id: string | null;
+  last_run?: SyncRun | null;
+};
 export type SyncStatus = {
   manual_sync_enabled: boolean;
+  service_trigger_enabled?: boolean;
   accounts: Array<{ account_name: string; last_snapshot_date: string | null; age_days: number | null; stale: boolean }>;
   stale_after_days: number;
   last_run: SyncRun | null;
@@ -872,6 +878,8 @@ export const api = {
       cash_flows_imported: number; cash_flows_total: number; fetched_at: string;
     }>(`/api/trading212/sync?force=${String(force)}`, { method: "POST" }),
   getSyncStatus: () => requestJson<SyncStatus>("/api/sync/status"),
+  requestSync: () => requestJson<ServiceSync>("/api/sync/request", { method: "POST", signal: AbortSignal.timeout(15000) }),
+  getRequestedSyncStatus: () => requestJson<ServiceSync>("/api/sync/request", { signal: AbortSignal.timeout(15000) }),
   syncAll: (fetch = true) =>
     requestJson<SyncRun>(`/api/sync/all?fetch=${String(fetch)}`, { method: "POST" }),
   getTrading212Status: () =>

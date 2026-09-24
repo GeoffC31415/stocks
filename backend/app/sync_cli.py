@@ -14,8 +14,10 @@ import logging
 import sys
 from pathlib import Path
 
+from app.config import settings
 from app.database import SessionLocal, init_db
-from app.services.sync_runner import run_sync_all
+from app.services.sync_control import SyncBusy, file_lock
+from app.services.sync_runner import Fetcher, _run_sync_all_locked
 
 
 def _parse() -> argparse.Namespace:
@@ -34,34 +36,36 @@ def _parse() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _fetchers(args: argparse.Namespace) -> list:
+def _fetchers(args: argparse.Namespace) -> list[tuple[str, Fetcher]]:
     if args.no_fetch:
         return []
-    from app.fetchers import hl
+    from app.fetchers import barclays, hl
 
     wanted = set(args.only or ("hl", "barclays"))
-    out = []
+    out: list[tuple[str, Fetcher]] = []
     if "hl" in wanted:
         out.append(("Hargreaves Lansdown", lambda inbox: hl.fetch(inbox, headless=not args.headed)))
+    if "barclays" in wanted:
+        out.append(("Barclays", lambda inbox: barclays.fetch(inbox, headless=not args.headed)))
     return out
 
 
-def _session_steps(args: argparse.Namespace) -> list:
-    if args.no_fetch or "barclays" not in set(args.only or ("hl", "barclays")):
-        return []
-    from app.fetchers import barclays
-
-    return [("Barclays", lambda session: barclays.sync(session, headless=not args.headed))]
-
-
 async def _run(args: argparse.Namespace) -> int:
+    try:
+        with file_lock(settings.resolved_sync_inbox() / "sync-run.lock"):
+            return await _run_locked(args)
+    except SyncBusy:
+        print("A sync is already running.")
+        return 0
+
+
+async def _run_locked(args: argparse.Namespace) -> int:
     await init_db()
     extra = [Path.home() / "Downloads"] if args.include_downloads else []
     async with SessionLocal() as session:
-        report = await run_sync_all(
+        report = await _run_sync_all_locked(
             session,
             fetchers=_fetchers(args),
-            session_steps=_session_steps(args),
             include_trading212=not args.no_trading212,
             extra_sources=extra,
             dry_run=args.dry_run,

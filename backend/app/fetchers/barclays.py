@@ -4,27 +4,38 @@ Login route (verified 2026-09-22): surname + 12-digit membership number with
 "remember me" -> "Passcode and memorable word" -> 5-digit passcode plus two
 requested memorable-word characters. The PIN is not used on this route.
 
-Lockout safety: every login attempt writes a persistent block marker before
-bank interaction. Further automatic attempts remain paused for operator review,
-because repeated failures can lock the online-banking account.
+Lockout safety uses two distinct files in the browser-profile directory:
+``barclays-login-blocked`` is the permanent legacy/operator pause. Automatic
+acknowledgement NEVER removes it. Operators pause by creating this file, not by
+editing/replacing attempt state. Only an operator may clear it after review.
+``barclays-login-attempt`` is exclusively created and fsynced before bank I/O;
+only a verified, committed import can automatically acknowledge this attempt.
+Uncertain attempts remain for review. For manual recovery, stop/quiesce workers,
+review the outcome, then explicitly clear the relevant files before resuming.
+A pause cannot interrupt an already in-flight bank call, but survives cleanup
+and prevents the next login even if the current import has already committed.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 import os
 import re
 from pathlib import Path  # noqa: TC003 - annotations only; kept simple
 from typing import TYPE_CHECKING
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
+from zoneinfo import ZoneInfo
 
 from app.config import settings
 from app.fetchers.base import (
     FetchError,
     NeedsAttention,
+    broker_context,
     dismiss_cookies,
     pick_characters,
     requested_positions,
 )
+from app.services.barclays_sync_service import FetchedPair, validate_pair
 from app.services.export_classifier import ExportKind, UnrecognisedExport, classify_export
 from app.services.sync_runner import StepResult
 
@@ -35,8 +46,36 @@ BARCLAYS_HOSTS = ("barclays.co.uk", "barclays.com")
 LOGIN_URL = "https://bank.barclays.co.uk/olb/authlogin/loginAppContainer.do"
 
 
-def block_marker() -> Path:
+def operator_pause_marker() -> Path:
+    """Permanent pause; preserves the legacy filename and is never auto-cleared."""
     return settings.resolved_browser_profile() / "barclays-login-blocked"
+
+
+def block_marker() -> Path:
+    """Compatibility alias for callers setting/checking the permanent pause."""
+    return operator_pause_marker()
+
+
+def attempt_marker() -> Path:
+    """Automatic attempt state, NOT an operator pause mechanism."""
+    return settings.resolved_browser_profile() / "barclays-login-attempt"
+
+
+def _marker_exists(marker: Path) -> bool:
+    # Dangling symlinks also block; unexpected filesystem errors fail closed.
+    try:
+        marker.lstat()
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _sync_directory(directory: Path) -> None:
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _secret(name: str) -> str:
@@ -47,45 +86,80 @@ def _secret(name: str) -> str:
 
 
 def _block(reason: str) -> None:
-    marker = block_marker()
+    """Record a durable permanent pause, independent of automatic attempt state."""
+    marker = operator_pause_marker()
     marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(reason + "\nAuto-login paused. Operator review required.\n")
+    fd = os.open(marker, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600)
+    with os.fdopen(fd, "w") as stream:
+        stream.write(reason + "\nAuto-login paused. Operator review required.\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    _sync_directory(marker.parent)
 
 
 async def _is_logged_in(page: Page) -> bool:
-    if urlsplit(page.url).hostname != "www.investments.barclays.co.uk":
+    parsed = urlsplit(page.url)
+    if parsed.scheme != "https" or parsed.netloc != "www.investments.barclays.co.uk":
         return False
     return await page.get_by_role("link", name=re.compile(r"log ?out", re.I)).count() > 0 or (
         await page.get_by_role("button", name=re.compile(r"log ?out", re.I)).count() > 0
     )
 
 
-async def login(page: Page) -> None:
+async def _logout(page: Page) -> None:
+    """Best-effort read-only cleanup; never log browser exceptions or clear guards."""
+    try:
+        parsed = urlsplit(page.url)
+        if parsed.scheme != "https" or parsed.netloc not in {
+            "bank.barclays.co.uk", "www.investments.barclays.co.uk"
+        }:
+            return
+        for role in ("link", "button"):
+            control = page.get_by_role(role, name=re.compile(r"^log ?out$", re.I))
+            if await control.count():
+                await control.first.click(timeout=5000)
+                return
+    except Exception:
+        # Preserve the original fetch failure and never disclose private URLs.
+        pass
+
+
+async def login(page: Page) -> tuple[int, int, int]:
+    if _marker_exists(operator_pause_marker()):
+        raise NeedsAttention("Barclays operator/legacy pause; operator review required.")
     # Write BEFORE any bank interaction. Exclusive creation serializes attempts;
     # a crash, cancellation, timeout or machine restart leaves the latch intact.
-    marker = block_marker()
+    marker = attempt_marker()
     marker.parent.mkdir(parents=True, exist_ok=True)
     try:
         fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     except FileExistsError:
-        raise NeedsAttention("Barclays auto-login paused; operator review required.") from None
+        raise NeedsAttention(
+            "Barclays attempt in progress or uncertain; operator review required."
+        ) from None
     with os.fdopen(fd, "w") as stream:
         stream.write("Attempt in progress or outcome uncertain. Operator review required.\n")
         stream.flush()
         os.fsync(stream.fileno())
+        stat = os.fstat(stream.fileno())
+        identity = (stat.st_dev, stat.st_ino, stat.st_mtime_ns)
     # Persist the directory entry too: losing the latch on reboot risks retries.
-    directory_fd = os.open(marker.parent, os.O_RDONLY | os.O_DIRECTORY)
+    _sync_directory(marker.parent)
     try:
-        os.fsync(directory_fd)
-    finally:
-        os.close(directory_fd)
-    try:
+        if _marker_exists(operator_pause_marker()):
+            raise NeedsAttention("Barclays operator pause; operator review required.")
         await _login_once(page)
         if not await _is_logged_in(page):
             raise NeedsAttention("Barclays authentication not verified; auto-login paused.")
+        if _marker_exists(operator_pause_marker()):
+            raise NeedsAttention("Barclays operator pause; operator review required.")
+        stat = marker.stat()
+        if (stat.st_dev, stat.st_ino, stat.st_mtime_ns) != identity:
+            raise NeedsAttention("Barclays attempt state changed; operator review required.")
     except Exception:
         # Never include provider text, Playwright call logs or credential values.
         raise NeedsAttention("Barclays login not verified; auto-login paused.") from None
+    return identity
 
 
 async def _login_once(page: Page) -> None:
@@ -93,6 +167,9 @@ async def _login_once(page: Page) -> None:
     await page.wait_for_timeout(3000)
     await dismiss_cookies(page)
     if await _is_logged_in(page):
+        return
+    if urlsplit(page.url).path == "/olb/balances/PersonalFinancialSummary.action":
+        await open_investment_account(page)
         return
 
     # Wait for either the empty identification form or the remembered-user view.
@@ -167,6 +244,63 @@ async def _login_once(page: Page) -> None:
         reason = next((h.strip() for h in heading if "problem" in h.lower()), "returned to login")
         _block(f"Barclays login did not complete ({reason}).")
         raise NeedsAttention(f"Barclays login did not complete ({reason}); auto-login paused.")
+    await open_investment_account(page)
+
+
+async def open_investment_account(page: Page) -> Page:
+    """Follow the observed account-card link, never the product/dealing menu.
+
+    Manual login reaches the banking summary first. Its single account-card
+    link redirects to Smart Investor; menu items with similar names are not
+    account navigation. Ambiguous/multiple accounts require operator review.
+    """
+    try:
+        initial = page.url
+        parsed = urlsplit(initial)
+        if parsed.scheme == "https" and parsed.netloc == "www.investments.barclays.co.uk":
+            _account_root(initial)
+            if await _is_logged_in(page) and page.url == initial:
+                return page
+            raise ValueError("Unverified investment session")
+        if (
+            parsed.scheme != "https"
+            or parsed.netloc != "bank.barclays.co.uk"
+            or parsed.path != "/olb/balances/PersonalFinancialSummary.action"
+        ):
+            raise ValueError("Unverified banking summary")
+        logout = page.get_by_role("link", name=re.compile(r"^log ?out$", re.I))
+        if not await logout.count():
+            raise ValueError("Banking session missing logout")
+        links = page.locator('a.account-name[href*="/olb/smartinvestor/tiaa/fnz/AccountHome.do"]')
+        if await links.count() != 1:
+            raise ValueError("Investment account is ambiguous")
+        href = await links.get_attribute("href", timeout=5000)
+        target = urlsplit(urljoin(initial, href or ""))
+        query = parse_qs(target.query, keep_blank_values=True)
+        if (
+            page.url != initial
+            or target.scheme != "https"
+            or target.netloc != "bank.barclays.co.uk"
+            or target.path != "/olb/smartinvestor/tiaa/fnz/AccountHome.do"
+            or target.fragment
+            or set(query) != {"hierarchyId"}
+            or len(query["hierarchyId"]) != 1
+            or not query["hierarchyId"][0].strip()
+        ):
+            raise ValueError("Unexpected investment account link")
+        await page.goto(target.geturl(), wait_until="domcontentloaded", timeout=30000)
+        await page.wait_for_url(
+            lambda url: urlsplit(str(url)).netloc == "www.investments.barclays.co.uk",
+            timeout=30000,
+        )
+        _account_root(page.url)
+        if not await _is_logged_in(page):
+            raise ValueError("Investment session unverified")
+        return page
+    except Exception:
+        raise NeedsAttention(
+            "Barclays: investment account navigation not verified; operator review required."
+        ) from None
 
 
 def _account_root(url: str) -> str:
@@ -239,9 +373,9 @@ async def _read_export(
 async def collect_exports(page: Page) -> tuple[bytes, bytes]:
     """Collect a validated pair in memory; no login, persistence or dealing actions.
 
-    Caller must start on the authenticated account Overview. Deliberately not
-    wired into the scheduler until login-to-investments and atomic import are
-    verified. A failed second export cannot publish a partial pair.
+    Caller must start on the authenticated account Overview. The fetcher returns
+    this pair in memory to the runner's atomic importer; neither export is ever
+    published separately to the generic inbox.
     """
     try:
         return await _collect_exports(page)
@@ -292,11 +426,23 @@ async def _collect_exports(page: Page) -> tuple[bytes, bytes]:
     return holdings, orders
 
 
-async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
-    """Fail closed until unattended authentication and atomic import are verified.
+def _acknowledge_attempt(marker: Path, identity: tuple[int, int, int]) -> None:
+    """Clear only automatic attempt state, never the independent operator pause."""
+    if marker != attempt_marker():
+        raise NeedsAttention("Barclays invalid attempt path; operator review required.")
+    stat = marker.stat()
+    if (stat.st_dev, stat.st_ino, stat.st_mtime_ns) != identity:
+        raise NeedsAttention("Barclays attempt state changed; operator review required.")
+    marker.unlink()
+    _sync_directory(marker.parent)
 
-    Post-login exports are mapped by collect_exports; that is not evidence that
-    automated credentials are safe. Configuration alone must not enable login.
+
+async def fetch(inbox: Path, *, headless: bool = True) -> StepResult | FetchedPair:
+    """Opt-in, one guarded attempt; committed pairs clear only attempt state.
+
+    Credentials alone never enable this path. The account must be pinned and
+    the operator must explicitly enable it after supervised authentication.
+    Nothing is written to the generic inbox, so one export cannot import alone.
     """
     needed = (
         "barclays_surname",
@@ -308,83 +454,52 @@ async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
         getattr(settings, n) and getattr(settings, n).get_secret_value().strip() for n in needed
     ):
         return StepResult("Barclays", "skipped", "not configured")
-    if block_marker().exists():
+    if _marker_exists(operator_pause_marker()):
         return StepResult(
-            "Barclays", "needs_attention", "auto-login paused; operator review required"
+            "Barclays", "needs_attention", "operator/legacy pause; operator review required"
         )
-    return StepResult(
-        "Barclays",
-        "needs_attention",
-        "unattended login disabled pending authentication and import verification",
-    )
-
-
-def _rearm_after_verified_success() -> None:
-    """Only a verified login + validated export pair clears the attempt latch."""
-    block_marker().unlink(missing_ok=True)
-
-
-async def sync(session, *, headless: bool = True, today=None) -> StepResult:  # noqa: ANN001
-    """Guarded end-to-end Barclays refresh: one login, both exports, one transaction.
-
-    Refuses unless ``barclays_auto_login`` is armed, credentials are configured
-    and no latch exists. The latch is written before bank interaction and is
-    cleared only after a verified login AND a successful atomic import; any
-    other outcome (rejection, MFA, timeout, crash, invalid export) keeps it.
-    """
-    import datetime as dt
-
-    from app.fetchers.base import broker_context
-    from app.services.barclays_pair_import import BarclaysExportInvalid, import_barclays_pair
-
-    preflight = await fetch(Path("."))
-    if preflight.status == "skipped" or block_marker().exists():
-        return preflight
-    if not settings.barclays_auto_login:
-        return StepResult("Barclays", "skipped", "unattended login not armed")
-
-    async with broker_context(
-        settings.resolved_browser_profile() / "barclays", BARCLAYS_HOSTS, headless=headless
-    ) as ctx:
-        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
-        try:
-            await login(page)  # writes the latch first; raises NeedsAttention otherwise
-            await _open_investment_overview(page)
-            holdings, orders = await collect_exports(page)
-        except NeedsAttention as exc:
-            return StepResult("Barclays", "needs_attention", str(exc))
-        except FetchError as exc:
-            return StepResult("Barclays", "needs_attention", f"{exc} Auto-login paused.")
-        finally:
-            await _logout(page)
-    try:
-        result = await import_barclays_pair(
-            session, holdings, orders, as_of=today or dt.date.today()
+    if _marker_exists(attempt_marker()):
+        return StepResult(
+            "Barclays", "needs_attention",
+            "attempt in progress or uncertain; operator review required",
         )
-    except BarclaysExportInvalid as exc:
-        return StepResult("Barclays", "needs_attention", f"{exc} Auto-login paused.")
-    _rearm_after_verified_success()
-    return StepResult(
-        "Barclays",
-        "ok" if "imported" in (result.holdings, result.orders) else "unchanged",
-        f"holdings {result.holdings}, {result.new_orders} new orders",
-    )
-
-
-async def _open_investment_overview(page: Page) -> None:
-    """From the banking landing page, open the (single) investment account Overview."""
-    if urlsplit(page.url).hostname == "www.investments.barclays.co.uk":
-        _account_root(page.url)
-        return
-    raise NeedsAttention(
-        "Barclays: route from banking login to the investment account is not mapped yet."
-    )
-
-
-async def _logout(page: Page) -> None:
+    if not settings.barclays_automation_enabled:
+        return StepResult(
+            "Barclays",
+            "needs_attention",
+            "unattended login disabled pending supervised authentication verification",
+        )
+    expected = settings.barclays_expected_account
+    if expected is None or not expected.get_secret_value().strip():
+        return StepResult(
+            "Barclays", "needs_attention", "expected investment account is not configured"
+        )
     try:
-        control = page.get_by_role("link", name=re.compile(r"log ?out", re.I))
-        if await control.count():
-            await control.first.click(timeout=5000)
-    except Exception:  # noqa: BLE001, S110 - best effort; the session expires anyway
-        pass
+        async with broker_context(
+            settings.resolved_browser_profile() / "barclays", BARCLAYS_HOSTS, headless=headless
+        ) as context:
+            page = await context.new_page()
+            try:
+                identity = await login(page)
+                marker = attempt_marker()
+                observed = dt.datetime.now(dt.UTC)
+                holdings, orders = await collect_exports(page)
+                as_of = observed.astimezone(ZoneInfo("Europe/London")).date()
+                if dt.datetime.now(ZoneInfo("Europe/London")).date() != as_of:
+                    raise NeedsAttention("Barclays export crossed the date boundary.")
+                pair = validate_pair(holdings, orders, as_of=as_of)
+                if pair.account_name != expected.get_secret_value():
+                    raise NeedsAttention("Barclays export account identity is not verified.")
+                return FetchedPair(
+                    holdings,
+                    orders,
+                    observed,
+                    lambda: _acknowledge_attempt(marker, identity),
+                )
+            finally:
+                await _logout(page)
+    except Exception:
+        # Retain the durable guard on every failure, including close failures.
+        return StepResult(
+            "Barclays", "needs_attention", "sync not verified; operator review required"
+        )
