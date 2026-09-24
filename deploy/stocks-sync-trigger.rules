@@ -1,0 +1,10 @@
+// Install only after explicit operator approval, root-owned mode 0644.
+// Grants one start action, never restart/stop, unit-file edits, or other units.
+polkit.addRule(function(action, subject) {
+    if (subject.user === "stocks" &&
+        action.id === "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") === "stocks-sync.service" &&
+        action.lookup("verb") === "start") {
+        return polkit.Result.YES;
+    }
+});
