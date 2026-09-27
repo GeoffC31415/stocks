@@ -9,7 +9,7 @@ it("requests the selected allocation dimension and URL-encodes the account", asy
   vi.stubGlobal("fetch", fetcher);
   expect(await api.getAllocation("currency", "ISA & SIPP")).toEqual(payload);
   expect(fetcher).toHaveBeenCalledWith(
-    "/api/portfolio/allocation?dimension=currency&group_by=security&account_name=ISA+%26+SIPP", undefined,
+    "/api/portfolio/allocation?dimension=currency&group_by=security&account_name=ISA+%26+SIPP", expect.objectContaining({credentials:'same-origin', signal:expect.any(AbortSignal)}),
   );
 });
 
@@ -25,6 +25,6 @@ it("sends explicit position grouping without changing account scope", async () =
   vi.stubGlobal("fetch", fetcher);
   await api.getAllocation("account", "ISA", "position");
   expect(fetcher).toHaveBeenCalledWith(
-    "/api/portfolio/allocation?dimension=account&group_by=position&account_name=ISA", undefined,
+    "/api/portfolio/allocation?dimension=account&group_by=position&account_name=ISA", expect.objectContaining({credentials:'same-origin', signal:expect.any(AbortSignal)}),
   );
 });

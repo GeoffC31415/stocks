@@ -689,10 +689,48 @@ const toError = async (response: Response): Promise<string> => {
   return response.statusText || "Request failed";
 };
 
+export class ApiError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export const AUTH_REQUIRED_EVENT = "stocks:auth-required";
+let requestGeneration = 0;
+const pendingRequests = new Set<AbortController>();
+export const cancelPendingRequests = () => {
+  requestGeneration++;
+  for (const controller of pendingRequests) controller.abort();
+  pendingRequests.clear();
+};
+
+export const requestResponse = async (url: string, init?: RequestInit): Promise<Response> => {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  init?.signal?.addEventListener('abort', abort, {once:true});
+  if (init?.signal?.aborted) controller.abort();
+  pendingRequests.add(controller);
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, signal: controller.signal, credentials: "same-origin" });
+    controller.signal.throwIfAborted();
+  } finally {
+    pendingRequests.delete(controller);
+    init?.signal?.removeEventListener('abort', abort);
+  }
+  if (response.status === 401) window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
+  if (!response.ok) throw new ApiError(response.status, await toError(response));
+  return response;
+};
+
 export const requestJson = async <T>(url: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(url, init);
-  if (!response.ok) throw new Error(await toError(response));
-  return response.json() as Promise<T>;
+  const generation = requestGeneration;
+  const response = await requestResponse(url, init);
+  const value = await response.json() as T;
+  if (generation !== requestGeneration) throw new DOMException('Session changed', 'AbortError');
+  init?.signal?.throwIfAborted();
+  return value;
 };
 
 export type AllocationDimension = "asset_class" | "sector" | "region" | "account" | "currency";
@@ -820,8 +858,7 @@ export const api = {
       body: JSON.stringify(patch)
     }),
   deleteGroup: async (groupId: number): Promise<void> => {
-    const response = await fetch(`/api/groups/${groupId}`, { method: "DELETE" });
-    if (!response.ok) throw new Error(await toError(response));
+    await requestResponse(`/api/groups/${groupId}`, { method: "DELETE" });
   },
   replaceGroupMembers: (groupId: number, instrument_ids: number[]) =>
     requestJson<Group>(`/api/groups/${groupId}/members`, {
@@ -995,8 +1032,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   deleteAccountAlias: async (aliasId: number): Promise<void> => {
-    const response = await fetch(`/api/matching/account-aliases/${aliasId}`, { method: "DELETE" });
-    if (!response.ok) throw new Error(await toError(response));
+    await requestResponse(`/api/matching/account-aliases/${aliasId}`, { method: "DELETE" });
   },
   getInstrumentAliases: () => requestJson<InstrumentAlias[]>("/api/matching/instrument-aliases"),
   createInstrumentAlias: (body: { instrument_id: number; source: string; source_account_name?: string; canonical_account_name?: string; source_security_name: string; alias_type?: string; confidence?: number; notes?: string }) =>
@@ -1012,8 +1048,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   deleteInstrumentAlias: async (aliasId: number): Promise<void> => {
-    const response = await fetch(`/api/matching/instrument-aliases/${aliasId}`, { method: "DELETE" });
-    if (!response.ok) throw new Error(await toError(response));
+    await requestResponse(`/api/matching/instrument-aliases/${aliasId}`, { method: "DELETE" });
   },
   getReconciliation: () => requestJson<ReconciliationRow[]>("/api/matching/reconciliation"),
   getAuditLog: (orderId?: number, instrumentId?: number, limit?: number) => {
