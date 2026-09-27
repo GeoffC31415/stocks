@@ -1,9 +1,13 @@
 # Hosting the portfolio tracker securely on the Surface
 
-This is a **single-owner application**, not a multi-user financial service. Internet
-reachability and permission to view/edit are separate: every page and API request
-in public mode requires authentication. Broker API keys remain server-side and
-must have read-only broker scopes. Editing this website never grants trading rights.
+This is a **single-owner application**, not a multi-user financial service. The
+legacy/default Basic mode protects every page and API request. For the staged
+passkey migration, exact API contract and local recovery procedure, see
+[passkeys.md](passkeys.md): passkey mode exposes only its login shell/assets and
+explicit auth ceremonies, while financial APIs remain authenticated. Broker API
+keys remain server-side and must have read-only broker scopes. Editing this
+website never grants trading rights. The remaining Basic installation instructions
+below describe the legacy deployment, not the broker-isolated passkey release.
 
 ## Agreed topology: one hostname, three machines
 

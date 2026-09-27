@@ -16,7 +16,11 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from starlette.datastructures import Headers, MutableHeaders
+from starlette.requests import Request
 from starlette.responses import JSONResponse
+
+SESSION_COOKIE = "__Host-stocks_session"
+PREAUTH_COOKIE = "__Host-stocks_preauth"
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp, Receive, Scope, Send
@@ -55,10 +59,11 @@ def validate_public_settings(config: Settings) -> None:
             and origin == f"https://{parsed.netloc}"
             and re.fullmatch(r"[a-z0-9.\-\[\]:]+", parsed.netloc) is not None
             and (parsed.port is None or (0 < parsed.port <= 65535 and parsed.port != 443))
-            and bool(username)
+            and (config.auth_mode == "passkey" or (bool(username)
             and len(username.encode("utf-8")) <= 256
             and not any(ord(char) < 32 or ord(char) == 127 or char == ":" for char in username)
-            and _HASH_PATTERN.fullmatch(encoded) is not None
+            and _HASH_PATTERN.fullmatch(encoded) is not None))
+            and (config.auth_mode != "passkey" or config.auth_database_path is not None)
         )
     except (ValueError, UnicodeError):
         valid = False
@@ -72,9 +77,10 @@ _HASH_PATTERN = re.compile(r"scrypt\$([0-9a-f]{32})\$([0-9a-f]{64})\Z")
 class WebSecurityMiddleware:
     """Outer application boundary, including mounts, documentation and 404s."""
 
-    def __init__(self, app: ASGIApp, config: Settings):
+    def __init__(self, app: ASGIApp, config: Settings, auth_store=None):
         self.app = app
         self.config = config
+        self.auth_store = auth_store
         validate_public_settings(config)
         # One bounded queue doubles as global and per-peer failure accounting.
         # Reservations are recorded before awaiting, then removed on success.
@@ -168,9 +174,37 @@ class WebSecurityMiddleware:
                     scope, receive, send
                 )
                 return
-            auth_status = await self.authenticate(
-                headers, str((scope.get("client") or ("unknown",))[0])
-            )
+            state = scope.setdefault("state", {})
+            session = None
+            if self.auth_store:
+                session = await asyncio.to_thread(
+                    self.auth_store.session, Request(scope).cookies.get(SESSION_COOKIE)
+                )
+            state["passkey_session"] = session
+            auth_status = 401
+            if self.config.auth_mode == "basic":
+                auth_status = await self.authenticate(
+                    headers, str((scope.get("client") or ("unknown",))[0])
+                )
+            state["basic_authenticated"] = auth_status == 200
+            path, method = scope["path"], scope["method"]
+            # Explicit ceremony endpoints authorize in the router: bootstrap
+            # needs Basic; add needs a recent session; verify consumes that proof.
+            ceremony_route = (method, path) in {
+                ("GET", "/api/auth/session"),
+                ("POST", "/api/auth/login/options"), ("POST", "/api/auth/login/verify"),
+                ("POST", "/api/auth/register/options"), ("POST", "/api/auth/register/verify"),
+                ("POST", "/api/auth/recovery/options"),
+            }
+            management_route = (method, path) in {
+                ("GET", "/api/auth/credentials"), ("POST", "/api/auth/logout"),
+                ("POST", "/api/auth/logout-all"),
+            } or (method == "DELETE" and re.fullmatch(r"/api/auth/credentials/[A-Za-z0-9_-]{1,1400}", path))
+            allowed = ceremony_route or (management_route and session is not None)
+            if not ceremony_route and not management_route:
+                allowed = auth_status == 200 if self.config.auth_mode == "basic" else session is not None
+                if self.config.auth_mode == "passkey" and self.public_frontend(scope, headers):
+                    allowed = True
             if auth_status == 429:
                 await JSONResponse(
                     {"detail": "Too many authentication attempts"},
@@ -178,11 +212,12 @@ class WebSecurityMiddleware:
                     headers={"Retry-After": "60"},
                 )(scope, receive, send)
                 return
-            if auth_status != 200:
+            if not allowed:
                 response = JSONResponse(
                     {"detail": "Authentication required"},
                     status_code=401,
-                    headers={"WWW-Authenticate": 'Basic realm="Portfolio", charset="UTF-8"'},
+                    headers=({"WWW-Authenticate": 'Basic realm="Portfolio", charset="UTF-8"'}
+                             if self.config.auth_mode == "basic" else {}),
                 )
                 await response(scope, receive, send)
                 return
@@ -211,6 +246,23 @@ class WebSecurityMiddleware:
                 return
         await self.bounded_body(scope, receive, send)
 
+    def public_frontend(self, scope, headers):
+        """Only known SPA shells and built asset files are anonymous, never APIs."""
+        path = scope["path"]
+        if scope["method"] not in {"GET", "HEAD"}:
+            return False
+        shells = {"/", "/portfolio", "/activity", "/tax", "/data", "/help",
+                  "/holdings", "/positions", "/groups", "/orders", "/diff",
+                  "/import", "/matching", "/cgt", "/settings/security", "/security",
+                  "/login", "/recovery"}
+        root = self.config.frontend_dist.resolve()
+        if path in shells and "text/html" in headers.get("accept", ""):
+            return (root / "index.html").is_file()
+        if not re.fullmatch(r"/assets/[A-Za-z0-9_/-]+\.(?:js|css|svg|png|jpg|webp|ico|woff2?)", path):
+            return False
+        target = (root / path.lstrip("/")).resolve()
+        return target.is_relative_to(root) and target.is_file()
+
     async def bounded_body(self, scope: Scope, receive: Receive, send: Send) -> None:
         headers = Headers(scope=scope)
         lengths = headers.getlist("content-length")
@@ -220,7 +272,7 @@ class WebSecurityMiddleware:
             )
             return
         declared = int(lengths[0]) if lengths else None
-        limit = self.config.max_request_body_bytes
+        limit = min(self.config.max_request_body_bytes, 16384) if scope["path"].startswith("/api/auth/") else self.config.max_request_body_bytes
         if declared is not None and declared > limit:
             await JSONResponse({"detail": "Request body too large"}, status_code=413)(
                 scope, receive, send

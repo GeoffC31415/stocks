@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     project_root: Path = _PROJECT_ROOT
     deployment_mode: Literal["local", "public"] = "local"
     public_origin: str | None = None
+    auth_mode: Literal["basic", "passkey"] = "basic"
+    auth_database_path: Path | None = None
+    auth_session_idle_seconds: int = Field(default=86400, ge=300, le=86400)
+    auth_session_absolute_seconds: int = Field(default=604800, ge=300, le=604800)
     auth_username: SecretStr | None = None
     auth_password_hash: SecretStr | None = None
     frontend_dist: Path = _PROJECT_ROOT / "frontend" / "dist"

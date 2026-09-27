@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +14,8 @@ from starlette.exceptions import HTTPException
 from app import database
 from app.config import Settings, settings
 from app.database import init_db
+from app.passkeys import PasskeyStore
+from app.routers.auth import router as auth_router
 from app.routers.cgt import router as cgt_router
 from app.routers.groups import router as groups_router
 from app.routers.imports import router as imports_router
@@ -65,7 +69,9 @@ class SecuredFastAPI(FastAPI):
     def build_middleware_stack(self):
         # Outside Starlette's ServerErrorMiddleware: errors and mounts must pass
         # through the same ASGI boundary as successful API responses.
-        return WebSecurityMiddleware(super().build_middleware_stack(), self.state.web_config)
+        return WebSecurityMiddleware(
+            super().build_middleware_stack(), self.state.web_config, self.state.auth_store
+        )
 
 
 def create_app(config: Settings | None = None) -> FastAPI:
@@ -104,6 +110,16 @@ def create_app(config: Settings | None = None) -> FastAPI:
         openapi_url=None if public else "/openapi.json",
     )
     application.state.web_config = config
+    application.state.auth_store = None
+    if public and config.auth_database_path is not None:
+        validate_public_settings(config)
+        if requested_url.database and config.auth_database_path.resolve() == Path(requested_url.database).resolve():
+            raise ValueError("Auth and portfolio databases must be separate")
+        application.state.auth_store = PasskeyStore(
+            config.auth_database_path, rp_id=urlsplit(config.public_origin).hostname,
+            origin=config.public_origin, idle_seconds=config.auth_session_idle_seconds,
+            absolute_seconds=config.auth_session_absolute_seconds,
+        )
     if config.deployment_mode == "local":
         application.add_middleware(
             CORSMiddleware,
@@ -118,6 +134,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
         )
 
     for router in (
+        auth_router,
         cgt_router,
         imports_router,
         orders_router,

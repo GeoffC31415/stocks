@@ -12,3 +12,4 @@ python-calamine>=0.6,<1
 alembic>=1.13,<2
 numpy>=1.26,<3
 playwright==1.59.0
+webauthn==2.8.0
