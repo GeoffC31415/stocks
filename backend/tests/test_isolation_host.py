@@ -6,6 +6,16 @@ from types import SimpleNamespace
 import pytest
 
 
+EFFECTIVE = dict(ActiveState="active", SubState="running", NRestarts="0",
+    NeedDaemonReload="no", InvocationID="1" * 32, ExecStart="/synthetic/web",
+    User="stocks", Group="stocks", SupplementaryGroups="", Environment="",
+    EnvironmentFiles="", WorkingDirectory="/", RootDirectory="",
+    ProtectSystem="strict", ProtectHome="yes", ReadWritePaths="",
+    ReadOnlyPaths="", InaccessiblePaths="", BindPaths="", BindReadOnlyPaths="",
+    PrivateTmp="yes", NoNewPrivileges="yes", FragmentPath="/synthetic/stocks.service",
+    DropInPaths="")
+
+
 def helper():
     spec = importlib.util.spec_from_file_location("isolation", Path(__file__).resolve().parents[2] / "deploy/broker_isolation.py")
     module = importlib.util.module_from_spec(spec)
@@ -76,7 +86,11 @@ def test_readiness_is_bounded_read_only_and_stable(monkeypatch, hazard):
             return "[Service]\nExecStart=/synthetic/web"
         if action == "show":
             sample[0] += 1
-            return "\n".join(["ActiveState=" + ("inactive" if hazard == "stopped" else "active"), "SubState=running", "NRestarts=0", "NeedDaemonReload=" + ("yes" if hazard == "reload" else "no"), "InvocationID=" + (("2" if hazard == "invocation" and sample[0] > 1 else "1") * 32), "ExecStart=/synthetic/web", "User=stocks"])
+            values = dict(EFFECTIVE)
+            values.update(ActiveState="inactive" if hazard == "stopped" else "active",
+                          NeedDaemonReload="yes" if hazard == "reload" else "no",
+                          InvocationID=("2" if hazard == "invocation" and sample[0] > 1 else "1") * 32)
+            return "\n".join(k + "=" + v for k, v in values.items())
         if action == "is-enabled":
             return "enabled" if hazard == "saved" else "disabled"
         if hazard == "saved" and a[2] == "stocks-sync.timer":

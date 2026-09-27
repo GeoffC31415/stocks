@@ -219,8 +219,11 @@ def test_saved_timer_restoration_exact(tmp_path, phase, enabled, active):
     assert calls[-2:] == ["is-enabled", "is-active"]
 
 
-@pytest.mark.parametrize("hazard", ["missing", "legacy", "duplicate", "version", "type", "extra", "phase", "preparing", "digest", "id", "bundle", "mode", "owner", "symlink", "hardlink", "truncated"])
-def test_candidate_strict_refusal_before_probes(tmp_path, monkeypatch, hazard):
+@pytest.mark.parametrize("consumer,hazard", [(consumer, hazard)
+    for consumer in ("resume", "rollback")
+    for hazard in ("missing", "legacy", "duplicate", "version", "type", "extra", "phase", "preparing", "digest", "id", "bundle", "mode", "owner", "symlink", "hardlink", "truncated", "rollback-evidence")
+    if (consumer, hazard) != ("rollback", "preparing")])
+def test_candidate_strict_refusal_before_probes(tmp_path, monkeypatch, hazard, consumer):
     import json
     import os
     m = helper()
@@ -228,7 +231,9 @@ def test_candidate_strict_refusal_before_probes(tmp_path, monkeypatch, hazard):
     m.activate_layout(root, bundle, release, previous, FakeSystem())
     path = bundle / "transition.json"
     obj = json.loads(path.read_text())
-    if hazard == "missing":
+    if hazard == "rollback-evidence":
+        m.exclusive_write(bundle / "state-rolled-back", b"1\n")
+    elif hazard == "missing":
         path.unlink()
     elif hazard == "legacy":
         (bundle / "manifest.json").write_text('{"version":1}')
@@ -261,8 +266,18 @@ def test_candidate_strict_refusal_before_probes(tmp_path, monkeypatch, hazard):
         path.write_text(json.dumps(obj))
     system = m.System()
     system.command = lambda *a, **kw: pytest.fail("host commands forbidden")
+    before = path.read_bytes() if path.exists() else None
+    current = (root / "opt/stocks/current").readlink()
+    configs = {p: (root / p).read_bytes() for p in m.CONFIG_FILES}
     with pytest.raises(m.MigrationError):
-        system.resume_timer(bundle, root=root)
+        if consumer == "rollback":
+            m.rollback_layout(root, bundle, system)
+        else:
+            system.resume_timer(bundle, root=root)
+    assert (path.read_bytes() if path.exists() else None) == before
+    assert (root / "opt/stocks/current").readlink() == current
+    assert {p: (root / p).read_bytes() for p in m.CONFIG_FILES} == configs
+    assert not (bundle / "rollback-started").exists()
 
 
 @pytest.mark.parametrize("change", ["stopped", "restarted", "rebooted", "effective", "probe", "current", "config", "during-final-probe"])

@@ -528,9 +528,29 @@ def rollback_layout(root: Path, bundle: Path, system) -> None:
 
 def _rollback_layout(root: Path, bundle: Path, system) -> None:
     safe_path(bundle, tree=True)
-    if (bundle / "rollback-started").exists():
+    if any((bundle / name).exists() for name in ("rollback-started", "state-rolled-back", "rollback-complete")):
         raise MigrationError("Rollback already attempted; inspect preserved evidence manually.")
     manifest = evidence(root, bundle)
+    # Recovery accepts interrupted activation, never unknown evidence. Validate
+    # before entering the mutation/cleanup block so rejection preserves bytes.
+    candidate = strict_json(bundle / "transition.json", root)
+    if (set(candidate) != {"version", "transition_id", "bundle", "phase", "state", "manifest_sha256", "identity"}
+            or type(candidate.get("version")) is not int or candidate["version"] != 2
+            or candidate["phase"] != "activation"
+            or candidate["state"] not in ("preparing", "verified_candidate")
+            or candidate["transition_id"] != manifest["transition_id"]
+            or candidate["bundle"] != str(bundle)
+            or candidate["manifest_sha256"] != digest((bundle / "manifest.json").read_bytes())):
+        raise MigrationError("Invalid prior transition; manual recovery required.")
+    identity = candidate["identity"]
+    if candidate["state"] == "preparing":
+        if identity is not None:
+            raise MigrationError("Ambiguous preparing transition.")
+    elif (type(identity) is not dict or set(identity) != {"boot_id", "invocation_id", "effective_sha256"}
+          or any(not isinstance(identity[k], str) or not re.fullmatch(pattern, identity[k])
+                 for k, pattern in (("boot_id", r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"),
+                                    ("invocation_id", r"[0-9a-f]{32}"), ("effective_sha256", r"[0-9a-f]{64}")))):
+        raise MigrationError("Invalid prior transition identity.")
     previous = Path(manifest["previous"])
     safe_path(previous)
     if not previous.is_dir():
@@ -752,14 +772,30 @@ class System:
         if timer_mode not in ("quiescent", "saved"):
             raise MigrationError("Unknown readiness policy.")
         properties = "ActiveState,SubState,NRestarts,NeedDaemonReload,InvocationID,ExecStart,User,Group,SupplementaryGroups,Environment,EnvironmentFiles,WorkingDirectory,RootDirectory,ProtectSystem,ProtectHome,ReadWritePaths,ReadOnlyPaths,InaccessiblePaths,BindPaths,BindReadOnlyPaths,PrivateTmp,NoNewPrivileges,FragmentPath,DropInPaths"
+        # --all retains legitimate empty properties; missing is never empty.
+        required = set(properties.split(","))
+        enums = {"ProtectSystem": {"no", "yes", "full", "strict"},
+                 "ProtectHome": {"no", "yes", "read-only", "tmpfs"},
+                 "PrivateTmp": {"no", "yes", "disconnected"},
+                 "NoNewPrivileges": {"no", "yes"}}
         def sample():
-            text = self.command("/usr/bin/systemctl", "show", "stocks.service", "--property=" + properties, timeout=10)
+            text = self.command("/usr/bin/systemctl", "show", "stocks.service", "--all", "--property=" + properties, timeout=10)
             values = {}
             for line in text.splitlines():
                 key, separator, value = line.partition("=")
                 if not separator or key in values:
                     raise MigrationError("Invalid live unit probe.")
                 values[key] = value
+            if set(values) != required or any(values[k] not in choices for k, choices in enums.items()):
+                raise MigrationError("Incomplete or unknown effective unit properties.")
+            # List/text properties can legitimately be empty. Scalar identities,
+            # enums and the loaded fragment cannot; paths must be absolute.
+            if (not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*|[0-9]+", values["User"])
+                    or (values["Group"] and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*|[0-9]+", values["Group"]))
+                    or not values["FragmentPath"].startswith("/")
+                    or any(values[k] and not values[k].startswith("/") for k in ("WorkingDirectory", "RootDirectory"))
+                    or any(any(ord(c) < 32 or ord(c) == 127 for c in v) for v in values.values())):
+                raise MigrationError("Malformed effective unit properties.")
             if any(values.get(k) != v for k, v in {"ActiveState": "active", "SubState": "running", "NRestarts": "0", "NeedDaemonReload": "no"}.items()) or not re.fullmatch(r"[0-9a-f]{32}", values.get("InvocationID", "")) or not values.get("ExecStart") or not values.get("User"):
                 raise MigrationError("Web service not independently ready.")
             unit = self.command("/usr/bin/systemctl", "cat", "stocks.service", timeout=10)
