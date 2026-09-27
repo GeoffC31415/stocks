@@ -442,6 +442,19 @@ def test_snapshot_rejects_unknown_service_states(monkeypatch):
         system.snapshot()
 
 
+def test_start_web_restores_proxy_required_by_https_health(monkeypatch):
+    m = helper()
+    system = m.System()
+    calls = []
+    monkeypatch.setattr(system, "command", lambda *args, **kwargs: calls.append(args))
+
+    system.start_web()
+
+    assert calls == [
+        ("/usr/bin/systemctl", "start", "stocks.service", "stocks-proxy.service")
+    ]
+
+
 def test_health_requires_stable_active_service_and_401(monkeypatch):
     m = helper()
     system = m.System()

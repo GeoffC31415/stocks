@@ -713,7 +713,9 @@ class System:
         self.command("/usr/bin/systemctl", "daemon-reload")
 
     def start_web(self):
-        self.command("/usr/bin/systemctl", "start", "stocks.service")
+        # Stopping stocks.service also stops the proxy through Requires=. Restore
+        # both before the HTTPS boundary probe.
+        self.command("/usr/bin/systemctl", "start", "stocks.service", "stocks-proxy.service")
 
     def health(self):
         # This verifies ONLY the unauthenticated boundary, not authenticated app
