@@ -1,7 +1,8 @@
 # Synthetic broker-isolation rehearsal
 
-**Not yet a privileged acceptance result.** Unit tests validate guards and command
-construction, not Linux DAC, systemd namespace support, or cross-UID WAL behavior.
+**Not yet a privileged acceptance result.** Unit tests validate guards, command
+construction, and real unprivileged SQLite database/WAL/SHM modes while open.
+They do not establish cross-UID Linux DAC, systemd namespaces, or cross-UID WAL.
 Only a reviewed, explicitly approved root execution can fill those gates.
 
 On `geoff-Surface-Pro-4`, after reviewing this script:
@@ -23,7 +24,13 @@ not concurrently allocate users in the 60000–60999 range during this short run
 
 Root-owned scratch is initially 0700, temporarily 0711 solely for traversal;
 private web/worker subtrees are 0700. Shared data is root:shared 2770, databases
-and live WAL/SHM files must be 0660. Status is worker:web 2750 with a 0640 file.
+and live WAL/SHM files must be 0660. The holding probe exclusively precreates its
+empty database (O_EXCL/O_NOFOLLOW, descriptor-based chmod 0660) before SQLite
+opens it, retaining creator UID and setgid-inherited GID. UMask=0007 alone would
+leave SQLite's default 0644 creation at 0640. Both connections use mode=rw, so
+the second writer cannot silently create a missing database. This mirrors the
+production database's explicit 0660 initialization; no production permissions
+or migration code are changed. Status is worker:web 2750 with a 0640 file.
 The root-owned probe is 0444. The whole evidence tree returns to 0700 afterward.
 
 Four uniquely named transient systemd services use distinct numeric identities,

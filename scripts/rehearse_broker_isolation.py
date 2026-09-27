@@ -47,7 +47,14 @@ else:
     assert (root / 'status/result').read_text() == 'synthetic'
 (root / role / 'allowed').write_text('synthetic')
 db = root / 'shared' / database
-connection = sqlite3.connect(db, timeout=5)
+if action == 'hold':
+    # Match the production database's explicit mode, not SQLite's 0644 default.
+    fd = os.open(db, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o660)
+    try:
+        os.fchmod(fd, 0o660)
+    finally:
+        os.close(fd)
+connection = sqlite3.connect(db.as_uri() + '?mode=rw', uri=True, timeout=5)
 connection.execute('PRAGMA busy_timeout=5000')
 assert connection.execute('PRAGMA journal_mode=WAL').fetchone()[0] == 'wal'
 connection.execute('CREATE TABLE IF NOT EXISTS proof (role TEXT)')
