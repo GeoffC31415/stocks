@@ -1,11 +1,11 @@
 """Disposable synthetic files only; never connect to an installed service."""
 import importlib.util
 import os
-from pathlib import Path
 import sqlite3
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 DEPLOY = Path(__file__).resolve().parents[2] / 'deploy'
 sys.path.insert(0, str(DEPLOY))
@@ -90,7 +90,7 @@ class CutoverTests(unittest.TestCase):
         self.assertEqual(calls[-1], ('/', 'text/html'))
         for data in (b'{"mode":"basic","authenticated":false}', b'{"mode":"passkey","authenticated":true}'):
             with self.assertRaises(m.CutoverError):
-                m.verify_public(lambda path, accept: (200, data))
+                m.verify_public(lambda path, accept, data=data: (200, data))
         with self.assertRaises(m.CutoverError):
             m.verify_public(lambda path, accept: (200, b'{"mode":"passkey","authenticated":false}'))
 
@@ -130,11 +130,13 @@ class CutoverTests(unittest.TestCase):
         self.assertEqual(actions[-1], 'stop')
 
     def test_unsafe_config_and_duplicate_refused_without_service_calls(self):
+        from broker_isolation import MigrationError
+
         m, release, config = self.fixture()
         original = config.read_text()
         for text in (original + 'PORTFOLIO_AUTH_MODE=basic\n', original + 'UNKNOWN=secret\n', original.replace('AUTH_MODE=basic', 'AUTH_MODE=passkey')):
             config.write_text(text)
-            with self.assertRaises((m.CutoverError, m.MigrationError)):
+            with self.assertRaises((m.CutoverError, MigrationError)):
                 m.preflight(self.root, release, os.getuid(), os.getuid(), 1000)
         config.write_text(original)
         config.chmod(0o644)
@@ -152,8 +154,8 @@ class CutoverTests(unittest.TestCase):
             m.preflight(self.root, release, os.getuid(), os.getuid(), 1000)
 
     def test_cli_wired_and_transport_uses_verified_tls_without_credentials(self):
-        from unittest.mock import patch
         import subprocess
+        from unittest.mock import patch
         m = self.module()
         result = subprocess.run([sys.executable, str(DEPLOY / 'passkey_cutover.py'), '--help'], capture_output=True, text=True)
         self.assertIn('--expect-current', result.stdout)
@@ -202,10 +204,27 @@ class CutoverTests(unittest.TestCase):
         from unittest.mock import patch
         m, release, config = self.fixture()
         original = config.read_bytes()
-        with patch.object(m.time, 'time', side_effect=[1000, 1601]):
-            with self.assertRaises(m.CutoverError):
-                m.cutover(self.root, release, object(), owner=os.getuid(), web_owner=os.getuid())
+        with patch.object(m.time, 'time', side_effect=[1000, 1601]), self.assertRaises(m.CutoverError):
+            m.cutover(self.root, release, object(), owner=os.getuid(), web_owner=os.getuid())
         self.assertEqual(config.read_bytes(), original)
+
+
+    def test_release_requires_expected_immutable_owner(self):
+        from unittest.mock import patch
+
+        m, release, _ = self.fixture()
+        original_lstat = Path.lstat
+
+        def unrelated_owner(path, *args, **kwargs):
+            info = original_lstat(path, *args, **kwargs)
+            if path == release:
+                values = list(info)
+                values[4] = os.getuid() + 1
+                return os.stat_result(values)
+            return info
+
+        with patch.object(Path, 'lstat', unrelated_owner), self.assertRaises(m.CutoverError):
+            m.preflight(self.root, release, os.getuid(), os.getuid(), 1000)
 
 
 if __name__ == '__main__':

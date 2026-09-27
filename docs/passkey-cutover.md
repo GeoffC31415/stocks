@@ -6,13 +6,14 @@ mocked HTTP/service adapters, and no production credentials or portfolio databas
 
 ## Owner gate
 
-1. Complete isolated deployment, leaving Basic migration mode enabled.
-2. On the gaming PC, enroll the intended Dashlane passkey, then perform an actual
+1. Complete isolated deployment, leaving Basic migration mode enabled, and verify the isolated service and authenticated application.
+2. **Restore the saved broker timer state BEFORE passkey-only cutover**, using the reviewed `broker_isolation.py resume-timer` command only after separately approving its possible Persistent catch-up broker run. If scheduling is intentionally deferred, record that it will remain disabled and needs a separately reviewed resumption procedure: the one-off isolation helper will refuse the changed post-cutover web configuration. Do not weaken its coherence checks.
+3. On the gaming PC, enroll the intended Dashlane passkey, then perform an actual
    passkey **authentication** within ten minutes of cutover. Registration alone is
    insufficient: `credentials.last_used_at` must be set by verified authentication.
-3. Separately confirm Dashlane selection with the owner. The database proves a
+4. Separately confirm Dashlane selection with the owner. The database proves a
    verified WebAuthn ceremony, **not** the password-manager vendor or physical device.
-4. Confirm an accepted local-admin recovery route / independent backup credential.
+5. Confirm an accepted local-admin recovery route / independent backup credential.
    Do not disclose grants, database contents, environment values, or passwords.
 
 ## Explicit command (not executed during development)

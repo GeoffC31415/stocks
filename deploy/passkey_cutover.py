@@ -1,16 +1,15 @@
-#!/usr/bin/env python3
 """Guarded final passkey cutover. No password fallback or automatic downgrade."""
-from contextlib import closing
 import json
 import os
-from pathlib import Path
 import re
 import sqlite3
 import stat
 import tempfile
 import time
+from contextlib import closing
+from pathlib import Path
 
-from broker_isolation import parse_env, plain, exclusive_write, MigrationError
+from broker_isolation import exclusive_write, parse_env, plain
 
 
 def private(path, root, owner, *, directory=False):
@@ -30,7 +29,7 @@ def private(path, root, owner, *, directory=False):
                 raise CutoverError('Expected private directory.')
 
 
-def current_release(root, release):
+def current_release(root, release, owner=0):
     base = root / 'opt/stocks/releases'
     if release.parent != base or not re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*', release.name):
         raise CutoverError('Expected explicit installed release path.')
@@ -38,7 +37,7 @@ def current_release(root, release):
         if p == root:
             break
         info = p.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o022:
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != owner or info.st_mode & 0o022:
             raise CutoverError('Unsafe release path.')
     current = root / 'opt/stocks/current'
     if not current.is_symlink() or current.resolve(strict=True) != release:
@@ -46,7 +45,7 @@ def current_release(root, release):
 
 
 def preflight(root, release, owner, web_owner, now):
-    current_release(root, release)
+    current_release(root, release, owner)
     config = root / 'etc/stocks/production.env'
     marker = root / 'etc/stocks/isolation.json'
     for path in (config, marker):
@@ -126,11 +125,11 @@ def cutover(root, release, system, *, owner=0, web_owner, now=None):
         private(config, root, owner)
         if config.read_bytes() != final:
             raise CutoverError('Configuration readback mismatch.')
-        current_release(root, release)
+        current_release(root, release, owner)
         system.start()
         system.verify()
         exclusive_write(bundle / 'verified', b'1\n')
-    except BaseException:
+    except BaseException:  # noqa: BLE001 - fail closed even when interrupted after replacement
         system.stop()
         raise CutoverError('Cutover incomplete: web service stopped; retain private backups, repair passkey configuration or use local auth recovery. Never automatically restore Basic.') from None
     return bundle
@@ -215,7 +214,7 @@ def main(argv=None):
         print('Passkey-only anonymous boundary verified. Owner login still required.')
         print('Private operator evidence:', bundle)
         return 0
-    except (Exception, KeyboardInterrupt):
+    except (Exception, KeyboardInterrupt):  # noqa: BLE001 - never leak privileged exception data
         # Never print exception text: OS/JSON/SQLite errors may include secrets.
         print('Cutover refused or incomplete. Inspect private /var/backups/stocks/passkey-* evidence locally; never automatically restore Basic. Check stocks.service is stopped if cutover was started; repair passkey mode or use local auth recovery.', file=sys.stderr)
         return 1

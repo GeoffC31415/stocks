@@ -129,8 +129,9 @@ access, safe authenticated reads, and local dashboards. No broad polkit/sudo
 permission is installed. Enable the web trigger only after reviewing the existing
 fixed `stocks-sync.service` start permission and exercising it with a mock worker.
 
-**The timer stays disabled even after success or rollback.** Resuming a
-`Persistent=true` timer may immediately execute a missed broker job. This is a
+**The timer stays disabled even after success or rollback.** Restore its saved state **before final passkey-only cutover**, after isolation and authenticated application verification plus separate approval for a possible broker catch-up. The one-off resume helper verifies the Basic migration configuration; once cutover intentionally changes that configuration it refuses drift. Do not weaken that check. If scheduling is intentionally left disabled at cutover, a separately reviewed resumption procedure is required.
+
+Resuming a `Persistent=true` timer may immediately execute a missed broker job. This is a
 separate authorized action, not a smoke test. When ready:
 
 ```sh
