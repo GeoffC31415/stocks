@@ -8,6 +8,7 @@ See docs/broker-isolation.md before activation or recovery.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import grp
 import hashlib
 import json
@@ -21,7 +22,8 @@ import stat
 import sys
 import tempfile
 import time
-from contextlib import closing
+import uuid
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 
@@ -119,29 +121,191 @@ def exclusive_write(path: Path, data: bytes, mode: int = 0o600) -> None:
         os.fsync(out.fileno())
 
 
-def write_completion(path: Path) -> None:
-    # Unlike start/evidence files, a partial completion must never authorize a
-    # resume. Keep a veto written BEFORE publication if invalidation also fails.
-    pending = path.with_name(path.name + "-pending")
-    exclusive_write(pending, b"1\n")
-    try:
-        exclusive_write(path, b"1\n")
-        pending.unlink()
-    except BaseException:
+def controlled(path, root, *, mode=None, directory=False):
+    """Trust only the root-controlled synthetic/production filesystem boundary."""
+    if not path.is_absolute() or not path.is_relative_to(root) or ".." in path.parts:
+        raise MigrationError("Evidence path outside controlled root.")
+    owner = root.stat().st_uid
+    for item in (path, *path.parents):
         try:
-            path.unlink(missing_ok=True)
-            try:
-                path.lstat()
-            except FileNotFoundError:
-                pass
+            info = item.lstat()
+        except OSError:
+            raise MigrationError("Required controlled evidence unavailable.") from None
+        if info.st_uid != owner or info.st_mode & 0o022 or stat.S_ISLNK(info.st_mode):
+            raise MigrationError("Unsafe evidence ownership or permissions.")
+        if item == path:
+            if directory:
+                valid = stat.S_ISDIR(info.st_mode)
             else:
-                raise MigrationError("Completion marker remains.")
-        except BaseException as cleanup_error:
-            raise MigrationError(
-                "Transition failed and completion invalidation could not be confirmed; "
-                "do not resume, inspect preserved evidence."
-            ) from cleanup_error
-        raise
+                valid = stat.S_ISREG(info.st_mode) and info.st_nlink == 1
+            if not valid or (mode is not None and stat.S_IMODE(info.st_mode) != mode):
+                raise MigrationError("Unsafe evidence type, links or mode.")
+        elif not stat.S_ISDIR(info.st_mode):
+            raise MigrationError("Unsafe evidence ancestor.")
+        if item == root:
+            break
+
+
+def strict_json(path, root):
+    controlled(path, root, mode=0o600)
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise MigrationError("Duplicate evidence field.")
+            result[key] = value
+        return result
+    try:
+        data = path.read_bytes()
+        if len(data) > 65536:
+            raise MigrationError("Oversized evidence.")
+        result = json.loads(data, object_pairs_hook=pairs)
+        if type(result) is not dict:
+            raise MigrationError("Invalid evidence object.")
+        return result
+    except (ValueError, UnicodeError):
+        raise MigrationError("Invalid evidence JSON.") from None
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+@contextmanager
+def transition_lock(root):
+    directory = root / "etc/stocks"
+    controlled(directory, root, directory=True)
+    path = directory / ".completion.lock"
+    fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        controlled(path, root, mode=0o600)
+        info = os.fstat(fd)
+        if (info.st_dev, info.st_ino) != (path.stat().st_dev, path.stat().st_ino):
+            raise MigrationError("Lock identity changed.")
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise MigrationError("Transition lock unavailable.") from None
+        yield
+    finally:
+        os.close(fd)
+
+
+def evidence(root, bundle):
+    if bundle.parent != root / "var/backups/stocks" or not re.fullmatch(r"isolation-[A-Za-z0-9_-]+", bundle.name):
+        raise MigrationError("Unexpected recovery bundle path.")
+    controlled(bundle, root, mode=0o700, directory=True)
+    manifest = strict_json(bundle / "manifest.json", root)
+    marker = strict_json(root / "etc/stocks/isolation.json", root)
+    if set(manifest) != {"version", "transition_id", "bundle", "previous", "release", "services", "config_sha256"}:
+        raise MigrationError("Legacy or unknown manifest refused; manual recovery required.")
+    if type(manifest["version"]) is not int or manifest["version"] != 2:
+        raise MigrationError("Legacy manifest refused.")
+    tid = manifest["transition_id"]
+    if not isinstance(tid, str) or not re.fullmatch(r"[0-9a-f]{32}", tid):
+        raise MigrationError("Invalid transition identity.")
+    if manifest["bundle"] != str(bundle) or marker != {"version": 2, "transition_id": tid, "bundle": str(bundle)} or type(marker.get("version")) is not int:
+        raise MigrationError("Installed marker binding differs.")
+    saved = manifest["services"]
+    if type(saved) is not dict or set(saved) != {"web_active", "worker_active", "timer_active", "timer_enabled"} or any(type(saved[k]) is not bool for k in ("web_active", "worker_active", "timer_active")) or saved["timer_enabled"] not in ("enabled", "disabled"):
+        raise MigrationError("Invalid saved service state.")
+    hashes = manifest["config_sha256"]
+    if type(hashes) is not dict or set(hashes) != set(CONFIG_FILES) or any(not isinstance(v, str) or not re.fullmatch(r"[0-9a-f]{64}", v) for v in hashes.values()):
+        raise MigrationError("Invalid configuration digest evidence.")
+    for key in ("release", "previous"):
+        value = manifest[key]
+        if not isinstance(value, str):
+            raise MigrationError("Invalid release path.")
+        target = Path(value)
+        if str(target) != value or target.parent != root / "opt/stocks/releases" or not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*", target.name):
+            raise MigrationError("Invalid release scope.")
+        controlled(target, root, directory=True)
+    if manifest["release"] == manifest["previous"]:
+        raise MigrationError("Ambiguous release identity.")
+    return manifest
+
+
+def coherent_phase(root, bundle, manifest, phase):
+    rollback = phase == "rollback"
+    required = bundle / ("rollback-started" if rollback else "state-complete")
+    controlled(required, root, mode=0o600)
+    if required.read_bytes() != b"1\n":
+        raise MigrationError("Invalid phase evidence.")
+    if not rollback and any((bundle / name).exists() for name in ("rollback-started", "state-rolled-back", "rollback-complete")):
+        raise MigrationError("Activation superseded by rollback evidence.")
+    target = Path(manifest["previous" if rollback else "release"])
+    current = root / "opt/stocks/current"
+    controlled(current.parent, root, directory=True)
+    if not current.is_symlink() or current.lstat().st_uid != root.stat().st_uid or current.resolve(strict=True) != target:
+        raise MigrationError("Installed release does not match terminal transition.")
+    originals = {}
+    for relative in CONFIG_FILES:
+        source = bundle / "config" / Path(relative).name
+        controlled(source, root, mode=0o600)
+        content = source.read_bytes()
+        if digest(content) != manifest["config_sha256"][relative]:
+            raise MigrationError("Saved original configuration integrity failed.")
+        originals[relative] = content
+    expected = dict(originals)
+    if not rollback:
+        web, worker = split_env(originals[CONFIG_FILES[0]].decode(), originals[CONFIG_FILES[1]].decode())
+        expected[CONFIG_FILES[0]], expected[CONFIG_FILES[1]] = web.encode(), worker.encode()
+        for name in UNITS:
+            source = target / "deploy" / name
+            controlled(source, root)
+            expected["etc/systemd/system/" + name] = source.read_bytes()
+    for relative, content in expected.items():
+        controlled(root / relative, root, mode=0o600 if relative.endswith(".env") else 0o644)
+        if (root / relative).read_bytes() != content:
+            raise MigrationError("Installed configuration does not match terminal transition.")
+
+
+def publish_transition(root, bundle, manifest, phase, state, identity=None):
+    candidate = {"version": 2, "transition_id": manifest["transition_id"], "bundle": str(bundle),
+                 "phase": phase, "state": state, "manifest_sha256": digest((bundle / "manifest.json").read_bytes()),
+                 "identity": identity}
+    content = json.dumps(candidate, sort_keys=True).encode()
+    path = bundle / "transition.json"
+    safe_path(path)
+    fd, temporary = tempfile.mkstemp(prefix=".transition-", dir=bundle)
+    # Retain partial temporary evidence; deletion is never an authorization step.
+    with os.fdopen(fd, "wb") as out:
+        os.fchmod(out.fileno(), 0o600)
+        out.write(content)
+        out.flush()
+        os.fsync(out.fileno())
+    os.replace(temporary, path)
+    fd = os.open(bundle, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    if strict_json(path, root) != candidate:
+        raise MigrationError("Transition readback failed.")
+
+
+def authorize_transition(root, bundle, system, *, activation_only=False, timer_mode="quiescent"):
+    """Caller holds transition_lock. Persisted candidates never authorize alone."""
+    manifest = evidence(root, bundle)
+    candidate = strict_json(bundle / "transition.json", root)
+    if set(candidate) != {"version", "transition_id", "bundle", "phase", "state", "manifest_sha256", "identity"} or type(candidate.get("version")) is not int or candidate["version"] != 2 or candidate["state"] != "verified_candidate" or candidate["phase"] not in ("activation", "rollback"):
+        raise MigrationError("Cannot authorize incomplete transition.")
+    if candidate["transition_id"] != manifest["transition_id"] or candidate["bundle"] != str(bundle) or candidate["manifest_sha256"] != digest((bundle / "manifest.json").read_bytes()):
+        raise MigrationError("Candidate binding differs.")
+    if activation_only and candidate["phase"] != "activation":
+        raise MigrationError("Cutover requires activation candidate.")
+    identity = candidate["identity"]
+    if type(identity) is not dict or set(identity) != {"boot_id", "invocation_id", "effective_sha256"} or any(not isinstance(v, str) or not v for v in identity.values()):
+        raise MigrationError("Candidate has no live identity.")
+    if not re.fullmatch(r"[0-9a-f-]{36}", identity["boot_id"]) or not re.fullmatch(r"[0-9a-f]{32}", identity["invocation_id"]) or not re.fullmatch(r"[0-9a-f]{64}", identity["effective_sha256"]):
+        raise MigrationError("Invalid candidate live identity.")
+    coherent_phase(root, bundle, manifest, candidate["phase"])
+    if system.readiness(manifest["services"], timer_mode=timer_mode) != identity:
+        raise MigrationError("Live service identity changed; manual review required.")
+    if evidence(root, bundle) != manifest or strict_json(bundle / "transition.json", root) != candidate:
+        raise MigrationError("Evidence changed during fresh readiness.")
+    coherent_phase(root, bundle, manifest, candidate["phase"])
+    return manifest, candidate
 
 
 def backup_sqlite(source: Path, target: Path) -> None:
@@ -307,6 +471,18 @@ def switch_release(root: Path, target: Path) -> None:
 
 
 def activate_layout(root: Path, bundle: Path, release: Path, previous: Path, system) -> None:
+    with transition_lock(root):
+        _activate_layout(root, bundle, release, previous, system)
+
+
+def stop_after_failure(system):
+    try:
+        system.stop()
+    except BaseException as error:
+        raise MigrationError("Transition failed and service stop could not be confirmed; inspect preserved evidence.") from error
+
+
+def _activate_layout(root: Path, bundle: Path, release: Path, previous: Path, system) -> None:
     web, worker = layout_preflight(root, release, previous)
     state_preflight(root, bundle)
     originals = bundle / "config"
@@ -317,11 +493,13 @@ def activate_layout(root: Path, bundle: Path, release: Path, previous: Path, sys
         content = (root / relative).read_bytes()
         exclusive_write(saved, content)
         hashes[relative] = hashlib.sha256(content).hexdigest()
-    manifest = {"version": 1, "previous": str(previous), "release": str(release),
+    manifest = {"version": 2, "transition_id": uuid.uuid4().hex, "bundle": str(bundle), "previous": str(previous), "release": str(release),
                 "services": system.snapshot(), "config_sha256": hashes}
     exclusive_write(bundle / "manifest.json", json.dumps(manifest).encode())
-    exclusive_write(root / "etc/stocks/isolation.json", json.dumps({"bundle": str(bundle)}).encode())
+    exclusive_write(root / "etc/stocks/isolation.json", json.dumps({"version": 2, "transition_id": manifest["transition_id"], "bundle": str(bundle)}).encode())
     try:
+        evidence(root, bundle)
+        publish_transition(root, bundle, manifest, "activation", "preparing")
         system.stop()
         migrate_state(root, bundle)
         system.permissions(root, bundle)
@@ -334,18 +512,25 @@ def activate_layout(root: Path, bundle: Path, release: Path, previous: Path, sys
         system.reload()
         system.start_web()
         system.health()
-        write_completion(bundle / "activation-complete")
+        coherent_phase(root, bundle, manifest, "activation")
+        identity = system.readiness(manifest["services"])
+        publish_transition(root, bundle, manifest, "activation", "verified_candidate", identity)
     except BaseException:
         # Never auto-roll back across changed schema/state. Preserve all evidence.
-        system.stop()
+        stop_after_failure(system)
         raise
 
 
 def rollback_layout(root: Path, bundle: Path, system) -> None:
+    with transition_lock(root):
+        _rollback_layout(root, bundle, system)
+
+
+def _rollback_layout(root: Path, bundle: Path, system) -> None:
     safe_path(bundle, tree=True)
     if (bundle / "rollback-started").exists():
         raise MigrationError("Rollback already attempted; inspect preserved evidence manually.")
-    manifest = json.loads((bundle / "manifest.json").read_text())
+    manifest = evidence(root, bundle)
     previous = Path(manifest["previous"])
     safe_path(previous)
     if not previous.is_dir():
@@ -356,14 +541,15 @@ def rollback_layout(root: Path, bundle: Path, system) -> None:
         if hashlib.sha256(content).hexdigest() != manifest["config_sha256"][relative]:
             raise MigrationError("Saved original configuration integrity failed.")
         safe_path(root / relative)
-    system.stop()
-    exclusive_write(bundle / "rollback-started", b"1\n")
     try:
-        evidence = bundle / "rollback-config"
-        evidence.mkdir(mode=0o700)
+        publish_transition(root, bundle, manifest, "rollback", "preparing")
+        system.stop()
+        exclusive_write(bundle / "rollback-started", b"1\n")
+        config_evidence = bundle / "rollback-config"
+        config_evidence.mkdir(mode=0o700)
         for relative in CONFIG_FILES:
             path = root / relative
-            exclusive_write(evidence / path.name, path.read_bytes())
+            exclusive_write(config_evidence / path.name, path.read_bytes())
         if (bundle / "original-state").exists():
             rollback_state(root, bundle)
         elif (bundle / "state-started").exists():
@@ -376,16 +562,13 @@ def rollback_layout(root: Path, bundle: Path, system) -> None:
         if manifest["services"]["web_active"]:
             system.start_web()
             system.health()
-        write_completion(bundle / "rollback-complete")
+        coherent_phase(root, bundle, manifest, "rollback")
+        identity = system.readiness(manifest["services"]) if manifest["services"]["web_active"] else None
+        publish_transition(root, bundle, manifest, "rollback", "verified_candidate", identity)
     except BaseException:
         # A failed check must not leave the restarted web service exposed.
         # Preserve incomplete markers and evidence for manual recovery.
-        try:
-            system.stop()
-        except BaseException as cleanup_error:
-            raise MigrationError(
-                "Rollback failed and service stop could not be confirmed; inspect preserved evidence."
-            ) from cleanup_error
+        stop_after_failure(system)
         raise
     # Leave the marker and all evidence; subsequent deployment requires review.
     # Timers are NEVER automatically restarted (Persistent=true may log in now).
@@ -559,50 +742,70 @@ class System:
             raise MigrationError("System command refused/failed; inspect privately, no output copied.")
         return result.stdout.strip()
 
+    def boot_identity(self):
+        value = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+        if not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", value):
+            raise MigrationError("Boot identity unavailable.")
+        return value
+
+    def readiness(self, saved, *, timer_mode="quiescent"):
+        if timer_mode not in ("quiescent", "saved"):
+            raise MigrationError("Unknown readiness policy.")
+        properties = "ActiveState,SubState,NRestarts,NeedDaemonReload,InvocationID,ExecStart,User,Group,SupplementaryGroups,Environment,EnvironmentFiles,WorkingDirectory,RootDirectory,ProtectSystem,ProtectHome,ReadWritePaths,ReadOnlyPaths,InaccessiblePaths,BindPaths,BindReadOnlyPaths,PrivateTmp,NoNewPrivileges,FragmentPath,DropInPaths"
+        def sample():
+            text = self.command("/usr/bin/systemctl", "show", "stocks.service", "--property=" + properties, timeout=10)
+            values = {}
+            for line in text.splitlines():
+                key, separator, value = line.partition("=")
+                if not separator or key in values:
+                    raise MigrationError("Invalid live unit probe.")
+                values[key] = value
+            if any(values.get(k) != v for k, v in {"ActiveState": "active", "SubState": "running", "NRestarts": "0", "NeedDaemonReload": "no"}.items()) or not re.fullmatch(r"[0-9a-f]{32}", values.get("InvocationID", "")) or not values.get("ExecStart") or not values.get("User"):
+                raise MigrationError("Web service not independently ready.")
+            unit = self.command("/usr/bin/systemctl", "cat", "stocks.service", timeout=10)
+            if not unit:
+                raise MigrationError("Effective unit unavailable.")
+            worker = self.command("/usr/bin/systemctl", "is-active", "stocks-sync.service", allowed=(0, 3), timeout=10)
+            timer = self.command("/usr/bin/systemctl", "is-active", "stocks-sync.timer", allowed=(0, 3), timeout=10)
+            enabled = self.command("/usr/bin/systemctl", "is-enabled", "stocks-sync.timer", allowed=(0, 1), timeout=10)
+            expected = (saved["timer_enabled"], "active" if saved["timer_active"] else "inactive") if timer_mode == "saved" else ("disabled", "inactive")
+            if worker != "inactive" or (enabled, timer) != expected:
+                raise MigrationError("Worker or schedule is not in the required safe state.")
+            invocation = values.pop("InvocationID")
+            return {"boot_id": self.boot_identity(), "invocation_id": invocation,
+                    "effective_sha256": digest((json.dumps(values, sort_keys=True) + "\n" + unit).encode())}
+        before = sample()
+        self.health()  # Anonymous boundary only; authenticated app/namespace gates remain manual.
+        time.sleep(0.1)
+        after = sample()
+        if before != after:
+            raise MigrationError("Web identity/configuration changed during readiness probes.")
+        return after
+
     def resume_timer(self, bundle, *, root=Path("/")):
-        rollback_started = (bundle / "rollback-started").exists()
-        rollback_complete = (bundle / "rollback-complete").exists()
-        phase = "rollback" if rollback_started else "activation"
-        pending = bundle / (phase + "-complete-pending")
-        if pending.exists() or rollback_started != rollback_complete or not (
-            rollback_complete or (bundle / "activation-complete").exists()
-        ):
-            raise MigrationError("Cannot resume schedule after incomplete transition.")
-        manifest = json.loads((bundle / "manifest.json").read_text())
-        saved = manifest["services"]
-        if manifest.get("version") != 1 or saved.get("timer_enabled") not in {"enabled", "disabled"} or type(saved.get("timer_active")) is not bool:
-            raise MigrationError("Invalid saved timer manifest.")
-        marker = root / "etc/stocks/isolation.json"
-        safe_path(marker)
-        if json.loads(marker.read_text()).get("bundle") != str(bundle):
-            raise MigrationError("Recovery bundle does not match installed marker.")
-        target = Path(manifest["previous" if rollback_complete else "release"])
-        safe_path(target)
-        current = root / "opt/stocks/current"
-        if not current.is_symlink() or current.resolve(strict=True) != target:
-            raise MigrationError("Installed release does not match terminal transition.")
-        originals = {}
-        for relative in CONFIG_FILES:
-            content = (bundle / "config" / Path(relative).name).read_bytes()
-            if hashlib.sha256(content).hexdigest() != manifest["config_sha256"][relative]:
-                raise MigrationError("Saved original configuration integrity failed.")
-            originals[relative] = content
-        expected = dict(originals)
-        if not rollback_complete:
-            web, worker = split_env(originals[CONFIG_FILES[0]].decode(), originals[CONFIG_FILES[1]].decode())
-            expected[CONFIG_FILES[0]], expected[CONFIG_FILES[1]] = web.encode(), worker.encode()
-            for name in UNITS:
-                expected["etc/systemd/system/" + name] = (target / "deploy" / name).read_bytes()
-        for relative, content in expected.items():
-            safe_path(root / relative)
-            if (root / relative).read_bytes() != content:
-                raise MigrationError("Installed configuration does not match terminal transition.")
-        self.command("/usr/bin/systemctl", "enable" if saved["timer_enabled"] == "enabled" else "disable", "stocks-sync.timer")
-        self.command("/usr/bin/systemctl", "start" if saved["timer_active"] else "stop", "stocks-sync.timer")
-        enabled = self.command("/usr/bin/systemctl", "is-enabled", "stocks-sync.timer", allowed=(0, 1))
-        active = self.command("/usr/bin/systemctl", "is-active", "stocks-sync.timer", allowed=(0, 3))
-        if enabled != saved["timer_enabled"] or active != ("active" if saved["timer_active"] else "inactive"):
-            raise MigrationError("Timer readback differs from saved state; inspect before retrying.")
+        with transition_lock(root):
+            manifest, candidate = authorize_transition(root, bundle, self)
+            # No mutation or repair to make a candidate pass; independently recheck.
+            if authorize_transition(root, bundle, self) != (manifest, candidate):
+                raise MigrationError("Transition changed before schedule mutation.")
+            saved = manifest["services"]
+            try:
+                self.command("/usr/bin/systemctl", "enable" if saved["timer_enabled"] == "enabled" else "disable", "stocks-sync.timer")
+                self.command("/usr/bin/systemctl", "start" if saved["timer_active"] else "stop", "stocks-sync.timer")
+                enabled = self.command("/usr/bin/systemctl", "is-enabled", "stocks-sync.timer", allowed=(0, 1))
+                active = self.command("/usr/bin/systemctl", "is-active", "stocks-sync.timer", allowed=(0, 3))
+                if enabled != saved["timer_enabled"] or active != ("active" if saved["timer_active"] else "inactive"):
+                    raise MigrationError("Timer readback differs from saved state; inspect before retrying.")
+            except BaseException:
+                try:
+                    self.command("/usr/bin/systemctl", "disable", "--now", "stocks-sync.timer")
+                    enabled = self.command("/usr/bin/systemctl", "is-enabled", "stocks-sync.timer", allowed=(0, 1))
+                    active = self.command("/usr/bin/systemctl", "is-active", "stocks-sync.timer", allowed=(0, 3))
+                    if (enabled, active) != ("disabled", "inactive"):
+                        raise MigrationError("Schedule cleanup readback failed.")
+                except BaseException as error:
+                    raise MigrationError("Schedule mutation failed and timer stop could not be confirmed; inspect preserved evidence.") from error
+                raise
 
 
 def main(argv=None) -> int:

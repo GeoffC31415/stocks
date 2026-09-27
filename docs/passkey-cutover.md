@@ -27,9 +27,20 @@ the exact reviewed installed release name (do not substitute a dynamically resol
   --expect-current /opt/stocks/releases/RELEASE_NAME --confirm PASSKEY-ONLY
 ```
 
-The release must already contain this reviewed helper. It checks the isolation
-marker's private bundle, manifest release, state-complete and activation-complete
-markers, and rejects rollback evidence. Exact public origin and auth database path
+The release must already contain this reviewed helper. Under the shared isolation
+transition lock, it validates the v2 installed marker, private manifest and
+`transition.json` activation candidate, then performs fresh shared live readiness
+checks. Legacy completion markers never authorize cutover; rollback candidates
+are refused. The candidate must match the current boot, web InvocationID,
+effective unit fingerprint, saved originals and installed release/configuration.
+Web must be active/stable and the worker inactive. The timer must match its saved
+enabled/active state (not necessarily be disabled), so approved schedule restoration
+can precede cutover. If the saved timer was active, simply deferring its restoration
+will refuse cutover; that alternative needs a separately reviewed procedure.
+The same preflight runs again after backups and before config replacement.
+See [completion-state semantics and recovery limits](completion-state.md).
+
+Exact public origin and auth database path
 are required. Config/auth/evidence paths must be private, owned, non-symlink and
 single-linked; ancestor directories must not be group/world writable. The auth
 store belongs to `stocks`, config and backups to root. Existing `/var/backups/stocks`
@@ -38,8 +49,9 @@ must be root-owned mode 0700; the helper will not silently repair unsafe permiss
 The conservative existing env parser rejects duplicate/unknown keys and ambiguous
 syntax. Session lifetime overrides not recognized by that parser currently refuse
 cutover; review allowlist support separately rather than weakening parsing. No
-broker file or portfolio database is read. No timer, broker service, or proxy is
-changed.
+portfolio database is read. Shared coherence checks read private saved and installed
+broker configuration to compare it, without displaying values or contacting a
+broker. No timer, broker service, or proxy is changed.
 
 Before replacing config it creates a unique private `passkey-*` bundle containing
 0600 original config, SQLite-backup-API auth snapshot (integrity checked), and a

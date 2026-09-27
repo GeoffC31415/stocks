@@ -9,7 +9,18 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from broker_isolation import exclusive_write, parse_env, plain
+from broker_isolation import (
+    MigrationError,
+    authorize_transition,
+    exclusive_write,
+    parse_env,
+    plain,
+    strict_json,
+    transition_lock,
+)
+from broker_isolation import (
+    System as IsolationSystem,
+)
 
 
 def private(path, root, owner, *, directory=False):
@@ -44,22 +55,22 @@ def current_release(root, release, owner=0):
         raise CutoverError('Installed release differs from expected release.')
 
 
-def preflight(root, release, owner, web_owner, now):
+def preflight(root, release, owner, web_owner, now, system=None):
     current_release(root, release, owner)
     config = root / 'etc/stocks/production.env'
     marker = root / 'etc/stocks/isolation.json'
     for path in (config, marker):
         private(path, root, owner)
-    bundle = Path(json.loads(marker.read_text())['bundle'])
+    bundle = Path(strict_json(marker, root)['bundle'])
     if bundle.parent != root / 'var/backups/stocks' or not re.fullmatch(r'isolation-[A-Za-z0-9_-]+', bundle.name):
         raise CutoverError('Unexpected isolation evidence path.')
     private(bundle, root, owner, directory=True)
-    for name in ('manifest.json', 'state-complete', 'activation-complete'):
-        private(bundle / name, root, owner)
-    if json.loads((bundle / 'manifest.json').read_text()).get('release') != str(release):
-        raise CutoverError('Isolation release mismatch.')
-    if any((bundle / name).exists() for name in ('rollback-started', 'state-rolled-back', 'rollback-complete')):
-        raise CutoverError('Isolation rollback evidence present.')
+    try:
+        manifest, _ = authorize_transition(root, bundle, system or IsolationSystem(), activation_only=True, timer_mode='saved')
+        if manifest['release'] != str(release):
+            raise CutoverError('Isolation release mismatch.')
+    except (MigrationError, OSError, ValueError, KeyError):
+        raise CutoverError('Isolation candidate or fresh readiness refused.') from None
     original = config.read_bytes()
     values = {key: plain(value) for key, value in parse_env(original.decode()).items()}
     expected = {'AUTH_MODE': 'basic', 'AUTH_DATABASE_PATH': '/var/lib/stocks/auth.sqlite3',
@@ -84,9 +95,14 @@ def preflight(root, release, owner, web_owner, now):
 
 
 def cutover(root, release, system, *, owner=0, web_owner, now=None):
+    with transition_lock(root):
+        return _cutover(root, release, system, owner=owner, web_owner=web_owner, now=now)
+
+
+def _cutover(root, release, system, *, owner=0, web_owner, now=None):
     live_clock = now is None
     now = time.time() if live_clock else now
-    config, auth, original = preflight(root, release, owner, web_owner, now)
+    config, auth, original = preflight(root, release, owner, web_owner, now, system)
     bundle = Path(tempfile.mkdtemp(prefix='passkey-', dir=root / 'var/backups/stocks'))
     exclusive_write(bundle / 'production.env', original)
     target = bundle / 'auth.sqlite3'
@@ -109,7 +125,7 @@ def cutover(root, release, system, *, owner=0, web_owner, now=None):
         lines.append('PORTFOLIO_AUTH_MODE=passkey\n' if line.startswith('PORTFOLIO_AUTH_MODE=') else line)
     final = ''.join(lines).encode()
     # Recheck before commit; failures after replacement never restore Basic.
-    preflight(root, release, owner, web_owner, time.time() if live_clock else now)
+    preflight(root, release, owner, web_owner, time.time() if live_clock else now, system)
     if config.read_bytes() != original:
         raise CutoverError('Configuration changed during preflight.')
     staged = config.parent / ('cutover-' + bundle.name)
@@ -130,7 +146,10 @@ def cutover(root, release, system, *, owner=0, web_owner, now=None):
         system.verify()
         exclusive_write(bundle / 'verified', b'1\n')
     except BaseException:  # noqa: BLE001 - fail closed even when interrupted after replacement
-        system.stop()
+        try:
+            system.stop()
+        except BaseException:  # noqa: BLE001 - interruption must report unconfirmed stop
+            raise CutoverError('Cutover incomplete and web stop could not be confirmed; preserve evidence and inspect locally. Never automatically restore Basic.') from None
         raise CutoverError('Cutover incomplete: web service stopped; retain private backups, repair passkey configuration or use local auth recovery. Never automatically restore Basic.') from None
     return bundle
 
@@ -155,6 +174,9 @@ def verify_public(request):
 
 
 class System:
+    def readiness(self, saved, *, timer_mode='saved'):
+        return IsolationSystem().readiness(saved, timer_mode=timer_mode)
+
     def __init__(self):
         for command in ('/usr/bin/systemctl', '/usr/bin/curl'):
             if not os.access(command, os.X_OK):

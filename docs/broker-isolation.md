@@ -48,17 +48,20 @@ From the checkout, using an existing development interpreter:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 \
+PYTHON_DOTENV_DISABLED=1 \
 PORTFOLIO_DATABASE_URL=sqlite+aiosqlite:///:memory: PYTHONPATH=backend \
-/home/geoff/code/stocks/.venv/bin/python -c '
+/home/geoff/code/stocks-security/.venv/bin/python -B -c '
 from pydantic_settings.sources import DotEnvSettingsSource
-DotEnvSettingsSource.__call__ = lambda self: {}
+DotEnvSettingsSource._read_env_files = lambda self: {}
 import pytest
 raise SystemExit(pytest.main([
   "backend/tests/test_broker_isolation.py",
   "backend/tests/test_isolation_deploy.py",
   "backend/tests/test_isolation_migration.py",
   "backend/tests/test_isolation_host.py",
-  "backend/tests/test_sync_control.py", "-q"]))'
+  "backend/tests/test_isolation_completion.py",
+  "backend/tests/test_passkey_cutover.py",
+  "backend/tests/test_sync_control.py", "-q", "-p", "no:cacheprovider"]))'
 bash -n deploy/install-surface.sh deploy/upgrade-surface.sh
 systemd-analyze verify deploy/stocks.service deploy/stocks-sync.service deploy/stocks-sync.timer
 python3 deploy/broker_isolation.py --help
@@ -146,8 +149,20 @@ login directly and does not silently restore a previously active worker.
 ## Failure and rollback
 
 Do not rerun activation blindly. Preserve the marker, bundle, current state, unit
-files, and logs privately. Failures stop services; there is no automatic rollback
-across potentially changed schemas. Unknown partial transitions fail closed.
+files, and logs privately. Caught transition failures attempt to stop services;
+if stop fails, the error explicitly leaves service state unconfirmed. Independently
+inspect it rather than assuming isolation. There is no automatic rollback across
+potentially changed schemas. Unknown partial transitions fail closed.
+
+Completion uses a strict v2 `transition.json` candidate, not an activation-complete
+or rollback-complete authorization marker. A candidate alone cannot authorize
+schedule restoration or cutover: each consumer holds the shared lock, validates
+release/configuration coherence, and freshly checks boot, web InvocationID,
+effective units, service state and the anonymous boundary. Resume requires a
+quiescent timer; cutover requires its verified saved state and an inactive worker.
+Legacy/malformed/unknown records require manual recovery, never marker editing
+or automatic upgrade. See [completion-state semantics](completion-state.md) for
+publication, interruption, lock and recovery limits.
 
 ```sh
 python3 /opt/stocks/releases/NEW/deploy/broker_isolation.py rollback \

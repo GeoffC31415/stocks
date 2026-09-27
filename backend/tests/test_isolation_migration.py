@@ -4,9 +4,7 @@ import json
 import os
 import sqlite3
 import stat
-from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import Mock
 
 import pytest
 
@@ -163,15 +161,24 @@ def deployment_fixture(tmp_path):
     for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
         (release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
     (root / "opt/stocks/current").symlink_to(previous)
+    for path in (root, *root.rglob("*")):
+        if path.is_symlink():
+            continue
+        if path.is_dir():
+            path.chmod(0o700 if path == bundle else 0o755)
+        else:
+            path.chmod(0o600 if path.suffix == ".env" else 0o644)
     return root, bundle, release, previous
 
 
 class FakeSystem:
     def __init__(self):
         self.events = []
+        self.web_active = True
     def snapshot(self):
         return {"timer_active": True, "timer_enabled": "enabled", "web_active": True, "worker_active": False}
     def stop(self):
+        self.web_active = False
         self.events.append("stop-timer-worker-web")
     def permissions(self, root, bundle):
         assert (bundle / "original-state").exists()
@@ -181,9 +188,14 @@ class FakeSystem:
     def reload(self):
         self.events.append("reload")
     def start_web(self):
+        self.web_active = True
         self.events.append("start-web")
     def health(self):
         self.events.append("unauthenticated-401-boundary-only")
+    def readiness(self, saved, *, timer_mode="quiescent"):
+        if not self.web_active:
+            return None
+        return {"boot_id": "00000000-0000-0000-0000-000000000001", "invocation_id": "1" * 32, "effective_sha256": "2" * 64}
 
 
 def test_layout_activation_and_rollback_restore_coherent_files(tmp_path):
@@ -217,12 +229,12 @@ def test_rollback_failure_after_restart_stops_services(tmp_path, monkeypatch, fa
     system.events.clear()
     error = KeyboardInterrupt() if failure == "interrupt" else OSError("injected")
     if failure == "marker":
-        write = m.exclusive_write
-        def fail_marker(path, *args, **kwargs):
-            if path.name == "rollback-complete":
+        write = m.publish_transition
+        def fail_marker(root, bundle, manifest, phase, state, *args):
+            if state == "verified_candidate":
                 raise error
-            return write(path, *args, **kwargs)
-        monkeypatch.setattr(m, "exclusive_write", fail_marker)
+            return write(root, bundle, manifest, phase, state, *args)
+        monkeypatch.setattr(m, "publish_transition", fail_marker)
     else:
         def fail_health():
             system.events.append("health-failed")
@@ -242,147 +254,7 @@ def test_rollback_failure_after_restart_stops_services(tmp_path, monkeypatch, fa
     assert (bundle / "evidence").is_dir()
 
 
-@pytest.mark.parametrize("failure_point", ["fsync", "flush", "close"])
-@pytest.mark.parametrize("phase", ["rollback", "activation"])
-@pytest.mark.parametrize("invalidation", ["ok", "error", "interrupt", "no-op"])
-@pytest.mark.parametrize("error_type", [OSError, KeyboardInterrupt])
-def test_completion_write_failure_refuses_resume(tmp_path, monkeypatch, error_type, invalidation, phase, failure_point):
-    m = helper()
-    root, bundle, release, previous = deployment_fixture(tmp_path)
-    system = FakeSystem()
-    if phase == "rollback":
-        m.activate_layout(root, bundle, release, previous, system)
-        system.events.clear()
-    completion = bundle / (phase + "-complete")
-    error = error_type("SENTINEL_WRITE")
-    write = m.exclusive_write
-    fdopen = m.os.fdopen
-    observed = []
-
-    def fail_after_creation(fd):
-        observed.append(completion.read_bytes())
-        raise error
-
-    @contextmanager
-    def failing_file(fd, *args, **kwargs):
-        with fdopen(fd, *args, **kwargs) as out:
-            proxy = Mock(wraps=out)
-            if failure_point == "flush":
-                def flush():
-                    out.flush()
-                    fail_after_creation(fd)
-                proxy.flush.side_effect = flush
-            yield proxy
-        # Exercise a context-manager close failure after the real stream closed.
-        if failure_point == "close":
-            fail_after_creation(fd)
-
-    def write_marker(path, *args, **kwargs):
-        if path == completion:
-            with monkeypatch.context() as patch:
-                if failure_point == "fsync":
-                    patch.setattr(m.os, "fsync", fail_after_creation)
-                else:
-                    patch.setattr(m.os, "fdopen", failing_file)
-                return write(path, *args, **kwargs)
-        return write(path, *args, **kwargs)
-
-    monkeypatch.setattr(m, "exclusive_write", write_marker)
-    unlink = Path.unlink
-    cleanup_error = KeyboardInterrupt("SENTINEL_UNLINK") if invalidation == "interrupt" else OSError("SENTINEL_UNLINK")
-
-    def fail_unlink(path, *args, **kwargs):
-        if path == completion and invalidation != "ok":
-            if invalidation == "no-op":
-                return
-            raise cleanup_error
-        return unlink(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "unlink", fail_unlink)
-    expected_error = error_type if invalidation == "ok" else m.MigrationError
-    with pytest.raises(expected_error) as caught:
-        if phase == "rollback":
-            m.rollback_layout(root, bundle, system)
-        else:
-            m.activate_layout(root, bundle, release, previous, system)
-    if invalidation == "ok":
-        assert caught.value is error
-    else:
-        assert "completion invalidation could not be confirmed" in str(caught.value)
-        assert "SENTINEL" not in str(caught.value)
-        if invalidation != "no-op":
-            assert caught.value.__cause__ is cleanup_error
-            assert cleanup_error.__context__ is error
-    assert observed == [b"1\n"]  # Real creation/write/flush happened before failure.
-    middle = [] if phase == "rollback" else ["permissions", "permission-probes"]
-    assert system.events == ["stop-timer-worker-web", *middle, "reload", "start-web",
-                             "unauthenticated-401-boundary-only", "stop-timer-worker-web"]
-    if phase == "rollback":
-        assert (bundle / "rollback-started").exists()
-        assert (bundle / "rollback-config/production.env").exists()
-        assert (bundle / "evidence/stocks-sync/browser/secret").read_text() == "SENTINEL_SESSION"
-    else:
-        assert (bundle / "original-state/browser/secret").read_text() == "SENTINEL_SESSION"
-    calls = []
-    host = m.System()
-    monkeypatch.setattr(host, "command", lambda *a, **kw: calls.append(a) or (
-        "enabled" if a[1] == "is-enabled" else "active" if a[1] == "is-active" else ""
-    ))
-    with pytest.raises(m.MigrationError, match="incomplete transition"):
-        host.resume_timer(bundle, root=root)
-    assert calls == []
-    assert completion.exists() == (invalidation != "ok")
-    assert (bundle / (phase + "-complete-pending")).exists()
-    if phase == "activation":
-        # A later successful rollback supersedes failed activation, not its evidence.
-        m.rollback_layout(root, bundle, FakeSystem())
-        host.resume_timer(bundle, root=root)
-        assert calls[:2] == [("/usr/bin/systemctl", "enable", "stocks-sync.timer"),
-                             ("/usr/bin/systemctl", "start", "stocks-sync.timer")]
-        assert (bundle / "activation-complete-pending").exists()
-        assert not (bundle / "rollback-complete-pending").exists()
-
-
-@pytest.mark.parametrize("failure_point", ["pending-fsync", "pending-unlink"])
-def test_rollback_completion_guard_failure_stays_incomplete(tmp_path, monkeypatch, failure_point):
-    m = helper()
-    root, bundle, release, previous = deployment_fixture(tmp_path)
-    system = FakeSystem()
-    m.activate_layout(root, bundle, release, previous, system)
-    pending = bundle / "rollback-complete-pending"
-    error = OSError("SENTINEL_GUARD")
-    write, unlink = m.exclusive_write, Path.unlink
-
-    def fail(*args, **kwargs):
-        assert pending.exists()
-        raise error
-
-    def write_marker(path, *args, **kwargs):
-        if path == pending and failure_point == "pending-fsync":
-            with monkeypatch.context() as patch:
-                patch.setattr(m.os, "fsync", fail)
-                return write(path, *args, **kwargs)
-        return write(path, *args, **kwargs)
-
-    def unlink_marker(path, *args, **kwargs):
-        if path == pending and failure_point == "pending-unlink":
-            fail()
-        return unlink(path, *args, **kwargs)
-
-    monkeypatch.setattr(m, "exclusive_write", write_marker)
-    monkeypatch.setattr(Path, "unlink", unlink_marker)
-    with pytest.raises(OSError) as caught:
-        m.rollback_layout(root, bundle, system)
-    assert caught.value is error
-    assert system.events[-1] == "stop-timer-worker-web"
-    assert pending.exists()
-    assert not (bundle / "rollback-complete").exists()
-    host = m.System()
-    command = Mock(side_effect=AssertionError("host commands forbidden"))
-    monkeypatch.setattr(host, "command", command)
-    with pytest.raises(m.MigrationError, match="incomplete transition"):
-        host.resume_timer(bundle, root=root)
-    command.assert_not_called()
+# Publication fault coverage lives in test_isolation_completion.py.
 
 
 def test_rollback_cleanup_failure_reports_unconfirmed_stop(tmp_path, capsys):
@@ -479,14 +351,14 @@ def test_resume_timer_rejects_failed_rollback_before_host_commands(tmp_path, mon
     monkeypatch.setattr(m, "rollback_state", lambda *a: (_ for _ in ()).throw(OSError("injected")))
     with pytest.raises(OSError):
         m.rollback_layout(root, bundle, FakeSystem())
-    assert (bundle / "activation-complete").exists()
+    assert json.loads((bundle / "transition.json").read_text())["state"] == "preparing"
     assert (bundle / "rollback-started").exists()
     assert not (bundle / "rollback-complete").exists()
     calls = []
     system = m.System()
     monkeypatch.setattr(system, "command", lambda *a, **kw: calls.append(a))
     with pytest.raises(m.MigrationError, match="incomplete transition"):
-        system.resume_timer(bundle)
+        system.resume_timer(bundle, root=root)
     assert calls == []
 
 
@@ -509,7 +381,7 @@ def test_resume_timer_rejects_incoherent_terminal_state(tmp_path, monkeypatch, p
         manifest["services"]["timer_active"] = "false"
         (bundle / "manifest.json").write_text(json.dumps(manifest))
     elif hazard == "incomplete":
-        (bundle / (phase + "-complete")).unlink()
+        (bundle / "transition.json").write_text("{}")
     else:
         (bundle / "rollback-complete").write_text("1")
         (bundle / "rollback-started").unlink(missing_ok=True)
@@ -521,50 +393,7 @@ def test_resume_timer_rejects_incoherent_terminal_state(tmp_path, monkeypatch, p
     assert calls == []
 
 
-@pytest.mark.parametrize("phase", ["activation", "rollback"])
-@pytest.mark.parametrize("enabled", ["enabled", "disabled"])
-@pytest.mark.parametrize("active", [True, False])
-def test_resume_timer_reconciles_drift_and_reads_back(tmp_path, monkeypatch, enabled, active, phase):
-    m = helper()
-    calls = []
-    state = {"enabled": "disabled" if enabled == "enabled" else "enabled", "active": not active}
-    def command(*args, **kwargs):
-        calls.append(args)
-        action = args[1]
-        if action in {"enable", "disable"}:
-            state["enabled"] = "enabled" if action == "enable" else "disabled"
-        elif action in {"start", "stop"}:
-            state["active"] = action == "start"
-        elif action == "is-enabled":
-            return state["enabled"]
-        elif action == "is-active":
-            return "active" if state["active"] else "inactive"
-        else:
-            raise AssertionError(args)
-        return ""
-    system = m.System()
-    monkeypatch.setattr(system, "command", command)
-    root, bundle, release, previous = deployment_fixture(tmp_path)
-    m.activate_layout(root, bundle, release, previous, FakeSystem())
-    manifest = json.loads((bundle / "manifest.json").read_text())
-    manifest["services"].update(timer_active=active, timer_enabled=enabled)
-    (bundle / "manifest.json").write_text(json.dumps(manifest))
-    if phase == "rollback":
-        m.rollback_layout(root, bundle, FakeSystem())
-    system.resume_timer(bundle, root=root)
-    assert state == {"enabled": enabled, "active": active}
-    assert calls[-2:] == [("/usr/bin/systemctl", "is-enabled", "stocks-sync.timer"), ("/usr/bin/systemctl", "is-active", "stocks-sync.timer")]
-
-
-@pytest.mark.parametrize("enabled,active", [("disabled", "active"), ("enabled", "inactive"), ("enabled", "activating")])
-def test_resume_timer_refuses_readback_mismatch(tmp_path, monkeypatch, enabled, active):
-    m = helper()
-    root, bundle, release, previous = deployment_fixture(tmp_path)
-    m.activate_layout(root, bundle, release, previous, FakeSystem())
-    system = m.System()
-    monkeypatch.setattr(system, "command", lambda *a, **kw: enabled if a[1] == "is-enabled" else active if a[1] == "is-active" else "")
-    with pytest.raises(m.MigrationError, match="readback"):
-        system.resume_timer(bundle, root=root)
+# Exact timer restoration/readback coverage lives in test_isolation_completion.py.
 
 
 def test_permission_plan_separates_status_private_state_and_shared_db(tmp_path, monkeypatch):

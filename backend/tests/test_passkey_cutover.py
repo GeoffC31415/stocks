@@ -7,6 +7,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+from test_isolation_migration import FakeSystem, deployment_fixture, helper
+
 DEPLOY = Path(__file__).resolve().parents[2] / 'deploy'
 sys.path.insert(0, str(DEPLOY))
 
@@ -38,7 +41,7 @@ class CutoverTests(unittest.TestCase):
         with self.assertRaises(m.CutoverError):
             m.auth_evidence(self.database(None), now=1000)
 
-    def fixture(self):
+    def legacy_fixture(self):
         import json
         m = self.module()
         for name in ('etc/stocks', 'var/lib/stocks', 'var/backups/stocks/isolation-test', 'opt/stocks/releases/test'):
@@ -61,19 +64,29 @@ class CutoverTests(unittest.TestCase):
         self.database(999).rename(self.root / 'var/lib/stocks/auth.sqlite3')
         return m, release, config
 
+    def fixture(self):
+        m = self.module()
+        self.root, bundle, release, previous = deployment_fixture(self.root)
+        helper().activate_layout(self.root, bundle, release, previous, FakeSystem())
+        (self.root / 'var/lib/stocks').chmod(0o700)
+        (self.root / 'var/backups/stocks').chmod(0o700)
+        self.database(999).rename(self.root / 'var/lib/stocks/auth.sqlite3')
+        m.IsolationSystem = FakeSystem  # All service/network adapters remain synthetic.
+        return m, release, self.root / 'etc/stocks/production.env'
+
     def test_cutover_preserves_evidence_removes_fallback_and_checks_public(self):
         import json
         m, release, config = self.fixture()
         before = config.read_bytes()
         actions = []
-        class System:
+        class System(FakeSystem):
             def stop(self): actions.append('stop')
             def start(self): actions.append('start')
             def verify(self): actions.append('verify')
         saved = m.cutover(self.root, release, System(), owner=os.getuid(), web_owner=os.getuid(), now=1000)
         self.assertEqual(actions, ['stop', 'start', 'verify'])
         self.assertEqual((saved / 'production.env').read_bytes(), before)
-        self.assertEqual(config.read_text(), before.decode().replace('AUTH_MODE=basic', 'AUTH_MODE=passkey').replace('PORTFOLIO_AUTH_USERNAME=synthetic\n', '').replace('PORTFOLIO_AUTH_PASSWORD_HASH=synthetic\n', ''))
+        self.assertEqual(config.read_text(), before.decode().replace('AUTH_MODE=basic', 'AUTH_MODE=passkey').replace('PORTFOLIO_AUTH_USERNAME=owner\n', '').replace('PORTFOLIO_AUTH_PASSWORD_HASH=SENTINEL_AUTH\n', ''))
         self.assertEqual(json.loads((saved / 'manifest.json').read_text())['release'], str(release))
         for name in ('production.env', 'auth.sqlite3', 'manifest.json'):
             self.assertEqual((saved / name).stat().st_mode & 0o777, 0o600)
@@ -93,6 +106,26 @@ class CutoverTests(unittest.TestCase):
                 m.verify_public(lambda path, accept, data=data: (200, data))
         with self.assertRaises(m.CutoverError):
             m.verify_public(lambda path, accept: (200, b'{"mode":"passkey","authenticated":false}'))
+
+    def test_legacy_completion_refused_before_backups(self):
+        m, release, config = self.legacy_fixture()
+        original = config.read_bytes()
+        class System(FakeSystem):
+            def stop(self): pass
+            def start(self): pass
+            def verify(self): pass
+        with self.assertRaises(m.CutoverError):
+            m.cutover(self.root, release, System(), owner=os.getuid(), web_owner=os.getuid(), now=1000)
+        self.assertEqual(config.read_bytes(), original)
+        self.assertEqual(list((self.root / 'var/backups/stocks').glob('passkey-*')), [])
+
+    def test_cutover_cleanup_failure_is_honest(self):
+        m, release, config = self.fixture()
+        class System(FakeSystem):
+            def stop(self): raise OSError('SENTINEL')
+        with self.assertRaisesRegex(m.CutoverError, 'stop could not be confirmed'):
+            m.cutover(self.root, release, System(), owner=os.getuid(), web_owner=os.getuid(), now=1000)
+        self.assertIn('AUTH_MODE=passkey', config.read_text())
 
     def test_host_gate(self):
         m = self.module()
@@ -118,7 +151,7 @@ class CutoverTests(unittest.TestCase):
     def test_post_write_failure_never_restores_basic(self):
         m, release, config = self.fixture()
         actions = []
-        class System:
+        class System(FakeSystem):
             def stop(self): actions.append('stop')
             def start(self): actions.append('start')
             def verify(self): raise RuntimeError('SYNTHETIC_SECRET')
@@ -176,7 +209,7 @@ class CutoverTests(unittest.TestCase):
         m, release, config = self.fixture()
         auth = self.root / 'var/lib/stocks/auth.sqlite3'
         marker = self.root / 'etc/stocks/isolation.json'
-        bundle = self.root / 'var/backups/stocks/isolation-test'
+        bundle = self.root / 'var/backups/stocks/isolation-fixture'
         def denied():
             with self.assertRaises((m.CutoverError, OSError)):
                 m.preflight(self.root, release, os.getuid(), os.getuid(), 1000)
@@ -185,13 +218,15 @@ class CutoverTests(unittest.TestCase):
             path.chmod(0o777)
             denied()
             path.chmod(mode)
-        (bundle / 'activation-complete').unlink()
+        candidate = (bundle / 'transition.json').read_bytes()
+        (bundle / 'transition.json').unlink()
         denied()
-        (bundle / 'activation-complete').write_text('1')
-        (bundle / 'activation-complete').chmod(0o600)
+        (bundle / 'transition.json').write_bytes(candidate)
+        (bundle / 'transition.json').chmod(0o600)
+        manifest = (bundle / 'manifest.json').read_bytes()
         (bundle / 'manifest.json').write_text(json.dumps({'release': '/wrong'}))
         denied()
-        (bundle / 'manifest.json').write_text(json.dumps({'release': str(release)}))
+        (bundle / 'manifest.json').write_bytes(manifest)
         with sqlite3.connect(auth) as db:
             db.execute('PRAGMA application_id=0')
         denied()
@@ -205,7 +240,7 @@ class CutoverTests(unittest.TestCase):
         m, release, config = self.fixture()
         original = config.read_bytes()
         with patch.object(m.time, 'time', side_effect=[1000, 1601]), self.assertRaises(m.CutoverError):
-            m.cutover(self.root, release, object(), owner=os.getuid(), web_owner=os.getuid())
+            m.cutover(self.root, release, FakeSystem(), owner=os.getuid(), web_owner=os.getuid())
         self.assertEqual(config.read_bytes(), original)
 
 
@@ -225,6 +260,48 @@ class CutoverTests(unittest.TestCase):
 
         with patch.object(Path, 'lstat', unrelated_owner), self.assertRaises(m.CutoverError):
             m.preflight(self.root, release, os.getuid(), os.getuid(), 1000)
+
+
+@pytest.mark.parametrize('hazard', ['stopped', 'invocation', 'rollback', 'preparing', 'second-drift', 'lock'])
+def test_cutover_shared_candidate_readiness_refuses(hazard):
+    import json
+    case = CutoverTests()
+    case.setUp()
+    try:
+        m, release, config = case.fixture()
+        before = config.read_bytes()
+        bundle = case.root / 'var/backups/stocks/isolation-fixture'
+        system = FakeSystem()
+        probes = []
+        original_readiness = system.readiness
+        def readiness(saved, *, timer_mode):
+            assert timer_mode == 'saved'  # Restored schedule is allowed, not forced disabled.
+            probes.append(True)
+            value = original_readiness(saved)
+            if hazard == 'stopped':
+                return None
+            if hazard == 'invocation':
+                value['invocation_id'] = '3' * 32
+            if hazard == 'second-drift' and len(probes) == 2:
+                (case.root / 'etc/stocks/brokers.env').write_text('drift')
+            return value
+        system.readiness = readiness
+        if hazard in ('rollback', 'preparing'):
+            record = json.loads((bundle / 'transition.json').read_text())
+            record['phase' if hazard == 'rollback' else 'state'] = hazard
+            (bundle / 'transition.json').write_text(json.dumps(record))
+        if hazard == 'lock':
+            with m.transition_lock(case.root), pytest.raises(m.MigrationError):
+                m.cutover(case.root, release, system, owner=os.getuid(), web_owner=os.getuid(), now=1000)
+        else:
+            with pytest.raises(m.CutoverError):
+                m.cutover(case.root, release, system, owner=os.getuid(), web_owner=os.getuid(), now=1000)
+        assert config.read_bytes() == before
+        assert system.events == []
+        if hazard != 'second-drift':
+            assert list((case.root / 'var/backups/stocks').glob('passkey-*')) == []
+    finally:
+        case.doCleanups()
 
 
 if __name__ == '__main__':
