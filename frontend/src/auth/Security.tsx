@@ -18,9 +18,11 @@ export function Security() {
   const [confirmation, setConfirmation] = useState<PasskeyCredential | 'logout-all' | null>(null);
   const load = useCallback(async () => {
     setListError(false);
+    // Basic bootstrap may enroll, but credential management requires a passkey session.
+    if (!session?.passkey_authenticated) { setKeys([]); setConfirmation(null); return; }
     try { setKeys((await authApi.credentials()).credentials); }
     catch { setKeys(null); setListError(true); }
-  }, []);
+  }, [session]);
   useEffect(() => { void load(); }, [load]);
   async function run(action: () => Promise<void>) {
     if (locked.current) return;
@@ -33,12 +35,10 @@ export function Security() {
     if (!label.trim()) return;
     await ceremony(signal => authApi.register(label.trim(), signal));
     setLabel(''); setMessage('Passkey registered. Test sign-in with this passkey before relying on it.');
-    await load();
   }
   async function verify() {
     await ceremony(authApi.login);
     setMessage('Passkey sign-in tested. Retry your intended action; no changes have been retried automatically.');
-    await load();
   }
   async function confirm() {
     if (confirmation === 'logout-all') { await authApi.logoutAll(); lock(); }
@@ -63,7 +63,7 @@ export function Security() {
     {keys?.length === 1 && <p>The last passkey cannot be removed. Register a backup first.</p>}
     <form onSubmit={event => {event.preventDefault(); void run(add);}}>
       <label htmlFor="passkey-name">Passkey name</label>
-      <input id="passkey-name" value={label} onChange={event => setLabel(event.target.value)} maxLength={100} required disabled={busy} autoComplete="off" />
+      <input id="passkey-name" value={label} onChange={event => setLabel(event.target.value)} maxLength={80} required disabled={busy} autoComplete="off" />
       <button disabled={busy || !supported || !session?.can_register || !label.trim()}>Add passkey</button>
     </form>
     {!session?.can_register && <p>Registration is not currently authorised. Verify an existing passkey, or ask the local administrator for recovery.</p>}

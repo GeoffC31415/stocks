@@ -83,7 +83,7 @@ it('enrolls named first and backup passkeys, reads back the list, and explains B
   let nextLabel = '';
   transport.mockImplementation(async (url:string, init?:RequestInit) => {
     if (url === '/api/auth/session') return json(basic);
-    if (url === '/api/auth/credentials') return json({credentials:keys});
+    if (url === '/api/auth/credentials') return keys.length ? json({credentials:keys}) : json({detail:'Authentication required'},401);
     if (url === '/api/auth/register/options') { nextLabel=JSON.parse(String(init?.body)).label; return json({ceremony_id:'reg',options:{challenge:'registration'}}); }
     if (url === '/api/auth/register/verify') { keys.push({id:String(keys.length),label:nextLabel,created_at:1,last_used_at:null}); return json({...basic,passkey_authenticated:true}); }
     return json({});
@@ -92,7 +92,9 @@ it('enrolls named first and backup passkeys, reads back the list, and explains B
   mount(); await screen.findByText('Private portfolio');
   expect(screen.getByText(/old password remains required until an administrator/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', {name:'Security / passkeys'}));
+  expect(transport.mock.calls.filter(c => c[0] === '/api/auth/credentials')).toHaveLength(0);
   expect(await screen.findByText('No passkeys registered.')).toBeInTheDocument();
+  expect(screen.getByLabelText('Passkey name')).toHaveAttribute('maxlength', '80');
   fireEvent.change(screen.getByLabelText('Passkey name'), {target:{value:'Gaming PC'}});
   fireEvent.click(screen.getByRole('button', {name:'Add passkey'}));
   expect(await screen.findByText('Gaming PC')).toBeInTheDocument();
@@ -103,7 +105,7 @@ it('enrolls named first and backup passkeys, reads back the list, and explains B
   fireEvent.click(screen.getByRole('button', {name:'Add passkey'}));
   expect(await screen.findByText('Backup key')).toBeInTheDocument();
   expect(keys).toHaveLength(2);
-  expect(transport.mock.calls.filter(c => c[0] === '/api/auth/credentials')).toHaveLength(3);
+  expect(transport.mock.calls.filter(c => c[0] === '/api/auth/credentials')).toHaveLength(2);
 });
 it('requires explicit reauthentication and retry for a protected change, then confirms removal and guards the last key', async () => {
   let recent = false;
