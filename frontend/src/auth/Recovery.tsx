@@ -38,7 +38,7 @@ export function Recovery({back}: {back: () => void}) {
       <label htmlFor="recovery-token">One-time recovery token</label>
       <input id="recovery-token" ref={tokenInput} type="password" required disabled={busy} autoComplete="off" spellCheck={false} />
       <label htmlFor="recovery-name">New passkey name</label>
-      <input id="recovery-name" value={label} onChange={event => setLabel(event.target.value)} required maxLength={100} disabled={busy} autoComplete="off" />
+      <input id="recovery-name" value={label} onChange={event => setLabel(event.target.value)} required maxLength={80} disabled={busy} autoComplete="off" />
       <button disabled={busy || !supported || !label.trim()}>Register recovery passkey</button>
     </form>
     <button disabled={busy} onClick={back}>Back to sign in</button>

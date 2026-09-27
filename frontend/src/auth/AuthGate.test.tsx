@@ -182,6 +182,7 @@ it('recovers only through an explicit memory-only token form and clears the toke
   mount(); fireEvent.click(await screen.findByRole('button', {name:'Recover access'}));
   expect(screen.getByText(/one-time recovery file from the local administrator/)).toBeInTheDocument();
   expect(screen.getByText(/no email password reset/)).toBeInTheDocument();
+  expect(screen.getByLabelText('New passkey name')).toHaveAttribute('maxlength', '80');
   const token = screen.getByLabelText('One-time recovery token');
   fireEvent.change(token, {target:{value:'synthetic-token'}});
   fireEvent.change(screen.getByLabelText('New passkey name'), {target:{value:'Replacement'}});
