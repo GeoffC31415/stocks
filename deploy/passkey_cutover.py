@@ -195,7 +195,7 @@ class System:
         self.command(['/usr/bin/systemctl', 'stop', 'stocks.service'])
 
     def start(self):
-        self.command(['/usr/bin/systemctl', 'start', 'stocks.service'])
+        self.command(['/usr/bin/systemctl', 'start', 'stocks.service', 'stocks-proxy.service'])
 
     def request(self, path, accept):
         result = self.command(['/usr/bin/curl', '-q', '--silent', '--show-error', '--noproxy', '*',

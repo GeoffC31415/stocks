@@ -186,6 +186,18 @@ class CutoverTests(unittest.TestCase):
         with self.assertRaises(m.CutoverError):
             m.preflight(self.root, release, os.getuid(), os.getuid(), 1000)
 
+    def test_cutover_system_starts_backend_and_proxy_together(self):
+        m = self.module()
+        system = m.System()
+        calls = []
+        system.command = lambda argv: calls.append(argv)
+
+        system.start()
+
+        self.assertEqual(calls, [[
+            '/usr/bin/systemctl', 'start', 'stocks.service', 'stocks-proxy.service'
+        ]])
+
     def test_cli_wired_and_transport_uses_verified_tls_without_credentials(self):
         import subprocess
         from unittest.mock import patch
