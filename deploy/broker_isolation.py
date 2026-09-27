@@ -401,7 +401,39 @@ def plain(value: str) -> str:
     return value[1:-1] if value.startswith(('"', "'")) else value
 
 
-def layout_preflight(root: Path, release: Path, previous: Path) -> tuple[str, str]:
+def rollback_supersession(root: Path, bundle: Path, previous: Path) -> dict:
+    """Validate a terminal rollback before replacing its installed marker."""
+    manifest = evidence(root, bundle)
+    candidate = strict_json(bundle / "transition.json", root)
+    expected = {"version", "transition_id", "bundle", "phase", "state", "manifest_sha256", "identity"}
+    if (set(candidate) != expected or type(candidate.get("version")) is not int
+            or candidate["version"] != 2 or candidate["phase"] != "rollback"
+            or candidate["state"] != "verified_candidate"
+            or candidate["transition_id"] != manifest["transition_id"]
+            or candidate["bundle"] != str(bundle)
+            or candidate["manifest_sha256"] != digest((bundle / "manifest.json").read_bytes())
+            or manifest["previous"] != str(previous)):
+        raise MigrationError("Only the matching verified rollback may be superseded.")
+    identity = candidate["identity"]
+    if manifest["services"]["web_active"]:
+        if (type(identity) is not dict
+                or set(identity) != {"boot_id", "invocation_id", "effective_sha256"}
+                or any(not isinstance(identity.get(key), str)
+                       for key in ("boot_id", "invocation_id", "effective_sha256"))
+                or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", identity.get("boot_id", ""))
+                or not re.fullmatch(r"[0-9a-f]{32}", identity.get("invocation_id", ""))
+                or not re.fullmatch(r"[0-9a-f]{64}", identity.get("effective_sha256", ""))):
+            raise MigrationError("Verified rollback identity is malformed.")
+    elif identity is not None:
+        raise MigrationError("Inactive rollback must not carry a live identity.")
+    if (bundle / "superseded-by.json").exists():
+        raise MigrationError("Rollback evidence was already superseded.")
+    coherent_phase(root, bundle, manifest, "rollback")
+    return manifest
+
+
+def layout_preflight(root: Path, release: Path, previous: Path,
+                     supersede_rollback: Path | None = None) -> tuple[str, str]:
     state_preflight(root)
     for path in (release, previous, root / "etc/stocks", root / "etc/systemd/system"):
         safe_path(path)
@@ -411,7 +443,11 @@ def layout_preflight(root: Path, release: Path, previous: Path) -> tuple[str, st
     marker = root / "etc/stocks/isolation.json"
     safe_path(marker)
     if marker.exists():
-        raise MigrationError("Migration marker exists; use recovery guide, never rerun.")
+        if supersede_rollback is None:
+            raise MigrationError("Migration marker exists; use recovery guide, never rerun.")
+        rollback_supersession(root, supersede_rollback, previous)
+    elif supersede_rollback is not None:
+        raise MigrationError("Rollback supersession requires its installed marker.")
     for relative in CONFIG_FILES:
         path = root / relative
         safe_path(path)
@@ -470,9 +506,11 @@ def switch_release(root: Path, target: Path) -> None:
         raise MigrationError("Release pointer verification failed.")
 
 
-def activate_layout(root: Path, bundle: Path, release: Path, previous: Path, system) -> None:
+def activate_layout(root: Path, bundle: Path, release: Path, previous: Path, system,
+                    *, supersede_rollback: Path | None = None) -> None:
     with transition_lock(root):
-        _activate_layout(root, bundle, release, previous, system)
+        _activate_layout(root, bundle, release, previous, system,
+                         supersede_rollback=supersede_rollback)
 
 
 def stop_after_failure(system):
@@ -482,8 +520,9 @@ def stop_after_failure(system):
         raise MigrationError("Transition failed and service stop could not be confirmed; inspect preserved evidence.") from error
 
 
-def _activate_layout(root: Path, bundle: Path, release: Path, previous: Path, system) -> None:
-    web, worker = layout_preflight(root, release, previous)
+def _activate_layout(root: Path, bundle: Path, release: Path, previous: Path, system,
+                     *, supersede_rollback: Path | None = None) -> None:
+    web, worker = layout_preflight(root, release, previous, supersede_rollback)
     state_preflight(root, bundle)
     originals = bundle / "config"
     originals.mkdir(mode=0o700)
@@ -496,10 +535,28 @@ def _activate_layout(root: Path, bundle: Path, release: Path, previous: Path, sy
     manifest = {"version": 2, "transition_id": uuid.uuid4().hex, "bundle": str(bundle), "previous": str(previous), "release": str(release),
                 "services": system.snapshot(), "config_sha256": hashes}
     exclusive_write(bundle / "manifest.json", json.dumps(manifest).encode())
-    exclusive_write(root / "etc/stocks/isolation.json", json.dumps({"version": 2, "transition_id": manifest["transition_id"], "bundle": str(bundle)}).encode())
+    marker = json.dumps({"version": 2, "transition_id": manifest["transition_id"], "bundle": str(bundle)}).encode()
+    preparing_published = False
+    if supersede_rollback is None:
+        exclusive_write(root / "etc/stocks/isolation.json", marker)
+    else:
+        supersession = json.dumps({"version": 1, "bundle": str(supersede_rollback),
+                                   "transition_id": strict_json(supersede_rollback / "manifest.json", root)["transition_id"]}).encode()
+        exclusive_write(bundle / "supersedes.json", supersession)
+        # Publish a rollback-consumable preparing record before replacing the
+        # installed marker. A pre-replace failure leaves the old rollback
+        # retryable; a post-replace failure leaves the new bundle recoverable.
+        publish_transition(root, bundle, manifest, "activation", "preparing")
+        preparing_published = True
+        replace_bytes(root / "etc/stocks/isolation.json", marker)
     try:
         evidence(root, bundle)
-        publish_transition(root, bundle, manifest, "activation", "preparing")
+        if supersede_rollback is not None:
+            exclusive_write(supersede_rollback / "superseded-by.json",
+                            json.dumps({"version": 1, "bundle": str(bundle),
+                                        "transition_id": manifest["transition_id"]}).encode())
+        if not preparing_published:
+            publish_transition(root, bundle, manifest, "activation", "preparing")
         system.stop()
         migrate_state(root, bundle)
         system.permissions(root, bundle)
@@ -853,6 +910,7 @@ def main(argv=None) -> int:
         command = sub.add_parser(action)
         command.add_argument("--release", type=Path, required=True)
         command.add_argument("--expect-current", type=Path, required=True)
+        command.add_argument("--supersede-rollback-bundle", type=Path)
         if action == "activate":
             command.add_argument("--confirm", choices=["ISOLATE"], required=True)
     for action, confirmation in (("rollback", "RESTORE-PRE-MIGRATION"), ("resume-timer", "RESUME-SCHEDULE")):
@@ -865,13 +923,15 @@ def main(argv=None) -> int:
     try:
         if args.action in {"preflight", "activate"}:
             host_preflight(args.release, args.expect_current)
-            layout_preflight(Path("/"), args.release, args.expect_current)
+            layout_preflight(Path("/"), args.release, args.expect_current,
+                             args.supersede_rollback_bundle)
             if args.action == "preflight":
                 print("Preflight passed; no services or state changed. Config values were not printed.")
                 return 0
             bundle = Path(tempfile.mkdtemp(prefix="isolation-", dir="/var/backups/stocks"))
             print(f"Private recovery bundle: {bundle}", flush=True)
-            activate_layout(Path("/"), bundle, args.release, args.expect_current, system)
+            activate_layout(Path("/"), bundle, args.release, args.expect_current, system,
+                            supersede_rollback=args.supersede_rollback_bundle)
             print("Isolation activated; unauthenticated HTTP/HTTPS boundary returned 401. Authenticated app health is NOT verified. Schedule remains disabled pending explicit resume.")
         else:
             if os.geteuid() != 0 or socket.gethostname() != "geoff-Surface-Pro-4":

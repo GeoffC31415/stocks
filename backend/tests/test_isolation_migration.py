@@ -198,6 +198,128 @@ class FakeSystem:
         return {"boot_id": "00000000-0000-0000-0000-000000000001", "invocation_id": "1" * 32, "effective_sha256": "2" * 64}
 
 
+def test_verified_rollback_can_be_explicitly_superseded_by_new_activation(tmp_path):
+    m = helper()
+    root, first_bundle, first_release, previous = deployment_fixture(tmp_path)
+    system = FakeSystem()
+    m.activate_layout(root, first_bundle, first_release, previous, system)
+    m.rollback_layout(root, first_bundle, system)
+
+    second_release = root / "opt/stocks/releases/newer"
+    (second_release / "deploy").mkdir(parents=True)
+    for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
+        (second_release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
+    for path in (second_release, *second_release.rglob("*")):
+        path.chmod(0o755 if path.is_dir() else 0o644)
+    second_bundle = root / "var/backups/stocks/isolation-second"
+    second_bundle.mkdir(mode=0o700)
+
+    m.activate_layout(
+        root,
+        second_bundle,
+        second_release,
+        previous,
+        system,
+        supersede_rollback=first_bundle,
+    )
+
+    marker = json.loads((root / "etc/stocks/isolation.json").read_text())
+    assert marker["bundle"] == str(second_bundle)
+    assert json.loads((second_bundle / "supersedes.json").read_text())["bundle"] == str(first_bundle)
+    assert json.loads((first_bundle / "superseded-by.json").read_text())["bundle"] == str(second_bundle)
+    assert json.loads((first_bundle / "transition.json").read_text())["phase"] == "rollback"
+    assert (first_bundle / "original-state").exists() is False
+    assert (first_bundle / "evidence").is_dir()
+
+
+@pytest.mark.parametrize("identity", [
+    "malformed",
+    {"boot_id": 0, "invocation_id": "1" * 32, "effective_sha256": "2" * 64},
+])
+def test_rollback_supersession_rejects_malformed_identity(tmp_path, identity):
+    m = helper()
+    root, first_bundle, first_release, previous = deployment_fixture(tmp_path)
+    system = FakeSystem()
+    m.activate_layout(root, first_bundle, first_release, previous, system)
+    m.rollback_layout(root, first_bundle, system)
+    candidate_path = first_bundle / "transition.json"
+    candidate = json.loads(candidate_path.read_text())
+    candidate["identity"] = identity
+    candidate_path.write_text(json.dumps(candidate))
+
+    second_release = root / "opt/stocks/releases/newer"
+    (second_release / "deploy").mkdir(parents=True)
+    for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
+        (second_release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
+    for path in (second_release, *second_release.rglob("*")):
+        path.chmod(0o755 if path.is_dir() else 0o644)
+
+    with pytest.raises(m.MigrationError):
+        m.layout_preflight(root, second_release, previous, first_bundle)
+
+
+def test_supersession_marker_failure_keeps_verified_rollback_retryable(tmp_path, monkeypatch):
+    m = helper()
+    root, first_bundle, first_release, previous = deployment_fixture(tmp_path)
+    system = FakeSystem()
+    m.activate_layout(root, first_bundle, first_release, previous, system)
+    m.rollback_layout(root, first_bundle, system)
+    second_release = root / "opt/stocks/releases/newer"
+    (second_release / "deploy").mkdir(parents=True)
+    for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
+        (second_release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
+    for path in (second_release, *second_release.rglob("*")):
+        path.chmod(0o755 if path.is_dir() else 0o644)
+    second_bundle = root / "var/backups/stocks/isolation-second"
+    second_bundle.mkdir(mode=0o700)
+    replace = m.replace_bytes
+
+    def fail_marker(path, content, mode=0o600):
+        if path == root / "etc/stocks/isolation.json":
+            raise OSError("injected marker failure")
+        return replace(path, content, mode)
+
+    monkeypatch.setattr(m, "replace_bytes", fail_marker)
+    with pytest.raises(OSError):
+        m.activate_layout(root, second_bundle, second_release, previous, system,
+                          supersede_rollback=first_bundle)
+
+    assert not (first_bundle / "superseded-by.json").exists()
+    m.layout_preflight(root, second_release, previous, first_bundle)
+
+
+def test_supersession_after_marker_failure_is_rollback_recoverable(tmp_path, monkeypatch):
+    m = helper()
+    root, first_bundle, first_release, previous = deployment_fixture(tmp_path)
+    system = FakeSystem()
+    m.activate_layout(root, first_bundle, first_release, previous, system)
+    m.rollback_layout(root, first_bundle, system)
+    second_release = root / "opt/stocks/releases/newer"
+    (second_release / "deploy").mkdir(parents=True)
+    for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
+        (second_release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
+    for path in (second_release, *second_release.rglob("*")):
+        path.chmod(0o755 if path.is_dir() else 0o644)
+    second_bundle = root / "var/backups/stocks/isolation-second"
+    second_bundle.mkdir(mode=0o700)
+    evidence = m.evidence
+
+    def fail_new_evidence(check_root, bundle):
+        if bundle == second_bundle:
+            raise OSError("injected evidence failure")
+        return evidence(check_root, bundle)
+
+    monkeypatch.setattr(m, "evidence", fail_new_evidence)
+    with pytest.raises(OSError):
+        m.activate_layout(root, second_bundle, second_release, previous, system,
+                          supersede_rollback=first_bundle)
+    monkeypatch.setattr(m, "evidence", evidence)
+
+    m.rollback_layout(root, second_bundle, system)
+    assert (root / "opt/stocks/current").resolve() == previous
+    assert json.loads((second_bundle / "transition.json").read_text())["phase"] == "rollback"
+
+
 def test_layout_activation_and_rollback_restore_coherent_files(tmp_path):
     m = helper()
     root, bundle, release, previous = deployment_fixture(tmp_path)
@@ -429,6 +551,8 @@ def test_cli_default_is_help_and_activation_refuses_unprivileged():
     path = ROOT / "deploy/broker_isolation.py"
     result = subprocess.run([sys.executable, str(path), "--help"], capture_output=True, text=True)
     assert result.returncode == 0 and "preflight" in result.stdout
+    result = subprocess.run([sys.executable, str(path), "activate", "--help"], capture_output=True, text=True)
+    assert result.returncode == 0 and "--supersede-rollback-bundle" in result.stdout
     result = subprocess.run([sys.executable, str(path), "activate", "--release", "/tmp/new", "--expect-current", "/tmp/old", "--confirm", "ISOLATE"], capture_output=True, text=True)
     assert result.returncode != 0 and "root" in result.stderr
     assert "Traceback" not in result.stderr

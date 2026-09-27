@@ -180,6 +180,25 @@ to serve. For a failure with accepted post-migration edits, prefer keeping the
 site stopped while selecting a recovery strategy; this rollback is not a
 latest-data merge. A second/partial rollback is refused for manual review.
 
+A completed rollback leaves its marker and evidence in place, so a normal activation
+continues to refuse a rerun. After correcting the cause and reviewing the preserved
+rollback, a new release may explicitly supersede only that exact verified rollback:
+
+```sh
+python3 /opt/stocks/releases/NEW/deploy/broker_isolation.py preflight \
+  --release /opt/stocks/releases/NEW --expect-current /opt/stocks/releases/OLD \
+  --supersede-rollback-bundle /var/backups/stocks/isolation-ROLLED-BACK
+python3 /opt/stocks/releases/NEW/deploy/broker_isolation.py activate \
+  --release /opt/stocks/releases/NEW --expect-current /opt/stocks/releases/OLD \
+  --supersede-rollback-bundle /var/backups/stocks/isolation-ROLLED-BACK \
+  --confirm ISOLATE
+```
+
+The helper requires the installed marker, terminal verified rollback record, restored
+release/configuration/state, and matching prior release. It records both sides of the
+supersession and atomically replaces the marker; malformed, incomplete, drifted or
+already-superseded evidence refuses. Never delete or hand-edit a marker to retry.
+
 Do not merely repoint `/opt/stocks/current`: schema, environment, identities and
 state layouts must move together. Do not delete recovery bundles or isolation
 markers until independently verified recovery and an approved retention decision.
