@@ -523,14 +523,48 @@ class System:
             raise MigrationError("System command refused/failed; inspect privately, no output copied.")
         return result.stdout.strip()
 
-    def resume_timer(self, bundle):
-        if not any((bundle / name).exists() for name in ("activation-complete", "rollback-complete")):
+    def resume_timer(self, bundle, *, root=Path("/")):
+        rollback_started = (bundle / "rollback-started").exists()
+        rollback_complete = (bundle / "rollback-complete").exists()
+        if rollback_started != rollback_complete or not (
+            rollback_complete or (bundle / "activation-complete").exists()
+        ):
             raise MigrationError("Cannot resume schedule after incomplete transition.")
-        saved = json.loads((bundle / "manifest.json").read_text())["services"]
-        if saved["timer_enabled"] == "enabled":
-            self.command("/usr/bin/systemctl", "enable", "stocks-sync.timer")
-        if saved["timer_active"]:
-            self.command("/usr/bin/systemctl", "start", "stocks-sync.timer")
+        manifest = json.loads((bundle / "manifest.json").read_text())
+        saved = manifest["services"]
+        if manifest.get("version") != 1 or saved.get("timer_enabled") not in {"enabled", "disabled"} or type(saved.get("timer_active")) is not bool:
+            raise MigrationError("Invalid saved timer manifest.")
+        marker = root / "etc/stocks/isolation.json"
+        safe_path(marker)
+        if json.loads(marker.read_text()).get("bundle") != str(bundle):
+            raise MigrationError("Recovery bundle does not match installed marker.")
+        target = Path(manifest["previous" if rollback_complete else "release"])
+        safe_path(target)
+        current = root / "opt/stocks/current"
+        if not current.is_symlink() or current.resolve(strict=True) != target:
+            raise MigrationError("Installed release does not match terminal transition.")
+        originals = {}
+        for relative in CONFIG_FILES:
+            content = (bundle / "config" / Path(relative).name).read_bytes()
+            if hashlib.sha256(content).hexdigest() != manifest["config_sha256"][relative]:
+                raise MigrationError("Saved original configuration integrity failed.")
+            originals[relative] = content
+        expected = dict(originals)
+        if not rollback_complete:
+            web, worker = split_env(originals[CONFIG_FILES[0]].decode(), originals[CONFIG_FILES[1]].decode())
+            expected[CONFIG_FILES[0]], expected[CONFIG_FILES[1]] = web.encode(), worker.encode()
+            for name in UNITS:
+                expected["etc/systemd/system/" + name] = (target / "deploy" / name).read_bytes()
+        for relative, content in expected.items():
+            safe_path(root / relative)
+            if (root / relative).read_bytes() != content:
+                raise MigrationError("Installed configuration does not match terminal transition.")
+        self.command("/usr/bin/systemctl", "enable" if saved["timer_enabled"] == "enabled" else "disable", "stocks-sync.timer")
+        self.command("/usr/bin/systemctl", "start" if saved["timer_active"] else "stop", "stocks-sync.timer")
+        enabled = self.command("/usr/bin/systemctl", "is-enabled", "stocks-sync.timer", allowed=(0, 1))
+        active = self.command("/usr/bin/systemctl", "is-active", "stocks-sync.timer", allowed=(0, 3))
+        if enabled != saved["timer_enabled"] or active != ("active" if saved["timer_active"] else "inactive"):
+            raise MigrationError("Timer readback differs from saved state; inspect before retrying.")
 
 
 def main(argv=None) -> int:

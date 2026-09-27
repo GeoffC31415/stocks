@@ -168,7 +168,7 @@ class FakeSystem:
     def __init__(self):
         self.events = []
     def snapshot(self):
-        return {"timer_active": True, "web_active": True, "worker_active": False}
+        return {"timer_active": True, "timer_enabled": "enabled", "web_active": True, "worker_active": False}
     def stop(self):
         self.events.append("stop-timer-worker-web")
     def permissions(self, root, bundle):
@@ -264,20 +264,99 @@ def test_system_stops_timer_first_and_never_starts_worker(monkeypatch):
     assert not any("start" in call for call in calls)
 
 
-def test_resume_timer_uses_saved_active_and_enabled_state_only(tmp_path, monkeypatch):
+def test_resume_timer_rejects_failed_rollback_before_host_commands(tmp_path, monkeypatch):
     m = helper()
+    root, bundle, release, previous = deployment_fixture(tmp_path)
+    m.activate_layout(root, bundle, release, previous, FakeSystem())
+    monkeypatch.setattr(m, "rollback_state", lambda *a: (_ for _ in ()).throw(OSError("injected")))
+    with pytest.raises(OSError):
+        m.rollback_layout(root, bundle, FakeSystem())
+    assert (bundle / "activation-complete").exists()
+    assert (bundle / "rollback-started").exists()
+    assert not (bundle / "rollback-complete").exists()
     calls = []
     system = m.System()
-    monkeypatch.setattr(system, "command", lambda *args, **kwargs: calls.append(args) or "")
-    bundle = tmp_path / "bundle"
-    bundle.mkdir()
-    (bundle / "activation-complete").write_text("1")
-    (bundle / "manifest.json").write_text(json.dumps({"services": {"timer_active": False, "timer_enabled": "disabled"}}))
-    system.resume_timer(bundle)
+    monkeypatch.setattr(system, "command", lambda *a, **kw: calls.append(a))
+    with pytest.raises(m.MigrationError, match="incomplete transition"):
+        system.resume_timer(bundle)
     assert calls == []
-    (bundle / "manifest.json").write_text(json.dumps({"services": {"timer_active": True, "timer_enabled": "enabled"}}))
-    system.resume_timer(bundle)
-    assert calls == [("/usr/bin/systemctl", "enable", "stocks-sync.timer"), ("/usr/bin/systemctl", "start", "stocks-sync.timer")]
+
+
+@pytest.mark.parametrize("phase", ["activation", "rollback"])
+@pytest.mark.parametrize("hazard", ["marker", "release", "config", "manifest", "incomplete", "orphan-rollback"])
+def test_resume_timer_rejects_incoherent_terminal_state(tmp_path, monkeypatch, phase, hazard):
+    m = helper()
+    root, bundle, release, previous = deployment_fixture(tmp_path)
+    m.activate_layout(root, bundle, release, previous, FakeSystem())
+    if phase == "rollback":
+        m.rollback_layout(root, bundle, FakeSystem())
+    if hazard == "marker":
+        (root / "etc/stocks/isolation.json").write_text('{"bundle":"wrong"}')
+    elif hazard == "release":
+        m.switch_release(root, release if phase == "rollback" else previous)
+    elif hazard == "config":
+        (root / "etc/stocks/brokers.env").write_text("drift")
+    elif hazard == "manifest":
+        manifest = json.loads((bundle / "manifest.json").read_text())
+        manifest["services"]["timer_active"] = "false"
+        (bundle / "manifest.json").write_text(json.dumps(manifest))
+    elif hazard == "incomplete":
+        (bundle / (phase + "-complete")).unlink()
+    else:
+        (bundle / "rollback-complete").write_text("1")
+        (bundle / "rollback-started").unlink(missing_ok=True)
+    calls = []
+    system = m.System()
+    monkeypatch.setattr(system, "command", lambda *a, **kw: calls.append(a) or "")
+    with pytest.raises(m.MigrationError):
+        system.resume_timer(bundle, root=root)
+    assert calls == []
+
+
+@pytest.mark.parametrize("phase", ["activation", "rollback"])
+@pytest.mark.parametrize("enabled", ["enabled", "disabled"])
+@pytest.mark.parametrize("active", [True, False])
+def test_resume_timer_reconciles_drift_and_reads_back(tmp_path, monkeypatch, enabled, active, phase):
+    m = helper()
+    calls = []
+    state = {"enabled": "disabled" if enabled == "enabled" else "enabled", "active": not active}
+    def command(*args, **kwargs):
+        calls.append(args)
+        action = args[1]
+        if action in {"enable", "disable"}:
+            state["enabled"] = "enabled" if action == "enable" else "disabled"
+        elif action in {"start", "stop"}:
+            state["active"] = action == "start"
+        elif action == "is-enabled":
+            return state["enabled"]
+        elif action == "is-active":
+            return "active" if state["active"] else "inactive"
+        else:
+            raise AssertionError(args)
+        return ""
+    system = m.System()
+    monkeypatch.setattr(system, "command", command)
+    root, bundle, release, previous = deployment_fixture(tmp_path)
+    m.activate_layout(root, bundle, release, previous, FakeSystem())
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    manifest["services"].update(timer_active=active, timer_enabled=enabled)
+    (bundle / "manifest.json").write_text(json.dumps(manifest))
+    if phase == "rollback":
+        m.rollback_layout(root, bundle, FakeSystem())
+    system.resume_timer(bundle, root=root)
+    assert state == {"enabled": enabled, "active": active}
+    assert calls[-2:] == [("/usr/bin/systemctl", "is-enabled", "stocks-sync.timer"), ("/usr/bin/systemctl", "is-active", "stocks-sync.timer")]
+
+
+@pytest.mark.parametrize("enabled,active", [("disabled", "active"), ("enabled", "inactive"), ("enabled", "activating")])
+def test_resume_timer_refuses_readback_mismatch(tmp_path, monkeypatch, enabled, active):
+    m = helper()
+    root, bundle, release, previous = deployment_fixture(tmp_path)
+    m.activate_layout(root, bundle, release, previous, FakeSystem())
+    system = m.System()
+    monkeypatch.setattr(system, "command", lambda *a, **kw: enabled if a[1] == "is-enabled" else active if a[1] == "is-active" else "")
+    with pytest.raises(m.MigrationError, match="readback"):
+        system.resume_timer(bundle, root=root)
 
 
 def test_permission_plan_separates_status_private_state_and_shared_db(tmp_path, monkeypatch):
