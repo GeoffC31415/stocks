@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import (
 from app.config import settings
 from app.services.barclays_sync_service import FetchedPair, import_pair
 from app.services.sync_all_service import SyncReport, sync_inbox
-from app.services.sync_control import atomic_json, file_lock, validated_invocation_id
+from app.services.sync_control import atomic_json, file_lock, public_report, validated_invocation_id
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +154,7 @@ async def _run_sync_all_locked(
         invocation_id=validated_invocation_id(os.environ.get("INVOCATION_ID")),
     )
     if write_status and not dry_run:
-        atomic_json(inbox / "last-sync.json", report.to_json())
+        publish_report(inbox, report)
 
     for name, fetch in fetchers:
         if dry_run:
@@ -217,12 +217,21 @@ async def _run_sync_all_locked(
 
     report.finished_at = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
     if write_status and not dry_run:
-        atomic_json(inbox / "last-sync.json", report.to_json())
+        publish_report(inbox, report)
     return report
 
 
+def publish_report(inbox: Path, report: RunReport) -> None:
+    atomic_json(inbox / "last-sync.json", report.to_json())
+    if settings.sync_status_dir is not None:
+        safe = public_report(report.to_json())
+        if safe is not None:
+            safe["invocation_id"] = validated_invocation_id(report.invocation_id)
+            atomic_json(settings.resolved_sync_status_dir() / "last-sync.json", safe, mode=0o640)
+
+
 def read_last_sync(inbox: Path | None = None) -> dict[str, Any] | None:
-    path = (inbox or settings.resolved_sync_inbox()) / "last-sync.json"
+    path = (inbox or settings.resolved_sync_status_dir()) / "last-sync.json"
     try:
         return json.loads(path.read_text())
     except (OSError, ValueError):

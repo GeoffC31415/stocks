@@ -47,7 +47,7 @@ async def test_authenticated_request_has_no_database_dependency(public_config, m
         )
     assert response.status_code == 202
     assert response.json()["state"] == "accepted"
-    controller.assert_called_once_with(public_config.resolved_sync_inbox())
+    controller.assert_called_once_with(public_config.resolved_sync_control_dir(), status_dir=public_config.resolved_sync_status_dir())
 
 
 def test_start_uses_fixed_nonblocking_argv(tmp_path, monkeypatch):

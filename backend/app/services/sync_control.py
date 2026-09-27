@@ -55,11 +55,12 @@ def file_lock(path: Path):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def atomic_json(path: Path, value: dict) -> None:
+def atomic_json(path: Path, value: dict, *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(fd, "w") as handle:
+            os.fchmod(handle.fileno(), mode)
             json.dump(value, handle)
             handle.flush()
             os.fsync(handle.fileno())
@@ -176,10 +177,10 @@ def _correlated(marker: dict, report: dict | None) -> bool:
     )
 
 
-def service_sync_status(inbox: Path) -> dict:
+def service_sync_status(inbox: Path, *, status_dir: Path | None = None) -> dict:
     state = service_state()
     marker = read_json(inbox / "sync-request.json")
-    report = read_json(inbox / "last-sync.json")
+    report = read_json((status_dir or inbox) / "last-sync.json")
     result = {
         "state": state,
         "request_id": marker.get("request_id") if marker else None,
@@ -206,7 +207,7 @@ def service_sync_status(inbox: Path) -> dict:
     return result
 
 
-def request_service_sync(inbox: Path) -> dict:
+def request_service_sync(inbox: Path, *, status_dir: Path | None = None) -> dict:
     try:
         with file_lock(inbox / "sync-request.lock"):
             state, invocation_id = service_snapshot()
@@ -221,7 +222,7 @@ def request_service_sync(inbox: Path) -> dict:
             ):
                 return {"state": "unknown", "request_id": None}
             now = time.time()
-            report = read_json(inbox / "last-sync.json") or {}
+            report = read_json((status_dir or inbox) / "last-sync.json") or {}
             if previous:
                 recent = now - previous["requested_at"] < COOLDOWN_SECONDS
                 related = _correlated(previous, report)

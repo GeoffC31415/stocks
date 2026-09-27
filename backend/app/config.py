@@ -45,12 +45,26 @@ class Settings(BaseSettings):
     barclays_automation_enabled: bool = False
     barclays_expected_account: SecretStr | None = None
     sync_inbox: Path = Path("data/auto_downloaded")
+    sync_status_dir: Path | None = None
+    sync_control_dir: Path | None = None
     browser_profile: Path = Path("~/.local/share/stocks-browser")
     sync_stale_days: int = 7
     sync_service_trigger_enabled: bool = False
 
     def resolved_sync_inbox(self) -> Path:
         path = self.sync_inbox.expanduser()
+        return path if path.is_absolute() else (self.project_root / path).resolve()
+
+    def resolved_sync_status_dir(self) -> Path:
+        if self.sync_status_dir is None:
+            return self.resolved_sync_inbox()
+        path = self.sync_status_dir.expanduser()
+        return path if path.is_absolute() else (self.project_root / path).resolve()
+
+    def resolved_sync_control_dir(self) -> Path:
+        if self.sync_control_dir is None:
+            return self.resolved_sync_inbox()
+        path = self.sync_control_dir.expanduser()
         return path if path.is_absolute() else (self.project_root / path).resolve()
 
     def resolved_browser_profile(self) -> Path:

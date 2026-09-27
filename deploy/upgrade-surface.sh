@@ -4,6 +4,17 @@
 # Keeps: /etc/stocks/*.env, /var/lib/stocks (database), Caddy data. Snapshots the DB first.
 # Rollback: sudo ln -sfn /opt/stocks/releases/<previous> /opt/stocks/current && sudo systemctl restart stocks
 set -Eeuo pipefail
+# These legacy activators provision the pre-isolation layout. Never let them
+# install the new templates over the old shared-UID state, or undo isolation.
+case "${1:---check}" in
+    --install|--upgrade|--activate)
+        printf '%s\n' 'ERROR: Use the reviewed broker-isolation migration guide; legacy activation is disabled even as root.' >&2
+        exit 1 ;;
+esac
+if [[ -e /var/lib/stocks-data || -e /var/lib/stocks-sync || -e /etc/stocks/isolation.json ]]; then
+    printf '%s\n' 'ERROR: broker-isolation layout detected; legacy installer/upgrade is unsupported.' >&2
+    exit 1
+fi
 umask 077
 SELF=$(realpath "${BASH_SOURCE[0]}")
 REPO=$(dirname "$(dirname "$SELF")")
@@ -108,4 +119,4 @@ PYTHONPATH="$STAGE/release/backend" PORTFOLIO_DATABASE_URL=sqlite+aiosqlite:///:
     "$STAGE/release/.venv/bin/python" -c 'from app.main import app; import app.fetchers.hl, playwright; print("Release imports passed.")'
 [[ $MODE == --prepare-only ]] && { printf 'Prepared: %s/release\n' "$STAGE"; exit 0; }
 [[ $MODE == --upgrade ]] || fail "Unknown option: $MODE"
-sudo -S -p '' /bin/bash "$SELF" --activate "$STAGE"
+sudo /bin/bash "$SELF" --activate "$STAGE"

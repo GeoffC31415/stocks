@@ -4,6 +4,17 @@
 # --install: build, snapshot DB, prompt for website password, then sudo activation.
 # Never changes router/firewall/power settings or existing Grafana/Hermes services.
 set -Eeuo pipefail
+# These legacy activators provision the pre-isolation layout. Never let them
+# install the new templates over the old shared-UID state, or undo isolation.
+case "${1:---check}" in
+    --install|--upgrade|--activate)
+        printf '%s\n' 'ERROR: Use the reviewed broker-isolation migration guide; legacy activation is disabled even as root.' >&2
+        exit 1 ;;
+esac
+if [[ -e /var/lib/stocks-data || -e /var/lib/stocks-sync || -e /etc/stocks/isolation.json ]]; then
+    printf '%s\n' 'ERROR: broker-isolation layout detected; legacy installer/upgrade is unsupported.' >&2
+    exit 1
+fi
 umask 077
 SELF=$(realpath "${BASH_SOURCE[0]}")
 REPO=$(dirname "$(dirname "$SELF")")

@@ -102,6 +102,13 @@ def require_local_origin(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Untrusted request origin.")
 
 
+def require_local_broker(request: Request) -> None:
+    """Reject public broker execution before resolving database or credentials."""
+    config = getattr(getattr(request.scope.get("app"), "state", None), "web_config", settings)
+    if config.deployment_mode == "public":
+        raise HTTPException(status_code=403, detail="Broker sync runs in the isolated service.")
+
+
 def get_trading212_client() -> Trading212Client:
     key = settings.trading212_api_key
     secret = settings.trading212_api_secret
@@ -130,6 +137,7 @@ def _provider_error(exc: Exception) -> HTTPException:
 
 @router.post("/sync/cash-flows", response_model=CashFlowSyncResult)
 async def sync_trading212_cash_flows(
+    _broker_guard: None = Depends(require_local_broker),
     _origin_guard: None = Depends(require_local_origin),
     session: AsyncSession = Depends(get_session),
     client: Trading212CashReader = Depends(get_trading212_client),
@@ -152,6 +160,7 @@ async def sync_trading212_cash_flows(
 @router.post("/sync", response_model=Trading212SyncResult)
 async def sync_trading212_all(
     force: bool = Query(default=False),
+    _broker_guard: None = Depends(require_local_broker),
     _origin_guard: None = Depends(require_local_origin),
     session: AsyncSession = Depends(get_session),
     client: Trading212Client = Depends(get_trading212_client),
@@ -256,6 +265,7 @@ async def trading212_status() -> Trading212Status:
 )
 async def sync_trading212_portfolio(
     force: bool = Query(default=False),
+    _broker_guard: None = Depends(require_local_broker),
     _origin_guard: None = Depends(require_local_origin),
     session: AsyncSession = Depends(get_session),
     client: Trading212Reader = Depends(get_trading212_client),
@@ -287,6 +297,7 @@ async def sync_trading212_portfolio(
 )
 async def sync_trading212_orders(
     force: bool = Query(default=False),
+    _broker_guard: None = Depends(require_local_broker),
     _origin_guard: None = Depends(require_local_origin),
     session: AsyncSession = Depends(get_session),
     client: Trading212Reader = Depends(get_trading212_client),

@@ -1,4 +1,4 @@
-"""Public hosting must allow same-origin broker sync without contacting a broker."""
+"""Public broker execution is denied even for authenticated same-origin requests."""
 
 import httpx
 import pytest
@@ -12,7 +12,7 @@ from app.security import hash_password
 
 
 @pytest.mark.asyncio
-async def test_public_sync_reaches_private_credential_gate_only_for_its_origin():
+async def test_public_sync_never_reaches_private_credential_gate():
     config = Settings(
         _env_file=None,
         deployment_mode="public",
@@ -41,10 +41,8 @@ async def test_public_sync_reaches_private_credential_gate_only_for_its_origin()
         response = await client.post(
             "/api/trading212/sync", headers={"Origin": config.public_origin}
         )
-        assert calls == [True]
-        assert response.status_code == 500 or response.status_code == 503
-        # Middleware intentionally sanitizes any 5xx response; reaching it proves
-        # the old localhost-only route guard did not reject the public origin.
+        assert calls == []
+        assert response.status_code == 403
         for origin in ("https://evil.test", "http://localhost:8000"):
             response = await client.post("/api/trading212/sync", headers={"Origin": origin})
             assert response.status_code == 403

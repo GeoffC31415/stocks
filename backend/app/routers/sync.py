@@ -70,7 +70,10 @@ async def request_sync(request: Request) -> dict:
         raise HTTPException(status_code=403, detail="Cross-origin request forbidden")
     if request.query_params or await request.body():
         raise HTTPException(status_code=400, detail="This endpoint accepts no parameters.")
-    return await asyncio.to_thread(request_service_sync, config.resolved_sync_inbox())
+    return await asyncio.to_thread(
+        request_service_sync, config.resolved_sync_control_dir(),
+        status_dir=config.resolved_sync_status_dir(),
+    )
 
 
 @router.get("/request")
@@ -78,7 +81,10 @@ async def requested_sync_status(request: Request) -> dict:
     config = getattr(getattr(request.scope.get("app"), "state", None), "web_config", settings)
     if config.deployment_mode != "public" or not config.sync_service_trigger_enabled:
         return {"state": "disabled", "request_id": None, "last_run": None}
-    return await asyncio.to_thread(service_sync_status, config.resolved_sync_inbox())
+    return await asyncio.to_thread(
+        service_sync_status, config.resolved_sync_control_dir(),
+        status_dir=config.resolved_sync_status_dir(),
+    )
 
 
 @router.post("/all")
@@ -127,8 +133,8 @@ async def sync_status(request: Request, session: AsyncSession = Depends(get_sess
         and config.sync_service_trigger_enabled,
         accounts=accounts,
         stale_after_days=limit,
-        last_run=public_report(read_last_sync(config.resolved_sync_inbox()))
+        last_run=public_report(read_last_sync(config.resolved_sync_status_dir()))
         if config.deployment_mode == "public"
-        else read_last_sync(config.resolved_sync_inbox()),
+        else read_last_sync(config.resolved_sync_status_dir()),
         running=_lock.locked(),
     )
