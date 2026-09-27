@@ -119,6 +119,31 @@ def exclusive_write(path: Path, data: bytes, mode: int = 0o600) -> None:
         os.fsync(out.fileno())
 
 
+def write_completion(path: Path) -> None:
+    # Unlike start/evidence files, a partial completion must never authorize a
+    # resume. Keep a veto written BEFORE publication if invalidation also fails.
+    pending = path.with_name(path.name + "-pending")
+    exclusive_write(pending, b"1\n")
+    try:
+        exclusive_write(path, b"1\n")
+        pending.unlink()
+    except BaseException:
+        try:
+            path.unlink(missing_ok=True)
+            try:
+                path.lstat()
+            except FileNotFoundError:
+                pass
+            else:
+                raise MigrationError("Completion marker remains.")
+        except BaseException as cleanup_error:
+            raise MigrationError(
+                "Transition failed and completion invalidation could not be confirmed; "
+                "do not resume, inspect preserved evidence."
+            ) from cleanup_error
+        raise
+
+
 def backup_sqlite(source: Path, target: Path) -> None:
     safe_path(source)
     if not source.is_file():
@@ -309,7 +334,7 @@ def activate_layout(root: Path, bundle: Path, release: Path, previous: Path, sys
         system.reload()
         system.start_web()
         system.health()
-        exclusive_write(bundle / "activation-complete", b"1\n")
+        write_completion(bundle / "activation-complete")
     except BaseException:
         # Never auto-roll back across changed schema/state. Preserve all evidence.
         system.stop()
@@ -351,7 +376,7 @@ def rollback_layout(root: Path, bundle: Path, system) -> None:
         if manifest["services"]["web_active"]:
             system.start_web()
             system.health()
-        exclusive_write(bundle / "rollback-complete", b"1\n")
+        write_completion(bundle / "rollback-complete")
     except BaseException:
         # A failed check must not leave the restarted web service exposed.
         # Preserve incomplete markers and evidence for manual recovery.
@@ -537,7 +562,9 @@ class System:
     def resume_timer(self, bundle, *, root=Path("/")):
         rollback_started = (bundle / "rollback-started").exists()
         rollback_complete = (bundle / "rollback-complete").exists()
-        if rollback_started != rollback_complete or not (
+        phase = "rollback" if rollback_started else "activation"
+        pending = bundle / (phase + "-complete-pending")
+        if pending.exists() or rollback_started != rollback_complete or not (
             rollback_complete or (bundle / "activation-complete").exists()
         ):
             raise MigrationError("Cannot resume schedule after incomplete transition.")
