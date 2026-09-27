@@ -8,12 +8,14 @@ import { usePreferences } from "../state/usePreferences";
 import { isAnalysisPeriod, PERIODS, useAnalysisScope } from "../state/useAnalysisScope";
 import { SegmentedControl, type Segment } from "../components/SegmentedControl";
 import { scopedNavigationUrl } from "../routing";
+import { useAuth } from "../auth/AuthProvider";
 
 export function Topbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { accountFilter, setAccountFilter } = usePreferences();
   const { period, setPeriod } = useAnalysisScope();
+  const { session, logout } = useAuth();
   const catalogQ = useQuery({ queryKey: ["summary", undefined], queryFn: () => api.getSummary() });
   const selectedAccount = accountFilter === "all" ? undefined : accountFilter;
   const summaryQ = useQuery({ queryKey: ["summary", selectedAccount], queryFn: () => api.getSummary(selectedAccount) });
@@ -63,6 +65,12 @@ export function Topbar() {
           className="flex min-h-9 items-center gap-2 rounded-lg bg-aurora-accent px-3 text-xs font-semibold text-white">
           <Upload size={14} /><span className="hidden sm:inline">Refresh data</span>
         </button>
+        {session?.mode !== "local" ? <>
+          <button type="button" aria-label="Passkey security" onClick={() => go("/security")}
+            className="min-h-9 rounded-lg border border-white/[0.08] px-2 text-xs text-slate-300">Passkey</button>
+          <button type="button" aria-label="Log out" onClick={() => void logout()}
+            className="min-h-9 rounded-lg px-2 text-xs text-slate-400">Log out</button>
+        </> : null}
       </div>
     </header>
   );

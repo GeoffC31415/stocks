@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { browserSupportsWebAuthn } from '@simplewebauthn/browser';
 import { authApi } from './api';
 import { useAuth } from './AuthProvider';
@@ -6,6 +7,7 @@ import { authMessage } from './SignIn';
 import type { PasskeyCredential } from './types';
 
 export function Security() {
+  const navigate = useNavigate();
   const {session, ceremony, cancelCeremony, lock} = useAuth();
   useEffect(() => () => cancelCeremony(), [cancelCeremony]);
   const [supported] = useState(browserSupportsWebAuthn);
@@ -48,7 +50,7 @@ export function Security() {
       await load();
     }
   }
-  return <main className="auth-page"><h1>Security / passkeys</h1>
+  return <main className="auth-page"><div className="flex items-center justify-between gap-3"><h1>Security / passkeys</h1><button type="button" onClick={() => navigate('/portfolio')}>Back to portfolio</button></div>
     <p>Name each credential so you can recognise it. Add an independent backup passkey on another device or security key before relying on passwordless access.</p>
     <p>Additional enrollment, removal and logout-all require a passkey verified within the last five minutes. Verify again, then retry the intended action.</p>
     {!supported && <p role="alert">This browser does not support passkeys. Use a current browser on HTTPS.</p>}

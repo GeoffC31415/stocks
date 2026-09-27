@@ -1,8 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { type ReactNode } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { AuthProvider } from './AuthProvider';
+import { AuthProvider, useAuth } from './AuthProvider';
 import { AuthGate } from './AuthGate';
+import { Security } from './Security';
 import { requestJson } from '../lib/api';
 
 import { startAuthentication, startRegistration, browserSupportsWebAuthn } from '@simplewebauthn/browser';
@@ -54,7 +57,7 @@ it('expires the app on an API 401, clears queries and mutations, and never refre
 });
 it('locks and clears caches immediately on logout, before the server responds', async () => {
   transport.mockResolvedValueOnce(json(signedIn)).mockResolvedValueOnce(json({private:'data'}));
-  const client = mount();
+  const client = mount(<><Portfolio /><LogoutButton /></>);
   await screen.findByText('Private portfolio');
   await waitFor(() => expect(client.getQueryData(['private'])).toBeDefined());
   let resolve!: (value:Response) => void;
@@ -89,9 +92,8 @@ it('enrolls named first and backup passkeys, reads back the list, and explains B
     return json({});
   });
   vi.mocked(startRegistration).mockResolvedValue({id:'new-key'} as Awaited<ReturnType<typeof startRegistration>>);
-  mount(); await screen.findByText('Private portfolio');
-  expect(screen.getByText(/old password remains required until an administrator/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', {name:'Security / passkeys'}));
+  mount(<Security />);
+  expect(await screen.findByText('Security / passkeys')).toBeInTheDocument();
   expect(transport.mock.calls.filter(c => c[0] === '/api/auth/credentials')).toHaveLength(0);
   expect(await screen.findByText('No passkeys registered.')).toBeInTheDocument();
   expect(screen.getByLabelText('Passkey name')).toHaveAttribute('maxlength', '80');
@@ -122,7 +124,7 @@ it('requires explicit reauthentication and retry for a protected change, then co
     return json({});
   });
   vi.mocked(startAuthentication).mockResolvedValue({id:'primary'} as Awaited<ReturnType<typeof startAuthentication>>);
-  mount(); fireEvent.click(await screen.findByRole('button', {name:'Security / passkeys'}));
+  mount(<Security />);
   fireEvent.click(await screen.findByRole('button', {name:'Remove Primary'}));
   expect(transport.mock.calls.some(c => c[1]?.method==='DELETE')).toBe(false);
   fireEvent.click(screen.getByRole('button', {name:'Confirm removal'}));
@@ -142,7 +144,7 @@ it('confirms logout-all and clears the authenticated app and caches', async () =
     if (url === '/api/auth/credentials') return json({credentials:[]});
     return json({ok:true});
   });
-  const client = mount(); fireEvent.click(await screen.findByRole('button', {name:'Security / passkeys'}));
+  const client = mount(<Security />);
   await screen.findByText('No passkeys registered.');
   fireEvent.click(screen.getByRole('button', {name:'Log out all sessions'}));
   expect(transport.mock.calls.some(c => c[0]==='/api/auth/logout-all')).toBe(false);
@@ -158,12 +160,12 @@ it('does not claim logout-all succeeded or lock the session on a rejected revoca
     if (url === '/api/auth/logout-all') return json({detail:'recent verification required'},403);
     return json({});
   });
-  mount(); fireEvent.click(await screen.findByRole('button', {name:'Security / passkeys'}));
+  mount(<Security />);
   await screen.findByText('No passkeys registered.');
   fireEvent.click(screen.getByRole('button', {name:'Log out all sessions'}));
   fireEvent.click(screen.getByRole('button', {name:'Confirm logout all'}));
   expect(await screen.findByRole('status')).toHaveTextContent('Verify a passkey again');
-  expect(screen.getByRole('button', {name:'Log out'})).toBeInTheDocument();
+  expect(screen.getByText('Security / passkeys')).toBeInTheDocument();
   expect(screen.queryByRole('button', {name:'Sign in with a passkey'})).not.toBeInTheDocument();
 });
 it('keeps the portfolio locked with a retry warning when server logout fails', async () => {
@@ -172,7 +174,9 @@ it('keeps the portfolio locked with a retry warning when server logout fails', a
     if (url === '/api/auth/logout') throw new Error('offline');
     return json({});
   });
-  mount(); fireEvent.click(await screen.findByRole('button', {name:'Log out'}));
+  mount(<><Portfolio /><LogoutButton /></>);
+  await screen.findByText('Private portfolio');
+  fireEvent.click(screen.getByRole('button', {name:'Log out'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('server logout could not be confirmed');
   expect(screen.getByRole('button', {name:'Retry logout'})).toBeInTheDocument();
   expect(screen.queryByText('Private portfolio')).not.toBeInTheDocument();
@@ -219,7 +223,7 @@ it('never restores a late enrollment session after logout', async () => {
     return json({ok:true});
   });
   vi.mocked(startRegistration).mockResolvedValue({id:'new'} as Awaited<ReturnType<typeof startRegistration>>);
-  mount(); fireEvent.click(await screen.findByRole('button', {name:'Security / passkeys'}));
+  mount(<><Security /><LogoutButton /></>);
   await screen.findByText('No passkeys registered.');
   fireEvent.change(screen.getByLabelText('Passkey name'), {target:{value:'Backup'}});
   fireEvent.click(screen.getByRole('button', {name:'Add passkey'}));
@@ -237,9 +241,13 @@ function Portfolio() {
   useQuery({ queryKey: ['private'], queryFn: () => requestJson('/api/portfolio') });
   return <p>Private portfolio</p>;
 }
-function mount() {
+function LogoutButton() {
+  const {logout} = useAuth();
+  return <button onClick={() => void logout()}>Log out</button>;
+}
+function mount(content: ReactNode = <Portfolio />) {
   const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
-  render(<QueryClientProvider client={client}><AuthProvider><AuthGate><Portfolio /></AuthGate></AuthProvider></QueryClientProvider>);
+  render(<QueryClientProvider client={client}><MemoryRouter><AuthProvider><AuthGate>{content}</AuthGate></AuthProvider></MemoryRouter></QueryClientProvider>);
   return client;
 }
 beforeEach(() => { transport.mockReset(); vi.stubGlobal('fetch', transport); });

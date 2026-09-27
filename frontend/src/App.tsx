@@ -5,8 +5,15 @@ import { ActivityWorkspace } from "./routes/ActivityWorkspace";
 import { CGT } from "./routes/CGT";
 import { DataWorkspace } from "./routes/DataWorkspace";
 import { Help } from "./routes/Help";
+import { Security } from "./auth/Security";
+import { useAuth } from "./auth/AuthProvider";
 import { Overview } from "./routes/Overview";
 import { PortfolioWorkspace } from "./routes/PortfolioWorkspace";
+
+function SecurityRoute() {
+  const { session } = useAuth();
+  return session?.mode === "local" ? <Navigate to="/" replace /> : <Security />;
+}
 
 export default function App() {
   return (
@@ -19,6 +26,7 @@ export default function App() {
           <Route path="/tax" element={<CGT />} />
           <Route path="/data" element={<DataWorkspace />} />
           <Route path="/help" element={<Help />} />
+          <Route path="/security" element={<SecurityRoute />} />
 
           <Route path="/holdings" element={<LegacyRedirect target="/portfolio" tab="holdings" />} />
           <Route path="/positions" element={<LegacyRedirect target="/portfolio" tab="returns" />} />

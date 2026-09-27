@@ -1,10 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../lib/api";
 import { PreferencesContext } from "../../state/usePreferences";
 import { Topbar } from "../Topbar";
+
+vi.mock("../../auth/AuthProvider", () => ({
+  useAuth: () => ({ session: { mode: "passkey" }, logout: vi.fn() }),
+}));
 
 const summary = {
   as_of_date: "2026-07-05",
@@ -19,6 +23,10 @@ const summary = {
   worst_pct: [],
   best_pct: [],
 };
+
+function LocationProbe() {
+  return <output data-testid="route">{useLocation().pathname}</output>;
+}
 
 describe("Topbar", () => {
   beforeEach(() => {
@@ -39,6 +47,7 @@ describe("Topbar", () => {
             }}
           >
             <Topbar />
+            <LocationProbe />
           </PreferencesContext.Provider>
         </MemoryRouter>
       </QueryClientProvider>,
@@ -49,6 +58,10 @@ describe("Topbar", () => {
     expect(screen.getByRole("button", { name: /refresh data/i })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Performance period" })).toHaveValue("ALL");
     expect(screen.getByRole("button", { name: "Analysis settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Passkey security" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Passkey security" }));
+    expect(screen.getByTestId("route")).toHaveTextContent("/security");
     expect(screen.queryByText("DRIP threshold")).not.toBeInTheDocument();
     expect(screen.queryByText("£1,000")).not.toBeInTheDocument();
   });
