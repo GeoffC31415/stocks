@@ -458,6 +458,10 @@ def layout_preflight(root: Path, release: Path, previous: Path,
         safe_path(path)
         if not path.is_file():
             raise MigrationError("Required new unit template missing.")
+    proxy = release / "bin/caddy"
+    controlled(proxy, root)
+    if not proxy.is_file() or not os.access(proxy, os.X_OK):
+        raise MigrationError("Release proxy executable missing or not executable.")
     production = (root / CONFIG_FILES[0]).read_text()
     brokers = (root / CONFIG_FILES[1]).read_text()
     values = parse_env(production) | parse_env(brokers)

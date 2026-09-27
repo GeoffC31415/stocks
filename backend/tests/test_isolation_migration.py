@@ -144,6 +144,14 @@ def test_sqlite_backup_captures_wal_exclusively(tmp_path):
             m.backup_sqlite(source, target)
 
 
+def populate_release(release):
+    (release / "deploy").mkdir(parents=True)
+    (release / "bin").mkdir()
+    (release / "bin/caddy").write_text("synthetic executable")
+    for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
+        (release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
+
+
 def deployment_fixture(tmp_path):
     root, old, bundle = fixture_tree(tmp_path)
     env = root / "etc/stocks"
@@ -157,9 +165,7 @@ def deployment_fixture(tmp_path):
     previous = root / "opt/stocks/releases/previous"
     previous.mkdir(parents=True)
     release = root / "opt/stocks/releases/new"
-    (release / "deploy").mkdir(parents=True)
-    for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
-        (release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
+    populate_release(release)
     (root / "opt/stocks/current").symlink_to(previous)
     for path in (root, *root.rglob("*")):
         if path.is_symlink():
@@ -168,7 +174,17 @@ def deployment_fixture(tmp_path):
             path.chmod(0o700 if path == bundle else 0o755)
         else:
             path.chmod(0o600 if path.suffix == ".env" else 0o644)
+    (release / "bin/caddy").chmod(0o755)
     return root, bundle, release, previous
+
+
+def test_layout_preflight_requires_proxy_executable_in_release(tmp_path):
+    m = helper()
+    root, _, release, previous = deployment_fixture(tmp_path)
+    (release / "bin/caddy").unlink()
+
+    with pytest.raises(m.MigrationError):
+        m.layout_preflight(root, release, previous)
 
 
 class FakeSystem:
@@ -206,11 +222,10 @@ def test_verified_rollback_can_be_explicitly_superseded_by_new_activation(tmp_pa
     m.rollback_layout(root, first_bundle, system)
 
     second_release = root / "opt/stocks/releases/newer"
-    (second_release / "deploy").mkdir(parents=True)
-    for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
-        (second_release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
+    populate_release(second_release)
     for path in (second_release, *second_release.rglob("*")):
         path.chmod(0o755 if path.is_dir() else 0o644)
+    (second_release / "bin/caddy").chmod(0o755)
     second_bundle = root / "var/backups/stocks/isolation-second"
     second_bundle.mkdir(mode=0o700)
 
@@ -248,11 +263,10 @@ def test_rollback_supersession_rejects_malformed_identity(tmp_path, identity):
     candidate_path.write_text(json.dumps(candidate))
 
     second_release = root / "opt/stocks/releases/newer"
-    (second_release / "deploy").mkdir(parents=True)
-    for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
-        (second_release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
+    populate_release(second_release)
     for path in (second_release, *second_release.rglob("*")):
         path.chmod(0o755 if path.is_dir() else 0o644)
+    (second_release / "bin/caddy").chmod(0o755)
 
     with pytest.raises(m.MigrationError):
         m.layout_preflight(root, second_release, previous, first_bundle)
@@ -265,11 +279,10 @@ def test_supersession_marker_failure_keeps_verified_rollback_retryable(tmp_path,
     m.activate_layout(root, first_bundle, first_release, previous, system)
     m.rollback_layout(root, first_bundle, system)
     second_release = root / "opt/stocks/releases/newer"
-    (second_release / "deploy").mkdir(parents=True)
-    for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
-        (second_release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
+    populate_release(second_release)
     for path in (second_release, *second_release.rglob("*")):
         path.chmod(0o755 if path.is_dir() else 0o644)
+    (second_release / "bin/caddy").chmod(0o755)
     second_bundle = root / "var/backups/stocks/isolation-second"
     second_bundle.mkdir(mode=0o700)
     replace = m.replace_bytes
@@ -295,11 +308,10 @@ def test_supersession_after_marker_failure_is_rollback_recoverable(tmp_path, mon
     m.activate_layout(root, first_bundle, first_release, previous, system)
     m.rollback_layout(root, first_bundle, system)
     second_release = root / "opt/stocks/releases/newer"
-    (second_release / "deploy").mkdir(parents=True)
-    for name in ("stocks.service", "stocks-sync.service", "stocks-sync.timer"):
-        (second_release / "deploy" / name).write_text((ROOT / "deploy" / name).read_text())
+    populate_release(second_release)
     for path in (second_release, *second_release.rglob("*")):
         path.chmod(0o755 if path.is_dir() else 0o644)
+    (second_release / "bin/caddy").chmod(0o755)
     second_bundle = root / "var/backups/stocks/isolation-second"
     second_bundle.mkdir(mode=0o700)
     evidence = m.evidence
