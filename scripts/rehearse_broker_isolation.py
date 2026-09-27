@@ -19,12 +19,19 @@ PREFIX = "stocks-isolation-rehearsal-"
 PROBE = r'''
 import errno, json, os, sqlite3, stat, sys
 from pathlib import Path
+def check_credentials(status, uid, gid):
+    fields = dict(line.split(':', 1) for line in status.splitlines() if ':' in line)
+    assert uid > 0 and gid > 0
+    for name in ('Uid', 'Gid'):
+        assert list(map(int, fields[name].split())) == [uid] * 4, name
+    assert list(map(int, fields['Groups'].split())) == [gid], 'Groups'
+    for name in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb'):
+        assert int(fields[name], 16) == 0, name
+    assert fields['NoNewPrivs'].strip() == '1', 'NoNewPrivs'
 root, role, action, database, uid, gid, hostns = sys.argv[1:]
 root = Path(root)
-assert os.getuid() == int(uid) and os.getgid() == int(uid)
-assert int(gid) in os.getgroups()
+check_credentials(Path('/proc/self/status').read_text(), int(uid), int(gid))
 assert os.readlink('/proc/self/ns/mnt') != hostns
-assert 'NoNewPrivs:\t1' in Path('/proc/self/status').read_text()
 other = 'worker' if role == 'web' else 'web'
 def denied(path, mode):
     try:
@@ -68,7 +75,7 @@ if action == 'hold':
     assert sys.stdin.readline().strip() == 'CHECK'
 assert connection.execute('SELECT COUNT(*) FROM proof').fetchone()[0] == 2
 assert connection.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
-print(json.dumps({'identity': True, 'namespace': True, 'denials': True,
+print(json.dumps({'identity': True, 'capabilities': True, 'namespace': True, 'denials': True,
                   'wal': True, 'integrity': True, 'rows': 2, 'role': role}), flush=True)
 connection.close()
 '''
@@ -157,13 +164,14 @@ def command(root, ids, role, unit, action, database):
         raise RuntimeError('invalid probe')
     uid = ids[0 if role == 'web' else 1]
     other = 'worker' if role == 'web' else 'web'
-    properties = [f'User={uid}', f'Group={uid}', f'SupplementaryGroups={ids[2]}',
+    properties = ['User=0', 'Group=0', 'SupplementaryGroups=',
                   'UMask=0007', 'ProtectSystem=strict', 'ProtectHome=true',
                   'NoNewPrivileges=true', 'PrivateTmp=true', 'PrivateDevices=true',
                   'ProtectKernelTunables=true', 'ProtectKernelModules=true',
                   'ProtectKernelLogs=true', 'ProtectControlGroups=true',
                   'RestrictSUIDSGID=true', 'RestrictRealtime=true', 'LockPersonality=true',
-                  'CapabilityBoundingSet=', 'RestrictAddressFamilies=AF_UNIX',
+                  'CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_SETPCAP',
+                  'RestrictAddressFamilies=AF_UNIX',
                   'RuntimeMaxSec=45s', 'TimeoutStopSec=5s', 'KillMode=control-group',
                   'TasksMax=16', 'MemoryMax=128M', f'BindReadOnlyPaths={root}',
                   f'ReadWritePaths={root / role} {root / "shared"}' +
@@ -172,8 +180,29 @@ def command(root, ids, role, unit, action, database):
                   f'InaccessiblePaths={root / other}']
     return ['/usr/bin/systemd-run', '--quiet', '--wait', '--pipe', '--collect',
             '--unit=' + unit, *['--property=' + p for p in properties],
+            '/usr/bin/setpriv', f'--reuid={uid}', f'--regid={uid}',
+            f'--groups={ids[2]}', '--bounding-set=-all', '--inh-caps=-all',
+            '--ambient-caps=-all', '--no-new-privs', '--',
             '/usr/bin/python3', '-I', '-B', '-u', str(root / 'probe.py'), str(root),
             role, action, database, str(uid), str(ids[2]), os.readlink('/proc/self/ns/mnt')]
+
+
+def readiness_error(holder):
+    """Snapshot only available synthetic stderr, without blocking cleanup."""
+    diagnostic = b''
+    if holder.stderr is not None:
+        fd = holder.stderr.fileno()
+        blocking = os.get_blocking(fd)
+        try:
+            os.set_blocking(fd, False)
+            try:
+                diagnostic = os.read(fd, 2000)
+            except BlockingIOError:
+                pass
+        finally:
+            os.set_blocking(fd, blocking)
+    return 'holder failed readiness: ' + (
+        diagnostic.decode('utf-8', errors='replace') or 'no stderr available; inspect unit journal')
 
 
 def stopped(output):
@@ -220,7 +249,7 @@ def main():
             with selectors.DefaultSelector() as selector:
                 selector.register(holder.stdout, selectors.EVENT_READ)
                 if not selector.select(20) or holder.stdout.readline().strip() != 'READY':
-                    raise RuntimeError('holder failed readiness; inspect unit journal')
+                    raise RuntimeError(readiness_error(holder))
             units.append(names[1])
             writer = subprocess.run(command(root, ids, second, names[1], 'write', database),
                 capture_output=True, text=True, timeout=20, check=True)
@@ -230,7 +259,7 @@ def main():
                 raise RuntimeError('holder failed: ' + err[-2000:])
             evidence.append(json.loads(out))
         report['passed'] = len(evidence) == 4 and all(
-            all(item[key] is True for key in ('identity', 'namespace', 'denials', 'wal', 'integrity'))
+            all(item[key] is True for key in ('identity', 'capabilities', 'namespace', 'denials', 'wal', 'integrity'))
             for item in evidence)
     except Exception as exc:  # noqa: BLE001 - preserve diagnostic evidence on every failure
         report['error'] = str(exc)

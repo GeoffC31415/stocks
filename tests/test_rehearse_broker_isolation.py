@@ -3,6 +3,7 @@ import importlib.util
 import os
 import sqlite3
 import stat
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -55,8 +56,17 @@ def test_commands_are_transient_and_fixture_scoped():
     for role, uid, other in [("web", 60001, "worker"), ("worker", 60002, "web")]:
         cmd = module.command(root, ids, role, "stocks-rehearsal-test-1.service", "hold", "web.db")
         assert cmd[:5] == ["/usr/bin/systemd-run", "--quiet", "--wait", "--pipe", "--collect"]
-        for setting in [f"User={uid}", f"Group={uid}", "SupplementaryGroups=60003", "ProtectSystem=strict", "ProtectHome=true", "NoNewPrivileges=true", "RestrictAddressFamilies=AF_UNIX", "RuntimeMaxSec=45s", "KillMode=control-group", f"InaccessiblePaths={root / other}"]:
+        for setting in ["User=0", "Group=0", "SupplementaryGroups=", "CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_SETPCAP", "ProtectSystem=strict", "ProtectHome=true", "NoNewPrivileges=true", "RestrictAddressFamilies=AF_UNIX", "RuntimeMaxSec=45s", "KillMode=control-group", f"InaccessiblePaths={root / other}"]:
             assert "--property=" + setting in cmd
+        launcher = cmd.index('/usr/bin/setpriv')
+        assert all(arg.startswith('--') for arg in cmd[1:launcher])
+        assert cmd[launcher:launcher + 13] == [
+            '/usr/bin/setpriv', f'--reuid={uid}', f'--regid={uid}',
+            '--groups=60003', '--bounding-set=-all', '--inh-caps=-all',
+            '--ambient-caps=-all', '--no-new-privs', '--',
+            '/usr/bin/python3', '-I', '-B', '-u']
+        assert cmd[launcher + 13] == str(root / 'probe.py')
+        assert cmd.count('/usr/bin/python3') == 1
         assert str(root / "probe.py") in cmd
         assert not any("/var/lib/stocks" in x or "EnvironmentFile" in x for x in cmd)
     with pytest.raises(RuntimeError):
@@ -81,6 +91,39 @@ def test_probe_compiles_and_has_no_provider_calls():
     compile(module.PROBE, "probe.py", "exec")
     assert "integrity_check" in module.PROBE
     assert "-wal" in module.PROBE and "-shm" in module.PROBE
+
+
+@pytest.mark.parametrize('field, value', [
+    (field, ' '.join('0' if n == index else '60001' for n in range(4)))
+    for field in ('Uid', 'Gid') for index in range(4)
+] + [(field, '1') for field in ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb')]
+  + [('Groups', '60003 0'), ('Groups', ''), ('Groups', '60001'),
+     ('NoNewPrivs', '0'), ('Uid', '60001'), ('CapEff', None)])
+def test_probe_rejects_residual_privilege_before_access(field, value):
+    import ast
+    module = load()
+    tree = ast.parse(module.PROBE)
+    functions: list[ast.stmt] = [node for node in tree.body
+                 if isinstance(node, ast.FunctionDef) and node.name == 'check_credentials']
+    assert len(functions) == 1, 'probe must validate full credentials before access'
+    namespace = {}
+    exec(compile(ast.Module(body=functions, type_ignores=[]), 'credentials', 'exec'), namespace)  # noqa: S102 - trusted probe helper only
+    status = {'Uid': '60001 60001 60001 60001', 'Gid': '60001 60001 60001 60001',
+              'Groups': '60003', 'NoNewPrivs': '1',
+              **{name: '0000000000000000' for name in
+                 ('CapInh', 'CapPrm', 'CapEff', 'CapBnd', 'CapAmb')}}
+    def text():
+        return '\n'.join(f'{key}:\t{val}' for key, val in status.items())
+    namespace['check_credentials'](text(), 60001, 60003)
+    if value is None:
+        del status[field]
+    else:
+        status[field] = value
+    with pytest.raises((AssertionError, KeyError, ValueError)):
+        namespace['check_credentials'](text(), 60001, 60003)
+    assert module.PROBE.index("check_credentials(Path('/proc/self/status')") < module.PROBE.index('denied(root')
+    assert "'capabilities': True" in module.PROBE
+    assert "'capabilities'" in SCRIPT.read_text().split("report['passed'] =", 1)[1]
 
 
 def database_probe(root, action):
@@ -146,6 +189,32 @@ def test_holder_refuses_existing_database_without_mutation(tmp_path, symlink):
     assert (after.st_ino, after.st_mode, after.st_uid, after.st_gid) == (
         before.st_ino, before.st_mode, before.st_uid, before.st_gid)
     assert list(shared.iterdir()) == [db]
+
+
+def test_readiness_failure_retains_bounded_synthetic_stderr():
+    module = load()
+    with subprocess.Popen(
+        ['/usr/bin/python3', '-I', '-c',
+         "import sys; sys.stderr.write('synthetic credential failure ' + 'x' * 3000)"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    ) as child:
+        child.wait(timeout=5)
+        message = module.readiness_error(child)
+    assert 'synthetic credential failure' in message
+    assert len(message) <= 2100
+
+
+def test_readiness_error_does_not_wait_for_running_child():
+    module = load()
+    with subprocess.Popen(
+        ['/usr/bin/python3', '-I', '-c', 'import sys; sys.stdin.read()'],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    ) as child:
+        try:
+            assert 'no stderr available' in module.readiness_error(child)
+            assert child.poll() is None
+        finally:
+            child.communicate(timeout=5)
 
 
 def test_writer_requires_existing_database(tmp_path):
