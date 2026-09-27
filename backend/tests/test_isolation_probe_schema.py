@@ -1,5 +1,6 @@
 """Complete effective evidence: synthetic adapters only."""
 import json
+
 import pytest
 from test_isolation_host import EFFECTIVE, helper
 from test_isolation_migration import FakeSystem, deployment_fixture
@@ -33,8 +34,8 @@ def test_missing_property(tmp_path, monkeypatch, missing, consumer):
         values = {k: v for k, v in EFFECTIVE.items() if k not in (missing, "InvocationID")}
         path = bundle / "transition.json"
         candidate = json.loads(path.read_text())
-        candidate["identity"] = dict(boot_id=probe.boot_identity(), invocation_id="1" * 32,
-            effective_sha256=m.digest((json.dumps(values, sort_keys=True) + "\n[Service]\nExecStart=/synthetic/web").encode()))
+        candidate["identity"] = {"boot_id": probe.boot_identity(), "invocation_id": "1" * 32,
+            "effective_sha256": m.digest((json.dumps(values, sort_keys=True) + "\n[Service]\nExecStart=/synthetic/web").encode())}
         path.write_text(json.dumps(candidate))
         before = path.read_bytes()
         with pytest.raises(m.MigrationError):

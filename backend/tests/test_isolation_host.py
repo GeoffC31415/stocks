@@ -5,15 +5,14 @@ from types import SimpleNamespace
 
 import pytest
 
-
-EFFECTIVE = dict(ActiveState="active", SubState="running", NRestarts="0",
-    NeedDaemonReload="no", InvocationID="1" * 32, ExecStart="/synthetic/web",
-    User="stocks", Group="stocks", SupplementaryGroups="", Environment="",
-    EnvironmentFiles="", WorkingDirectory="/", RootDirectory="",
-    ProtectSystem="strict", ProtectHome="yes", ReadWritePaths="",
-    ReadOnlyPaths="", InaccessiblePaths="", BindPaths="", BindReadOnlyPaths="",
-    PrivateTmp="yes", NoNewPrivileges="yes", FragmentPath="/synthetic/stocks.service",
-    DropInPaths="")
+EFFECTIVE = {"ActiveState": "active", "SubState": "running", "NRestarts": "0",
+    "NeedDaemonReload": "no", "InvocationID": "1" * 32, "ExecStart": "/synthetic/web",
+    "User": "stocks", "Group": "stocks", "SupplementaryGroups": "", "Environment": "",
+    "EnvironmentFiles": "", "WorkingDirectory": "/", "RootDirectory": "",
+    "ProtectSystem": "strict", "ProtectHome": "yes", "ReadWritePaths": "",
+    "ReadOnlyPaths": "", "InaccessiblePaths": "", "BindPaths": "", "BindReadOnlyPaths": "",
+    "PrivateTmp": "yes", "NoNewPrivileges": "yes", "FragmentPath": "/synthetic/stocks.service",
+    "DropInPaths": ""}
 
 
 def helper():
