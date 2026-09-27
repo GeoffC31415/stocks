@@ -333,24 +333,35 @@ def rollback_layout(root: Path, bundle: Path, system) -> None:
         safe_path(root / relative)
     system.stop()
     exclusive_write(bundle / "rollback-started", b"1\n")
-    evidence = bundle / "rollback-config"
-    evidence.mkdir(mode=0o700)
-    for relative in CONFIG_FILES:
-        path = root / relative
-        exclusive_write(evidence / path.name, path.read_bytes())
-    if (bundle / "original-state").exists():
-        rollback_state(root, bundle)
-    elif (bundle / "state-started").exists():
-        raise MigrationError("Partial state transition; inspect original location manually.")
-    for relative in CONFIG_FILES:
-        replace_bytes(root / relative, (bundle / "config" / Path(relative).name).read_bytes(),
-                      0o644 if relative.endswith((".service", ".timer")) else 0o600)
-    switch_release(root, previous)
-    system.reload()
-    if manifest["services"]["web_active"]:
-        system.start_web()
-        system.health()
-    exclusive_write(bundle / "rollback-complete", b"1\n")
+    try:
+        evidence = bundle / "rollback-config"
+        evidence.mkdir(mode=0o700)
+        for relative in CONFIG_FILES:
+            path = root / relative
+            exclusive_write(evidence / path.name, path.read_bytes())
+        if (bundle / "original-state").exists():
+            rollback_state(root, bundle)
+        elif (bundle / "state-started").exists():
+            raise MigrationError("Partial state transition; inspect original location manually.")
+        for relative in CONFIG_FILES:
+            replace_bytes(root / relative, (bundle / "config" / Path(relative).name).read_bytes(),
+                          0o644 if relative.endswith((".service", ".timer")) else 0o600)
+        switch_release(root, previous)
+        system.reload()
+        if manifest["services"]["web_active"]:
+            system.start_web()
+            system.health()
+        exclusive_write(bundle / "rollback-complete", b"1\n")
+    except BaseException:
+        # A failed check must not leave the restarted web service exposed.
+        # Preserve incomplete markers and evidence for manual recovery.
+        try:
+            system.stop()
+        except BaseException as cleanup_error:
+            raise MigrationError(
+                "Rollback failed and service stop could not be confirmed; inspect preserved evidence."
+            ) from cleanup_error
+        raise
     # Leave the marker and all evidence; subsequent deployment requires review.
     # Timers are NEVER automatically restarted (Persistent=true may log in now).
 

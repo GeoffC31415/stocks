@@ -206,6 +206,69 @@ def test_layout_activation_and_rollback_restore_coherent_files(tmp_path):
     assert not any("start-timer" in x or "start-worker" in x for x in system.events)
 
 
+@pytest.mark.parametrize("failure", ["health", "marker", "interrupt"])
+def test_rollback_failure_after_restart_stops_services(tmp_path, monkeypatch, failure):
+    m = helper()
+    root, bundle, release, previous = deployment_fixture(tmp_path)
+    system = FakeSystem()
+    m.activate_layout(root, bundle, release, previous, system)
+    system.events.clear()
+    error = KeyboardInterrupt() if failure == "interrupt" else OSError("injected")
+    if failure == "marker":
+        write = m.exclusive_write
+        def fail_marker(path, *args, **kwargs):
+            if path.name == "rollback-complete":
+                raise error
+            return write(path, *args, **kwargs)
+        monkeypatch.setattr(m, "exclusive_write", fail_marker)
+    else:
+        def fail_health():
+            system.events.append("health-failed")
+            raise error
+        system.health = fail_health
+    with pytest.raises(type(error)) as caught:
+        m.rollback_layout(root, bundle, system)
+    assert caught.value is error
+    assert system.events == [
+        "stop-timer-worker-web", "reload", "start-web",
+        "unauthenticated-401-boundary-only" if failure == "marker" else "health-failed",
+        "stop-timer-worker-web",
+    ]
+    assert (bundle / "rollback-started").exists()
+    assert not (bundle / "rollback-complete").exists()
+    assert (bundle / "rollback-config/production.env").exists()
+    assert (bundle / "evidence").is_dir()
+
+
+def test_rollback_cleanup_failure_reports_unconfirmed_stop(tmp_path, capsys):
+    m = helper()
+    root, bundle, release, previous = deployment_fixture(tmp_path)
+    system = FakeSystem()
+    m.activate_layout(root, bundle, release, previous, system)
+    system.events.clear()
+    original = OSError("SENTINEL_HEALTH")
+    cleanup = OSError("SENTINEL_CLEANUP")
+    def fail_health():
+        system.events.append("health-failed")
+        raise original
+    def fail_second_stop():
+        system.events.append("stop-timer-worker-web")
+        if "health-failed" in system.events:
+            raise cleanup
+    system.health = fail_health
+    system.stop = fail_second_stop
+    with pytest.raises(m.MigrationError, match="stop could not be confirmed") as caught:
+        m.rollback_layout(root, bundle, system)
+    assert caught.value.__cause__ is cleanup
+    assert cleanup.__context__ is original
+    assert "SENTINEL" not in str(caught.value)
+    assert system.events == ["stop-timer-worker-web", "reload", "start-web",
+                             "health-failed", "stop-timer-worker-web"]
+    assert (bundle / "rollback-started").exists()
+    assert not (bundle / "rollback-complete").exists()
+    assert capsys.readouterr() == ("", "")
+
+
 def test_activation_failure_keeps_services_stopped_and_recoverable(tmp_path):
     m = helper()
     root, bundle, release, previous = deployment_fixture(tmp_path)
