@@ -1,81 +1,82 @@
-# Improvement implementation ledger — candidate only
+# Improvement implementation ledger — preproduction candidate
 
 ## Release boundary
 
-Geoff approved continuing nonprivileged source work while unavailable, requires a testable preview before production, and has not approved production activation. No live broker requests, privileged policy changes, production database reads/migrations or public proxy changes are part of this work.
+Geoff approved nonprivileged implementation/testing while unavailable and requires a testable preview before production. No production activation, policy installation, live broker run, real-data access/migration or public proxy/firewall change is approved. Last production read-back: `/opt/stocks/releases/stocks-passkeys-31590ff`. Branch: `feat/ui-service-improvements-20260929`. Unrelated dirty Barclays documentation remains untouched.
 
-The current production pointer remains `/opt/stocks/releases/stocks-passkeys-31590ff` at last read-back. Implementation branch is `feat/ui-service-improvements-20260929`. Preserve unrelated dirty Barclays docs.
+## Source and verification state
 
-## Integrated candidate history
+**Source-spec PASS at `cba5015`, independently reviewed. Security/code-quality review is in progress; no release approval.**
 
-- `2855e01`: plan, baseline and preproduction review gate.
-- `729ed2d`: incomplete observation rejection, strict HL parser, atomic HL pair helper, Trading212 budgets.
-- `7e3fbb9`: workspaces, chart-first hierarchy, labelled variants, lazy routes and synthetic preview.
-- `4001f01`: service result/provenance, staged HL runner integration, isolated harness and deployment artifacts.
-- `98c95e6`: authoritative backend v2 evidence mapped to frontend, populated preview geometry.
+Integrated history:
+- `2855e01`: original plan, baseline and preview gate.
+- `729ed2d`: incomplete-observation rejection, strict HL parsing, atomic pair helper, budgets.
+- `7e3fbb9`: workspaces, labelled layout variants and lazy routes.
+- `4001f01`: status provenance, paired runner and isolated harness.
+- `98c95e6`: actual backend v2 serializer/GUI contract and populated geometry.
+- `c2e4fda`: owning cancellation rollback, latest dedupe, required coverage, actual valuation, cash/pagination, reviewed-closure CLI and HL identity repairs.
+- `1a21816`, `bfe4aa0`, `46e34c0`: tooltip, auth redirect, zero-order/dotenv safety, measured geometry/CLS/request budgets.
+- `a598585`: in-process bootstrap test environment/sys.path isolation; production DB guard unchanged.
+- `cba5015`: genuine value→secondary metrics→chart→latest changes mobile hierarchy.
 
-Combined backend and root harness suite at `4001f01`: **1257 passed,1 warning**, actually rerun by parent. Full frontend suite reported by UI worker at `98c95e6`: **249 passed across67 files**, typecheck/build passed; parent rerun remains required. Worker browser report:60 route/viewport rows,3 interaction sequences,24 legacy redirect checks. These counts do not establish every original acceptance requirement.
+Parent-observed results:
+- Combined backend/root suite: **1299 passed,1 skipped,1 warning**.
+- Frontend: **252 passed across67 files**, typecheck and isolated build passed.
+- Actual Chrome hierarchy on parent-built candidate:390×844 chart top716px;1440×900 chart top511.75px; no failures. CLS0.011773725766981758 and0.0016919020329646778 respectively. Chart start, not entire mobile plot, is above the fold.
+- Parent visually inspected synthetic mobile/desktop Overview and full-width Holdings screenshots. Critical caveats remain visible. A possible visual numerical mismatch was independently cleared by exact read-only API calculation: return17.39130434782608%, final index117.39130434782608.
+- Ruff25 and mypy25 remaining findings are preexisting baseline debt; new Fetcher type failures resolved. Baseline full quality gates are not described as clean.
 
-## Independent spec review: FAIL; fixes in progress
+Independent final source-spec reviewer reran1299 backend/root tests,252 frontend tests,typecheck/build and179 focused rehearsal/database/auth tests. Worker acceptance evidence includes100 route/viewport checks,5 interaction checks,130 zero-order scenario checks and10 explicit alternative journeys. Counts are distinct suites, not added into an invented total. True-device zoom/manual screen-reader and real passkey/broker acceptance remain separate.
 
-Passing tests did not establish financial correctness. The independent reviewer reproduced:
+Evidence directories: `/home/geoff/.hermes/cache/scratch/stocks-parent-final-verification/`, `/home/geoff/.hermes/cache/scratch/stocks-parent-hierarchy-cba5015/`, `/home/geoff/.hermes/cache/scratch/stocks-final-source-spec-cba5015/`, `/home/geoff/.hermes/cache/scratch/stocks-acceptance-fixes/`. Scratch may expire; rerun before release. No private data/screenshots/DB copies committed.
 
-- Trading212 cancellation leaves staged financial writes in the owning transaction.
-- Historical hash dedupe prevents Trading212 and HL A→B→A restoration.
-- Aggregation accepts unknown/partial required section coverage or duplicate-only local work as complete.
-- Valuation dates can be synthesized from check time rather than retained valuation evidence.
-- Missing cash on first observation is unqualified.
-- Order pagination permits missing explicit terminal metadata.
-- Genuine-closure review allowlist lacks an operational approved resolution mechanism.
-- HL pair hardcoded labels do not prove actual export identity.
-- Zero-order harness still unconditionally visits a source order; direct harness imports can read dotenv.
-- UI acceptance omitted drawdown tooltip, requested chart placement sizes,720px/200% zoom and measured CLS/request budgets.
-- Local-mode security route remains blank instead of redirecting.
-- Two new mypy errors exclude FetchedHLPair from Fetcher typing.
+## Original A1–E5 accounting
 
-Two isolated workers are repairing backend findings and harness/UI acceptance findings with regression tests. No quality approval has been issued; independent spec re-review must pass before code-quality review.
+“Implemented/verified” below means source and synthetic-test scope, not real broker/production certification.
 
-## Original task accounting
+- **A1 partial/gated:** deployed-source/auth/isolation baseline recorded; approved representative read-only actual-data reconciliation still pending.
+- **A2 implemented/verified:** omitted positions reject atomically; operational offline preview-default closure review binds exact account/latest observation/staged payload. Real closure approval/application not performed.
+- **A3 implemented/verified:** prior and first-observation missing cash reject the entire incomplete account observation.
+- **A4 implemented/verified:** strict finite/header/row/count/totals parsing; verified raw export identity and actual valuation metadata.
+- **A5 implemented/verified:** coherent in-memory pair, single atomic importer/runner boundary, owning rollback including cancellation, raw identity/date coherence; legacy fingerprints preserved.
+- **B1 implemented/verified:** loading/error/empty/filter-empty and unavailable weights separate with retry.
+- **B2 implemented/verified:** active filters/counts, split clear vs reset, account/period preserved.
+- **B3 implemented/verified:** roving keyboard/ARIA tabs, unknown/duplicate-tab canonicalization, local security redirect repaired.
+- **B4 implemented/verified:** scope-preserving classification navigation.
+- **C1 partial/human gate:** two labelled demo variants exist; chart-first recommendation provisional until Geoff tests/selects.
+- **C2 implemented/verified synthetic scope:** primary value→secondary metrics→chart, invalid reasons/critical caveats remain visible, repetitive methodology disclosed, requested viewport chart-start targets pass.
+- **C3 implemented/verified:** compact separately dated latest snapshot changes and expandable evidence.
+- **C4 implemented/verified:** unselected full-width Holdings, deliberate closable deep-linked selection/mobile dialog/focus return.
+- **C5 partial/manual gate:** typography/density/numeric alignment/Holding returns/mobile controls implemented;320/390/720/1440 and explicitly approximate200% zoom tested. Actual-device zoom and manual screen-reader usability pending.
+- **D1 implemented/verified:** structured outcomes/CLI, required-section coverage, no-op local duplicates, failed/rejected attention semantics.
+- **D2 implemented/verified:** durable versioned attempt/verified observation/actual valuation/coverage, latest A→B→A→A semantics; no DB migration required. Bounded HL and unknown Barclays history remain truthfully qualified, not universal-complete.
+- **D3 implemented/verified:** independent inbox read/archive failures, committed-with-attention, durable terminal status and bounded provider budgets; owning cancellation rollback verified with fresh file-DB readers.
+- **D4 implemented/verified source contract:** actual serialized public v2 maps canonical no_op/freshness/steps sections, check/attempt/valuation/coverage/reason/action distinct, no legacy generic green success.
+- **D5 partial/privileged gate:** separate uninstalled start-only Geoff policy and synthetic negatives; installed rule contents and correlated authorized live run not verified. No installation/run while Geoff unavailable.
+- **E1 implemented/verified:** independent raw snapshot history and lazy unused queries.
+- **E2 implemented/verified:** exact sparse-observation table and dated drawdown tooltip; real synthetic Chrome hover tested, no daily points invented.
+- **E3 implemented/verified:** lazy/direct router assembly, pre-import dotenv refusal, explicit global zero-order precondition and snapshot alternatives, no production lifespan/migrations/auth store; test bootstrap restores inherited environment.
+- **E4 implemented/verified synthetic scope:** route splitting with stable loading geometry, measured baseline/final request/CLS/resource latency; pre-established budgets CLS0.10/API15/resources40/p95latency1500ms pass.
+- **E5 implemented/verified source scope:** isolated identities and effective daily18:30 Europe/London plus2min random delay aligned; no live templates installed or sandbox weakened.
 
-- **A1 partial/gated:** auth/isolation baseline and preexisting test/quality debt recorded; approved representative read-only production snapshot/calculation comparison remain pending. Synthetic evidence is not current-account evidence.
-- **A2 partial:** omission rejection and private positive closure tests implemented; operational reviewed-closure path under repair.
-- **A3 partial:** prior-cash rejection implemented; first-observation missing cash under repair.
-- **A4 implemented/targeted tests passed:** strict finite/row/header/totals parser gates. Additional identity/date review findings under repair alongside A5.
-- **A5 partial:** in-memory staging, atomic helper and runner integrated; actual pair identity evidence under repair.
-- **B1 implemented:** distinct loading/error/empty/filter-empty and qualified weights; full integrated rerun pending.
-- **B2 implemented:** visible filter counts/chips, independent clear/reset, scope retained; full integrated rerun pending.
-- **B3 implemented:** keyboard/ARIA and unknown-tab handling; local auth redirect integration gap under repair.
-- **B4 implemented:** scoped classification navigation; full integrated rerun pending.
-- **C1 partial/human gate:** two labelled variants exist, chart-first recommendation provisional; Geoff has not selected/reviewed it.
-- **C2 partial:** chart-first disclosure and invalid states implemented; requested chart-start geometry under repair/test.
-- **C3 implemented:** separate dated attribution/evidence disclosure; full integrated rerun pending.
-- **C4 implemented:** full-width unselected holdings, deliberate URL selection/mobile focus return; full integrated rerun pending.
-- **C5 partial:** density/nav/labels implemented;720px/zoom/manual accessibility acceptance remains incomplete.
-- **D1 partial:** versioned outcomes/CLI implemented; required-section aggregation and duplicate-only truthfulness under repair.
-- **D2 partial:** durable status schema implemented; latest-observation dedupe and actual valuation provenance under repair.
-- **D3 partial:** inbox isolation, archive attention and bounded clients implemented; cancellation/terminal financial integrity under repair.
-- **D4 implemented contract mapping, pending service corrections:** frontend reads canonical no_op/freshness/steps sections without generic legacy success. Backend verification semantics are not yet signed off.
-- **D5 partial/privileged gate:** uninstalled narrow operator rule and synthetic negative tests exist; installed rule content, authorized real run and correlation remain pending. Do not install/run while Geoff unavailable.
-- **E1 implemented:** independent lazy snapshot history; full integrated rerun pending.
-- **E2 partial:** exact sparse observation table exists; dated drawdown tooltip under repair.
-- **E3 partial:** direct/lazy router assembly improved; complete zero-event navigation and dotenv refusal under repair.
-- **E4 partial:** isolated builds/lazy bundles measured; actual request/CLS/geometry budgets under repair.
-- **E5 implemented source/synthetic scope:** isolated identities and effective daily18:30 Europe/London plus2min random delay aligned; no live configuration activated.
+## Preview and user review
 
-## Preview state and access
+Parent restarted loopback GET-only fixture preview on port8794 using the parent-built `cba5015` candidate:
+- URL: `http://127.0.0.1:8794/` on the Surface.
+- Build: `/home/geoff/.hermes/cache/scratch/stocks-user-review-cba5015`.
+- Process handle: `proc_ff8e78ff047b`.
+- Variants: `/demo/chart-first.html`, `/demo/ledger-first.html`.
+- Synthetic JSON only; no upstream proxy, production DB, broker credentials or auth store. Mutations denied. Unknown reads fail explicitly.
 
-Parent launched a provisional loopback-only GET-only fixture UI from the integrated build at `http://127.0.0.1:8794/`. It uses explicitly synthetic JSON and has no upstream proxy or production DB/broker/auth connection. Layout variants: `/demo/chart-first.html` and `/demo/ledger-first.html`. Child-owned preview servers were terminated with their agents and are not claimed available.
+The build and same server implementation were exercised in independent parent Chrome hierarchy tests on an ephemeral loopback port. Original older-preview smoke command was approval-blocked and never retried. Do not misstate that command as successful, or equate local browser testing with off-LAN/public access. No public preview listener is authorized. SSH forwarding can be used through existing authorized access; see `docs/improvement-preview-review.md`.
 
-A parent follow-up command to read preview responses was approval-blocked and did not execute. Do not present provisional launch as verified parent reachability or release acceptance. The preview is an early design review artifact, not financial/service correctness sign-off. No public access/firewall change is authorized. If remote access is needed, document an existing approved SSH tunnel rather than exposing a new public port.
+## Remaining gates
 
-## Remaining sign-off layers
+1. Finish independent security/code-quality review; address important defects before release readiness.
+2. Geoff tests preview and selects design; preserve human approval as real gate.
+3. Approved consistent actual-data snapshot/reconciliation without permission widening.
+4. Actual passkey/logout/remote-access and manual accessibility/true-device zoom checks.
+5. Installed narrow policy inspection and any correlated real broker run need separate authorization.
+6. Production release needs explicit approval, applicable backup/rollback and exact running-release read-back.
 
-1. Finish regression fixes; integrate exact tested commits.
-2. Independent original-spec re-review; fix important gaps.
-3. Independent security/code-quality review after spec passes.
-4. Parent full backend/frontend typecheck/test/build and baseline-aware lint/mypy gates.
-5. Isolated browser geometry/request/CLS, authenticated synthetic boundary, actual screenshots and visual inspection. Do not equate screenshot capture with inspection.
-6. Verified local preview access and concise user review checklist.
-7. Geoff tests/selects direction; real-data/privileged/broker/deployment approvals separately.
-
-This ledger is deliberately not a declaration that the plan is complete. It must be updated with exact observed results, not compressed into a smaller green session todo list.
+The overall plan is not complete: human/actual-data/live gates remain. Source-spec PASS is not code-quality approval, production readiness, or permission to deploy.
