@@ -77,6 +77,33 @@ function renderPanel(ui: React.ReactNode, perfOverride?: PerformanceSummary) {
 }
 
 describe("PerformancePanel", () => {
+  it('keeps essential caveats and unavailable reasons visible in compact mode, with expandable methodology',async()=>{
+    renderPanel(<PerformancePanel compact />, {...basePerf, metrics:{annualised_return_pct:{status:'unavailable',value:null,unit:'percent',method:'Dietz',start_date:null,end_date:null,observations:2,reasons:[{code:'short',message:'Custom annualisation unavailable.',action_href:null}]}}});
+    await screen.findByText('Performance');
+    expect(screen.getByText('Custom annualisation unavailable.')).toBeVisible();
+    expect(screen.getByText(/Carried-forward account valuations/)).toBeVisible();
+    expect(screen.getByText(/Trade-derived proxy flows/)).toBeVisible();
+    expect(screen.getByText(/Covered valuation dates/)).toHaveTextContent('2026-01-01');
+    expect(screen.getByText('Methodology and assumptions').closest('details')).not.toHaveAttribute('open');
+  });
+  it('offers exact dated drawdown observations without manufacturing daily samples',async()=>{
+    renderPanel(<PerformancePanel />);
+    await screen.findByText('Performance');
+    const table=screen.getByRole('table',{name:'Exact snapshot and drawdown observations'});
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(2);
+    expect(table).toHaveTextContent('2026-01-01');expect(table).toHaveTextContent('2026-02-01');
+    expect(table).not.toHaveTextContent('2026-01-02');
+    expect(screen.getByRole('columnheader',{name:'Drawdown (%)'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Inspect observation 2026-02-01'})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Inspect observation 2026-02-01'}));
+    expect(screen.getByRole('status')).toHaveTextContent('2026-02-01');
+  });
+  it('keeps sparse observations with missing drawdown explicitly unavailable rather than dropping or interpolating',async()=>{
+    renderPanel(<PerformancePanel />, {...basePerf,drawdown_curve:[basePerf.drawdown_curve[0]]});
+    await screen.findByText('Performance');const table=screen.getByRole('table',{name:'Exact snapshot and drawdown observations'});
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(2);
+    expect(table.querySelectorAll('tbody tr')[1]).toHaveTextContent('Unavailable');
+  });
   it("keys requests by shared period and account and hides old metrics while the next scope loads", async () => {
     const request = vi.spyOn(api, "getPerformance").mockResolvedValue(basePerf);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -97,7 +124,7 @@ describe("PerformancePanel", () => {
   it("honours unavailable metadata even when legacy payload contains curves and numbers", async () => {
     renderPanel(<PerformancePanel />, {
       ...basePerf,
-      metrics: { total_return_pct: {
+      metrics: { annualised_return_pct: {status:"unavailable",value:null,unit:"percent",method:"Dietz",start_date:null,end_date:null,observations:2,reasons:[{code:"short",message:"Separate annualisation reason.",action_href:null}]}, total_return_pct: {
         status: "unavailable", value: null, unit: "percent", method: "Chain-linked Dietz",
         start_date: "2026-01-01", end_date: "2026-02-01", observations: 2,
         reasons: [{ code: "invalid_return_chain", message: "A correction left an unusable interval.", action_href: null }],
@@ -105,8 +132,11 @@ describe("PerformancePanel", () => {
     });
     await screen.findByText("Performance");
     expect(screen.getAllByText("A correction left an unusable interval.").length).toBeGreaterThan(0);
+    expect(screen.getByText("Separate annualisation reason.")).toBeVisible();
     expect(screen.queryByRole("region", { name: "Snapshot performance chart" })).not.toBeInTheDocument();
     expect(screen.queryByText("Flow-adjusted drawdown")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/Show raw account value/i));
+    expect(screen.queryByRole("region", { name: "Snapshot performance chart" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
 
@@ -170,6 +200,10 @@ describe("PerformancePanel", () => {
     );
   });
 
+  it('preserves explicit invalid reasons even with no growth curve',async()=>{
+    renderPanel(<PerformancePanel compact />, {...basePerf,growth_curve:[],metrics:{total_return_pct:{status:'unavailable',value:null,unit:'percent',method:'Dietz',start_date:null,end_date:null,observations:0,reasons:[{code:'correction',message:'Correction invalidates the entire chain.',action_href:null}]}}});
+    expect(await screen.findByText('Correction invalidates the entire chain.')).toBeVisible();
+  });
   it("cash-flow regression: pure contribution keeps the flow-adjusted drawdown at 0", async () => {
     // Raw value doubles (100 -> 200) from a single contribution with no market
     // gain; the flow-adjusted index is flat, so the KPI max drawdown is 0 and

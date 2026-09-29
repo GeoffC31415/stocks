@@ -1,14 +1,15 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./layout/AppShell";
 import { LegacyRedirect } from "./routing";
-import { ActivityWorkspace } from "./routes/ActivityWorkspace";
-import { CGT } from "./routes/CGT";
-import { DataWorkspace } from "./routes/DataWorkspace";
-import { Help } from "./routes/Help";
-import { Security } from "./auth/Security";
+const ActivityWorkspace = lazy(() => import("./routes/ActivityWorkspace").then(module => ({default: module.ActivityWorkspace})));
+const CGT = lazy(() => import("./routes/CGT").then(module => ({default: module.CGT})));
+const DataWorkspace = lazy(() => import("./routes/DataWorkspace").then(module => ({default: module.DataWorkspace})));
+const Help = lazy(() => import("./routes/Help").then(module => ({default: module.Help})));
+const Security = lazy(() => import("./auth/Security").then(module => ({default: module.Security})));
 import { useAuth } from "./auth/AuthProvider";
-import { Overview } from "./routes/Overview";
-import { PortfolioWorkspace } from "./routes/PortfolioWorkspace";
+const Overview = lazy(() => import("./routes/Overview").then(module => ({default: module.Overview})));
+const PortfolioWorkspace = lazy(() => import("./routes/PortfolioWorkspace").then(module => ({default: module.PortfolioWorkspace})));
 
 function SecurityRoute() {
   const { session } = useAuth();
@@ -20,13 +21,13 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<AppShell />}>
-          <Route path="/" element={<Overview />} />
-          <Route path="/portfolio" element={<PortfolioWorkspace />} />
-          <Route path="/activity" element={<ActivityWorkspace />} />
-          <Route path="/tax" element={<CGT />} />
-          <Route path="/data" element={<DataWorkspace />} />
-          <Route path="/help" element={<Help />} />
-          <Route path="/security" element={<SecurityRoute />} />
+          <Route path="/" element={<Suspense fallback={<div role="status" aria-label="Loading workspace" className="min-h-[560px] animate-pulse rounded-2xl bg-white/[0.02] p-5">Loading workspace…</div>}><Overview /></Suspense>} />
+          <Route path="/portfolio" element={<Suspense fallback={<div role="status" aria-label="Loading workspace" className="min-h-[560px] animate-pulse rounded-2xl bg-white/[0.02] p-5">Loading workspace…</div>}><PortfolioWorkspace /></Suspense>} />
+          <Route path="/activity" element={<Suspense fallback={<div role="status" aria-label="Loading workspace" className="min-h-[560px] animate-pulse rounded-2xl bg-white/[0.02] p-5">Loading workspace…</div>}><ActivityWorkspace /></Suspense>} />
+          <Route path="/tax" element={<Suspense fallback={<div role="status" aria-label="Loading workspace" className="min-h-[560px] animate-pulse rounded-2xl bg-white/[0.02] p-5">Loading workspace…</div>}><CGT /></Suspense>} />
+          <Route path="/data" element={<Suspense fallback={<div role="status" aria-label="Loading workspace" className="min-h-[560px] animate-pulse rounded-2xl bg-white/[0.02] p-5">Loading workspace…</div>}><DataWorkspace /></Suspense>} />
+          <Route path="/help" element={<Suspense fallback={<div role="status" aria-label="Loading workspace" className="min-h-[560px] animate-pulse rounded-2xl bg-white/[0.02] p-5">Loading workspace…</div>}><Help /></Suspense>} />
+          <Route path="/security" element={<Suspense fallback={<div role="status" aria-label="Loading workspace" className="min-h-[560px] animate-pulse rounded-2xl bg-white/[0.02] p-5">Loading workspace…</div>}><SecurityRoute /></Suspense>} />
 
           <Route path="/holdings" element={<LegacyRedirect target="/portfolio" tab="holdings" />} />
           <Route path="/positions" element={<LegacyRedirect target="/portfolio" tab="returns" />} />

@@ -12,8 +12,9 @@ describe("MobileNav", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Mobile" })).toBeInTheDocument();
+    for(const link of screen.getAllByRole("link")) expect(link).toHaveClass("min-h-12", "min-w-0");
     expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual([
-      "Dashboard",
+      "Overview",
       "Portfolio",
       "Activity",
       "Tax",

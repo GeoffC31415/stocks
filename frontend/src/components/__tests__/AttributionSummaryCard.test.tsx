@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { SnapshotAttribution } from "../../lib/api";
 import { AttributionSummaryCard } from "../AttributionSummaryCard";
@@ -61,9 +61,19 @@ const attribution: SnapshotAttribution = {
 };
 
 describe("AttributionSummaryCard", () => {
+  it('separates compact latest change and comparison dates from expandable evidence',()=>{
+    render(<AttributionSummaryCard attribution={attribution} />);
+    expect(screen.getByText('Snapshot value change')).toBeVisible();
+    expect(screen.getByText('+£300')).toBeVisible();
+    const summary=screen.getByText('Attribution evidence');
+    expect(summary.closest('details')).not.toHaveAttribute('open');
+    expect(screen.getByRole('table')).not.toBeVisible();
+    fireEvent.click(summary);expect(screen.getByRole('table')).toBeInTheDocument();
+  });
   it("summarises boundaries, flows, DRIP, market movement and movers", () => {
     render(<AttributionSummaryCard attribution={attribution} />);
 
+    fireEvent.click(screen.getByText("Attribution evidence"));
     expect(screen.getByText("What changed")).toBeInTheDocument();
     expect(screen.getByRole("row", { name: "Opening value £1,000" })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: "Closing value £1,300" })).toBeInTheDocument();
@@ -92,6 +102,7 @@ describe("AttributionSummaryCard", () => {
         attribution={{ ...attribution, reconciliation_difference_gbp: 5 }}
       />,
     );
+    fireEvent.click(screen.getByText("Attribution evidence"));
     expect(screen.getByText("Reconciliation difference")).toBeInTheDocument();
     expect(screen.getByText(/Unreconciled difference £5/)).toBeInTheDocument();
   });

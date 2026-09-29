@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
@@ -5,6 +6,8 @@ import { TargetDriftPanel } from "../components/TargetDriftPanel";
 import { GroupsSection } from "../components/GroupsSection";
 
 export function Groups() {
+  const [params,setParams]=useSearchParams();
+  const groupSearch=params.get("group_q") ?? "";
   const instrumentsQ = useQuery({
     queryKey: ["instruments"],
     queryFn: () => api.getInstruments(),
@@ -13,6 +16,7 @@ export function Groups() {
 
   const instruments = instrumentsQ.data ?? [];
   const groups = groupsQ.data ?? [];
+  const shown=groups.filter(group=>group.name.toLowerCase().includes(groupSearch.trim().toLowerCase()));
 
   const byGroup = useMemo(() => {
     const grouped: Record<number, typeof instruments> = {};
@@ -24,6 +28,8 @@ export function Groups() {
     return grouped;
   }, [groups, instruments]);
 
+  if (instrumentsQ.isError || groupsQ.isError) return <div role="alert"><p>Unable to load groups. The editor is withheld to avoid editing incomplete memberships.</p><button type="button" onClick={()=>{void instrumentsQ.refetch();void groupsQ.refetch();}}>Retry groups</button></div>;
+  if (instrumentsQ.isPending || groupsQ.isPending) return <p role="status" className="min-h-64">Loading groups and memberships…</p>;
   return (
     <div className="space-y-5">
       <div className="flex items-baseline justify-between">
@@ -43,10 +49,18 @@ export function Groups() {
         </span>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3">
+        <input type="search" aria-label="Search groups" className="min-w-0 rounded bg-slate-900 p-2" value={groupSearch} onChange={event=>{const next=new URLSearchParams(params);next.set('group_q',event.target.value);setParams(next,{replace:true});}} />
+        {groupSearch && <><span className="chip chip-muted">Group search: {groupSearch}</span><button type="button" onClick={()=>{const next=new URLSearchParams(params);next.delete('group_q');setParams(next,{replace:true});}}>Clear group filter</button></>}
+        <p>{shown.length} shown / {groups.length} groups across all accounts</p>
+      </div>
+      {groups.length>0 && shown.length===0 && <p role="status">No groups match the active filter.</p>}
       <TargetDriftPanel />
       <p className="text-sm text-slate-300">Group editor below includes all accounts; target analysis above follows the selected account. Editing memberships changes descriptive tags only; no portfolio orders are created.</p>
+      {groups.length===0 && <p role="status">No groups yet. Create a group below.</p>}
       <GroupsSection
         groups={groups}
+        groupSearch={groupSearch}
         instruments={instruments}
         byGroup={byGroup}
       />

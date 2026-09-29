@@ -17,7 +17,7 @@ function Probe() {
     <button onClick={() => navigate(-1)}>Back</button>
     <button onClick={() => navigate(1)}>Forward</button>
     <Link to={scopedNavigationUrl("/activity?tab=orders", location.search)}>Orders</Link>
-    <WorkspaceTabs label="Views" tabs={[{ key: "holdings", label: "Holdings" }, { key: "income", label: "Income" }]} />
+    <WorkspaceTabs label="Views" tabs={location.pathname === "/activity" ? [{key:"orders",label:"Transactions"}] : [{ key: "holdings", label: "Holdings" }, { key: "income", label: "Income" }]} />
   </>;
 }
 

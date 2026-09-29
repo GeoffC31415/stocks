@@ -16,6 +16,9 @@ export function HoldingsTable({ instruments, selectedId, onSelect, scopeTotalVal
  const direction=(params.get('direction') ?? saved.direction)==='asc'?'asc':'desc';
  const classification=saved.classification===true;
  const filtered=filterHoldings(instruments,params);
+ const filterKeys=['q','group','category_dimension','category','instrument_ids','allocation_category'];
+ const chips=[params.get('q') ? `Search: ${params.get('q')}` : null, params.has('group') ? `Group: ${params.get('group')}` : null, params.has('category') ? `${params.get('category_dimension')}: ${params.get('category')}` : null, params.has('instrument_ids') ? `Instrument IDs: ${params.get('instrument_ids')}` : null, params.has('allocation_category') ? `Allocation: ${params.get('allocation_category')}` : null].filter(Boolean);
+ const clearFilters=()=>{const next=new URLSearchParams(params);filterKeys.forEach(key=>next.delete(key));setParams(next,{replace:true});};
  const invalidSort=params.getAll('sort').length>1 || params.getAll('direction').length>1 || (params.has('sort')&&!holdingSorts.includes(rawSort as HoldingSort)) || (params.has('direction')&&!['asc','desc'].includes(params.get('direction')!));
  const rows=invalidSort?[]:sortHoldings(filtered.rows,sort,direction);
  const error=filtered.error ?? (invalidSort?'Invalid holdings sort. Reset view to continue.':null);
@@ -26,9 +29,15 @@ export function HoldingsTable({ instruments, selectedId, onSelect, scopeTotalVal
   <div className="flex flex-wrap gap-3 p-4">
    <input type="search" aria-label="Search holdings" placeholder="Search ticker, name or identifier" className="min-w-0 rounded bg-slate-900 p-2" value={params.get('q') ?? ''} onChange={e=>{const next=new URLSearchParams(params);next.set('q',e.target.value);setParams(next,{replace:true});}}/>
    <label><input type="checkbox" checked={classification} onChange={e=>save({...saved,version:1,classification:e.target.checked})}/> Classification columns</label>
-   <button type="button" onClick={()=>{save({version:1});const next=new URLSearchParams(params);next.delete('sort');next.delete('direction');setParams(next,{replace:true});}}>Reset view</button>
+   <button type="button" onClick={()=>{save({version:1});const next=new URLSearchParams(params);next.delete('sort');next.delete('direction');setParams(next,{replace:true});}}>Reset columns and sort</button>
+  </div>
+  <div className="flex flex-wrap items-center gap-2 px-4 pb-3" aria-label="Active holdings filters">
+    {chips.map(chip=><span className="chip chip-muted" key={chip}>{chip}</span>)}
+    {chips.length>0 || filtered.error ? <button type="button" onClick={clearFilters}>Clear filters</button> : null}
+    <p className="text-sm text-slate-300">{rows.length} shown / {instruments.length} in account scope</p>
   </div>
   {error&&<p role="alert" className="p-4">{error}</p>}
+  {instruments.length>0 && (scopeTotalValue==null || !Number.isFinite(scopeTotalValue) || scopeTotalValue<=0) && <p className="px-4 pb-3 text-sm text-amber-200">Weights unavailable: account valuation is not available.</p>}
   <p className="px-4 text-xs text-slate-400">Weight uses the full account scope, including cash. Gain / loss is against book cost; recent change is value change since the previous snapshot, not investment return.</p>
   <p id="holdings-scroll-hint" className="px-4 py-2 text-xs text-slate-400">Scroll horizontally for all columns.</p>
   <div role="region" aria-label="Holdings table" aria-describedby="holdings-scroll-hint" tabIndex={0} className="h-[560px] max-w-full overflow-auto rounded-b-2xl">
@@ -41,10 +50,10 @@ export function HoldingsTable({ instruments, selectedId, onSelect, scopeTotalVal
      {!i.is_cash && targetDrift?.status==='available' && targetDrift.groups.filter(g=>g.instrument_ids.includes(i.id) && g.within_tolerance===false && [g.actual_value_gbp,g.actual_weight_pct,g.target_weight_pct,g.drift_pp,g.gap_gbp].every(v=>typeof v==='number'&&Number.isFinite(v))).map(g=><span key={g.group_id} aria-label={`${g.name} target drift`} className="block text-xs text-slate-400">{g.name}: gap {g.gap_gbp!>0?'+':''}{toGbp(g.gap_gbp)} · drift {g.drift_pp!>0?'+':''}{g.drift_pp!.toFixed(1)} pp</span>)}
     </td>
     <td className="px-4 py-3">{i.account_name}</td><td className="tabular px-4 py-3 text-right">{toGbp(i.latest_value_gbp)}</td>
-    <td className="tabular px-4 py-3 text-right">{scopeTotalValue!=null&&scopeTotalValue>0&&i.latest_value_gbp!=null?`${(i.latest_value_gbp/scopeTotalValue*100).toFixed(1)}%`:'—'}</td>
+    <td className="tabular px-4 py-3 text-right">{scopeTotalValue!=null&&Number.isFinite(scopeTotalValue)&&scopeTotalValue>0&&i.latest_value_gbp!=null&&Number.isFinite(i.latest_value_gbp)?`${(i.latest_value_gbp/scopeTotalValue*100).toFixed(1)}%`:'—'}</td>
     <td className="tabular px-4 py-3 text-right">{toGbp(i.pnl_gbp)}</td><td className="tabular px-4 py-3 text-right">{toGbp(i.delta_value_gbp_since_prev_snapshot)}</td>
     {classification&&<td>{[i.asset_class,i.sector,i.region].filter(Boolean).join(' · ')||'Unknown'}</td>}
-   </tr>)}{rows.length===0&&<tr><td colSpan={classification?7:6} className="p-6">No instruments match.</td></tr>}</tbody></table>
+   </tr>)}{rows.length===0&&<tr><td colSpan={classification?7:6} className="p-6">{error ? "Correct the invalid view to display holdings." : instruments.length===0 ? "No holdings in this account scope." : "No holdings match the active filters."}</td></tr>}</tbody></table>
   </div>
  </div>;
 }

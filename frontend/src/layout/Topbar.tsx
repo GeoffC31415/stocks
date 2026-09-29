@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { SyncEvidence } from "../components/SyncEvidence";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Calendar, Settings2, Upload } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -12,6 +13,7 @@ import { useAuth } from "../auth/AuthProvider";
 
 export function Topbar() {
   const navigate = useNavigate();
+  const syncQ = useQuery({queryKey:["syncStatus"],queryFn:api.getSyncStatus,retry:false});
   const location = useLocation();
   const { accountFilter, setAccountFilter } = usePreferences();
   const { period, setPeriod } = useAnalysisScope();
@@ -32,7 +34,8 @@ export function Topbar() {
 
   return (
     <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.05] bg-aurora-base/60 px-3 py-3 backdrop-blur-xl sm:px-6">
-      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+        {syncQ.data && <SyncEvidence report={syncQ.data.last_run ?? syncQ.data} compact />}
         <Calendar size={14} className="hidden text-slate-500 sm:block" />
         <span className="text-xs text-slate-400">
           {dateLabel ? `Snapshot valuation · ${dateLabel}` : summaryQ.isError ? "Valuation unavailable" : "No valuation in scope"}

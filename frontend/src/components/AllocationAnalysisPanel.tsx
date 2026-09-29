@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Layers3, ShieldAlert } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
+import { scopedNavigationUrl } from "../routing";
 import { holdingsLink } from "../lib/investigationLinks";
 import { api, type AllocationDimension, type AllocationGrouping } from "../lib/api";
 import { AllocationDonut } from "./AllocationDonut";
@@ -103,7 +104,7 @@ export function AllocationAnalysisPanel() {
           <p className="text-xs text-slate-300">
             {unclassified.count} holding{unclassified.count === 1 ? " is" : "s are"} unclassified ({unclassified.weightPct.toFixed(1)}% of value).
           </p>
-          <Link to="/data?tab=classifications" className="ml-auto text-xs font-medium text-amber-200 hover:text-amber-100">
+          <Link to={scopedNavigationUrl("/data?tab=classifications",search)} className="ml-auto text-xs font-medium text-amber-200 hover:text-amber-100">
             Complete classifications
           </Link>
         </div>

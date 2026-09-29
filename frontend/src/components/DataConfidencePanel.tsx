@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { api } from "../lib/api";
+import { SyncEvidence } from "./SyncEvidence";
 import { useQuery } from "@tanstack/react-query";
 import { dataQualityApi } from "../lib/dataQualityApi";
 import { formatOrderDate } from "../lib/formatters";
@@ -17,6 +19,7 @@ const dateLabel = (date: string | null) => date ? formatOrderDate(date) : "Not r
 
 export function DataConfidencePanel({ compact = false }: { compact?: boolean }) {
   const { accountFilter } = usePreferences();
+  const syncQ = useQuery({queryKey:["syncStatus"],queryFn:api.getSyncStatus,retry:false});
   const { period } = useAnalysisScope();
   const [staleDays, setStaleDays] = useState(storedTolerance);
   const account = accountFilter === "all" ? undefined : accountFilter;
@@ -27,6 +30,7 @@ export function DataConfidencePanel({ compact = false }: { compact?: boolean }) 
   const reminders = data?.attention.filter((item) => item.severity !== "critical") ?? [];
   return <section className="surface-card min-w-0 space-y-3 p-4 [overflow-wrap:anywhere] sm:p-5" aria-label="Data confidence">
     <h2 className="text-base font-semibold">Data confidence</h2>
+    {syncQ.data ? <SyncEvidence report={syncQ.data.last_run ?? syncQ.data} compact={compact} /> : <p className="text-xs text-slate-400">Refresh evidence {syncQ.isError ? "unavailable" : "loading"}; valuation and coverage checks remain separate.</p>}
     {query.isLoading ? <p role="status" className="text-sm text-slate-400">Checking recorded data…</p>
       : query.isError ? <AnalysisStatus kind="error" title="Unable to check data confidence." onRetry={() => void query.refetch()} />
       : data && <>

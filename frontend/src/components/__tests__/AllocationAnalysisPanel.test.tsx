@@ -21,7 +21,7 @@ const payload: AllocationResponse = {
 };
 function setup(account = "all") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
-  const ui = (accountFilter: string) => <QueryClientProvider client={client}><MemoryRouter><PreferencesContext.Provider value={{ accountFilter, setAccountFilter: vi.fn(), dripThreshold: 1, setDripThreshold: vi.fn() }}><AllocationAnalysisPanel /></PreferencesContext.Provider></MemoryRouter></QueryClientProvider>;
+  const ui = (accountFilter: string) => <QueryClientProvider client={client}><MemoryRouter initialEntries={["/?account=ISA&period=1Y"]}><PreferencesContext.Provider value={{ accountFilter, setAccountFilter: vi.fn(), dripThreshold: 1, setDripThreshold: vi.fn() }}><AllocationAnalysisPanel /></PreferencesContext.Provider></MemoryRouter></QueryClientProvider>;
   const view = render(ui(account));
   return { ...view, changeAccount: (value: string) => view.rerender(ui(value)) };
 }
@@ -97,7 +97,7 @@ describe("AllocationAnalysisPanel", () => {
     expect(screen.getByText(/Cash excluded in all dimensions/)).toBeInTheDocument();
     expect(screen.getByText(/1 of 2 holdings.*50.0%/)).toBeInTheDocument();
     expect(screen.getByText(/£800 of £1,000.*80.0%/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Complete classifications" })).toHaveAttribute("href", "/data?tab=classifications");
+    expect(screen.getByRole("link", { name: "Complete classifications" })).toHaveAttribute("href", "/data?account=ISA&period=1Y&tab=classifications");
     expect(screen.getAllByText("6800")).toHaveLength(1); // one HHI headline, not a duplicate donut metric
   });
 });

@@ -81,8 +81,8 @@ describe("ImportPanel Trading 212 sync", () => {
     expect(invalidate).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Sync Trading 212" })).not.toBeInTheDocument();
     expect(screen.queryByText(/credentials to .env/)).not.toBeInTheDocument();
-    finish({ state: "completed", request_id: "new-run", last_run: { started_at: "2026-09-23T12:00:00Z", finished_at: "2026-09-23T12:01:00Z", ok: true, steps: [], files: [] } });
-    expect(await screen.findByText("Sync complete.")).toBeInTheDocument();
+    finish({ state: "completed", request_id: "new-run", last_run: { started_at: "2026-09-23T12:00:00Z", finished_at: "2026-09-23T12:01:00Z", ok: true, steps: [], files: [], outcome: "partial" } });
+    expect(await screen.findByText("Refresh outcome: partial")).not.toHaveClass("text-pos");
     await waitFor(() => expect(invalidate).toHaveBeenCalledOnce());
   });
 

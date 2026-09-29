@@ -30,7 +30,7 @@ type TimeseriesPoint = {
   total_book_cost_gbp: number;
 };
 
-type ChartTab = "estimated" | "deployment" | "value";
+export type ChartTab = "estimated" | "deployment" | "value";
 
 const TABS: { key: ChartTab; label: string }[] = [
   { key: "estimated", label: "Current-price reconstruction" },
@@ -42,12 +42,13 @@ export function ChartPanel({
   cashflow,
   timeseries,
   estimatedTimeseries,
-  hasOrders,
+  hasOrders, view, onViewChange, unavailable = false,
 }: {
   cashflow: CashflowPoint[];
   timeseries: TimeseriesPoint[];
   estimatedTimeseries: EstimatedTimeseriesPoint[];
   hasOrders: boolean;
+  view?: ChartTab; onViewChange?: (view: ChartTab) => void; unavailable?: boolean;
 }) {
   const [tab, setTab] = useState<ChartTab>("value");
 
@@ -80,7 +81,7 @@ export function ChartPanel({
     [timeseries],
   );
 
-  const activeTab: ChartTab = hasOrders ? tab : "value";
+  const activeTab: ChartTab = view ?? (hasOrders ? tab : "value");
 
   const axisStyle = { fontSize: 12, fill: chartTheme.axis };
 
@@ -144,7 +145,7 @@ export function ChartPanel({
                 <button
                   key={t.key}
                   type="button"
-                  onClick={() => setTab(t.key)}
+                  onClick={() => {setTab(t.key);onViewChange?.(t.key);}}
                   aria-pressed={isActive}
                   className={`relative min-h-9 max-w-full rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors ${
                     isActive ? "text-white" : "text-slate-400 hover:text-slate-200"
@@ -165,7 +166,7 @@ export function ChartPanel({
         )}
       </div>
 
-      {(activeTab === "estimated" ? mergedEstimated : activeTab === "deployment" ? cashflowWithTime : timeseriesWithTime).length === 0
+      {unavailable ? <div className="mt-4 h-72" aria-label="History chart unavailable" /> : (activeTab === "estimated" ? mergedEstimated : activeTab === "deployment" ? cashflowWithTime : timeseriesWithTime).length === 0
         ? <p role="status" className="mt-4 text-sm text-slate-400">No recorded observations for this view.</p>
         : <div className="mt-4 h-72">
         <ResponsiveContainer width="100%" height="100%">

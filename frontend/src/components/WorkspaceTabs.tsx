@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 
 export type WorkspaceTab = {
@@ -16,7 +17,13 @@ export function WorkspaceTabs({
   param?: string;
 }) {
   const [params, setParams] = useSearchParams();
-  const selected = params.get(param) ?? tabs[0]?.key;
+  const raw = params.get(param);
+  const selected = tabs.some(tab => tab.key === raw) ? raw : tabs[0]?.key;
+  useEffect(() => {
+    if (raw != null && (raw !== selected || params.getAll(param).length > 1) && selected) {
+      const next = new URLSearchParams(params); next.set(param, selected); setParams(next, {replace: true});
+    }
+  }, [raw, selected, params, param, setParams]);
 
   const select = (key: string) => {
     const next = new URLSearchParams(params);
@@ -37,6 +44,9 @@ export function WorkspaceTabs({
             key={tab.key}
             type="button"
             role="tab"
+            id={`workspace-tab-${tab.key}`}
+            aria-controls="workspace-panel"
+            tabIndex={active ? 0 : -1}
             aria-selected={active}
             onClick={() => select(tab.key)}
             onFocus={(event) => event.currentTarget.scrollIntoView?.({ block: "nearest", inline: "nearest" })}

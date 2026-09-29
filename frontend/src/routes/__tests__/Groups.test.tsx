@@ -1,0 +1,13 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { beforeEach, expect, it, vi } from 'vitest';
+import { api } from '../../lib/api';
+import { Groups } from '../Groups';
+vi.mock('../../components/TargetDriftPanel',()=>({TargetDriftPanel:()=>null}));
+vi.mock('../../components/GroupsSection',()=>({GroupsSection:()=> <p>Group editor ready</p>}));
+const show=(url="/")=>render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={[url]}><Groups /></MemoryRouter></QueryClientProvider>);
+beforeEach(()=>{vi.restoreAllMocks();vi.spyOn(api,'getGroups').mockResolvedValue([]);vi.spyOn(api,'getInstruments').mockResolvedValue([]);});
+it('distinguishes filtered-empty groups with scope-preserving clear',async()=>{vi.mocked(api.getGroups).mockResolvedValue([{id:1,name:'Core'}] as any);show('/?group_q=Absent&account=ISA&period=1Y');expect(await screen.findByText('No groups match the active filter.')).toBeInTheDocument();expect(screen.getByText('0 shown / 1 groups across all accounts')).toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'Clear group filter'}));expect(screen.getByText('1 shown / 1 groups across all accounts')).toBeInTheDocument();});
+it('keeps a pending group query distinct from empty groups',()=>{vi.mocked(api.getGroups).mockImplementation(()=>new Promise(()=>{}));show();expect(screen.getByRole('status')).toHaveTextContent('Loading groups');expect(screen.queryByText('Group editor ready')).not.toBeInTheDocument();});
+it('retries errors without mounting an empty editor',async()=>{vi.mocked(api.getInstruments).mockRejectedValueOnce(new Error('offline'));show();expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load groups');expect(screen.queryByText('Group editor ready')).not.toBeInTheDocument();fireEvent.click(screen.getByRole('button',{name:'Retry groups'}));expect(await screen.findByText('No groups yet. Create a group below.')).toBeInTheDocument();});

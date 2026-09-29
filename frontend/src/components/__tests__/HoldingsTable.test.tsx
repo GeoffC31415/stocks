@@ -18,6 +18,11 @@ it.each([undefined,target(100,true),target(100,null),target(100,false,'unavailab
  render(<MemoryRouter><HoldingsTable instruments={rows} groups={[]} selectedId={null} onSelect={()=>{}} targetDrift={targetDrift}/></MemoryRouter>);
  expect(screen.queryByLabelText('Core target drift')).not.toBeInTheDocument();
 });
+it('does not manufacture a weight from an invalid valuation denominator',()=>{
+ render(<MemoryRouter><HoldingsTable instruments={rows} groups={[]} selectedId={null} onSelect={()=>{}} scopeTotalValue={Infinity}/></MemoryRouter>);
+ expect(screen.getByText('Weights unavailable: account valuation is not available.')).toBeInTheDocument();
+ expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
+});
 it('right aligns accessible numeric headers and cells',()=>{
  render(<MemoryRouter><HoldingsTable instruments={rows} groups={[]} selectedId={null} onSelect={()=>{}} /></MemoryRouter>);
  for(const name of ['Value','Weight','Gain / loss','Recent change'])expect(screen.getByRole('columnheader',{name})).toHaveClass('text-right');
@@ -33,11 +38,26 @@ it('shows scoped weight and accessible selection with source search and sort hea
  fireEvent.click(screen.getByRole('button',{name:'View AAA in ISA'})); expect(select).toHaveBeenCalledWith(1);
  fireEvent.change(screen.getByRole('searchbox'),{target:{value:'source-id'}}); expect(screen.getByText('10.0%')).toBeInTheDocument();
 });
+it('shows filter chips, scoped counts and clears filters independently of view and scope',()=>{
+ render(<MemoryRouter initialEntries={['/?q=absent&group=2&category_dimension=sector&category=Tech&instrument_ids=1&account=ISA&period=1Y&sort=pnl']}><HoldingsTable instruments={rows} groups={[]} selectedId={null} onSelect={()=>{}} /></MemoryRouter>);
+ expect(screen.getByText('0 shown / 1 in account scope')).toBeInTheDocument();
+ for(const text of ['Search: absent','Group: 2','sector: Tech','Instrument IDs: 1'])expect(screen.getByText(text)).toBeInTheDocument();
+ expect(screen.getByText('No holdings match the active filters.')).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'Clear filters'}));
+ expect(screen.getByText('1 shown / 1 in account scope')).toBeInTheDocument();
+ expect(screen.getByRole('columnheader',{name:'Gain / loss'})).toHaveAttribute('aria-sort','descending');
+});
+it('distinguishes an empty account from unavailable weights',()=>{
+ const view=render(<MemoryRouter><HoldingsTable instruments={[]} groups={[]} selectedId={null} onSelect={()=>{}} /></MemoryRouter>);
+ expect(screen.getByText('No holdings in this account scope.')).toBeInTheDocument();
+ view.rerender(<MemoryRouter><HoldingsTable instruments={rows} groups={[]} selectedId={null} onSelect={()=>{}} /></MemoryRouter>);
+ expect(screen.getByText('Weights unavailable: account valuation is not available.')).toBeInTheDocument();
+});
 it('uses URL sorting over saved preferences and resets optional columns',()=>{
  localStorage.setItem('holdings-view-v1',JSON.stringify({version:1,sort:'pnl',direction:'asc',classification:true}));
  render(<MemoryRouter initialEntries={['/?sort=value&direction=desc']}><HoldingsTable instruments={rows} groups={[]} selectedId={null} onSelect={()=>{}} /></MemoryRouter>);
  expect(screen.getByRole('columnheader',{name:'Value'})).toHaveAttribute('aria-sort','descending');
  expect(screen.getByRole('checkbox',{name:'Classification columns'})).toBeChecked();
- fireEvent.click(screen.getByRole('button',{name:'Reset view'}));
+ fireEvent.click(screen.getByRole('button',{name:'Reset columns and sort'}));
  expect(screen.getByRole('checkbox',{name:'Classification columns'})).not.toBeChecked();
 });

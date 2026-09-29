@@ -1,0 +1,10 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, expect, it, vi } from 'vitest';
+import { api } from '../../lib/api';
+import { HistoryViews } from '../HistoryViews';
+vi.mock('../ChartPanel',()=>({ChartPanel:({view,onViewChange,timeseries}:any)=><><button onClick={()=>onViewChange('value')}>Snapshot history</button><button onClick={()=>onViewChange('estimated')}>Current-price reconstruction</button><button onClick={()=>onViewChange('deployment')}>Capital deployment</button><p>{view} observations: {timeseries.length}</p></>}));
+const show=()=>render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><HistoryViews account="ISA" dripThreshold={100}/></QueryClientProvider>);
+beforeEach(()=>{vi.restoreAllMocks();vi.spyOn(api,'getTimeseries').mockResolvedValue([{as_of_date:'2026-01-01',total_value_gbp:100,total_book_cost_gbp:90}]);vi.spyOn(api,'getOrderAnalytics').mockRejectedValue(new Error('offline'));vi.spyOn(api,'getCashflowTimeseries').mockRejectedValue(new Error('offline'));vi.spyOn(api,'getEstimatedTimeseries').mockRejectedValue(new Error('offline'));});
+it('loads raw snapshots without issuing unused order or reconstruction requests',async()=>{show();expect(await screen.findByText('value observations: 1')).toBeInTheDocument();expect(api.getOrderAnalytics).not.toHaveBeenCalled();expect(api.getCashflowTimeseries).not.toHaveBeenCalled();expect(api.getEstimatedTimeseries).not.toHaveBeenCalled();});
+it('keeps failed reconstruction independent and recovers raw history on selection',async()=>{show();await screen.findByText('value observations: 1');fireEvent.click(screen.getByRole('button',{name:'Current-price reconstruction'}));expect(await screen.findByRole('alert')).toHaveTextContent('Unable to load Current-price reconstruction');fireEvent.click(screen.getByRole('button',{name:'Snapshot history'}));expect(await screen.findByText('value observations: 1')).toBeInTheDocument();});

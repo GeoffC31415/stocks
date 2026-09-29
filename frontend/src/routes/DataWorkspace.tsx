@@ -16,11 +16,12 @@ const TABS = [
 
 export function DataWorkspace() {
   const [params] = useSearchParams();
-  const tab = params.get("tab") ?? "import";
+  const tab = TABS.some(t => t.key === params.get("tab")) ? params.get("tab")! : "import";
 
   return (
     <div className="space-y-5">
       <WorkspaceTabs label="Data views" tabs={TABS} />
+      <div role="tabpanel" id="workspace-panel" aria-labelledby={`workspace-tab-${tab}`} tabIndex={0} className="space-y-5">
       {(tab === "matching" || tab === "classifications") && <p className="text-xs text-slate-400">This repair queue includes all accounts. Check the source account before changing a record.</p>}
       {tab === "confidence" ? <DataConfidencePanel /> : tab === "settings" ? <AnalysisSettings /> : tab === "matching" ? (
         <MatchingWorkspace />
@@ -29,6 +30,7 @@ export function DataWorkspace() {
       ) : (
         <ImportPage />
       )}
+      </div>
     </div>
   );
 }

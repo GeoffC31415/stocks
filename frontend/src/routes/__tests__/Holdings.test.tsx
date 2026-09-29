@@ -61,6 +61,23 @@ it('reports history and orders failure independently with retries',async()=>{
  fireEvent.click(screen.getByRole('button',{name:'Retry history'}));await waitFor(()=>expect(api.getInstrumentHistory).toHaveBeenCalledTimes(2));
 });
 
+it('does not present pending holdings as an empty table',()=>{
+ vi.mocked(api.getInstruments).mockImplementation(()=>new Promise(()=>{})); show('/');
+ expect(screen.getByText('Loading holdings…')).toHaveAttribute('role','status');
+ expect(screen.queryByRole('region',{name:'Holdings table'})).not.toBeInTheDocument();
+});
+it('retries instrument failure instead of displaying an empty account',async()=>{
+ vi.mocked(api.getInstruments).mockRejectedValueOnce(new Error('offline')); show('/');
+ expect(await screen.findByRole('button',{name:'Retry holdings'})).toBeInTheDocument();
+ expect(screen.queryByText('No holdings in this account scope.')).not.toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'Retry holdings'}));
+ expect(await screen.findByRole('button',{name:'View AAA in ISA'})).toBeInTheDocument();
+});
+it('uses full width when no deliberate selection is active',async()=>{
+ show('/'); await screen.findByRole('button',{name:'View AAA in ISA'});
+ expect(screen.getByTestId('holdings-layout')).not.toHaveClass('lg:grid-cols-5');
+ expect(screen.queryByText(/Select an instrument/)).not.toBeInTheDocument();
+});
 it('connects authoritative target drift and matching order navigation',async()=>{
  show('/?inst=1&period=1Y&from=2&to=4');
  expect(await screen.findByText(/Core.*gap/)).toBeInTheDocument();

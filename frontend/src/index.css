@@ -197,6 +197,19 @@ select option:disabled {
   }
 }
 
+/* Shared density and touch contracts, independent of legacy utility sizes. */
+#root button, #root select, #root summary, #root input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), #root a { min-height: 44px; }
+#root button, #root nav a { min-width: 44px; }
+#root nav a { display: flex; align-items: center; }
+summary { cursor: pointer; padding-block: 0.65rem; }
+table th, table td { font-variant-numeric: tabular-nums; }
+@media (max-width: 639px) {
+  a { min-height: 44px; }
+  nav a { min-width: 44px; }
+  label:has(input[type="checkbox"]) { display: flex; align-items: center; min-height: 44px; }
+  input[type="search"], select { max-width: 100%; min-width: 0; }
+  h1 { line-height: 1.2; }
+}
 :focus-visible {
   outline: 2px solid #67e8f9;
   outline-offset: 3px;

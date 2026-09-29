@@ -182,6 +182,11 @@ it('keeps the portfolio locked with a retry warning when server logout fails', a
   expect(screen.queryByText('Private portfolio')).not.toBeInTheDocument();
 });
 it('recovers only through an explicit memory-only token form and clears the token on failure and completion', async () => {
+  const storage = document.createElement('iframe'); document.body.appendChild(storage);
+  const local = storage.contentWindow!.localStorage;
+  const session = storage.contentWindow!.sessionStorage;
+  const localWrite = vi.spyOn(local, 'setItem'); const sessionWrite = vi.spyOn(session, 'setItem');
+  vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session);
   transport.mockResolvedValueOnce(json(signedOut));
   mount(); fireEvent.click(await screen.findByRole('button', {name:'Recover access'}));
   expect(screen.getByText(/one-time recovery file from the local administrator/)).toBeInTheDocument();
@@ -203,7 +208,13 @@ it('recovers only through an explicit memory-only token form and clears the toke
   expect(startRegistration).toHaveBeenCalledWith({optionsJSON:{challenge:'recovery'}});
   expect(transport.mock.calls.some(c => c[0]==='/api/auth/register/verify' && c[1]?.body===JSON.stringify({ceremony_id:'recover',credential:{id:'replacement'}}))).toBe(true);
   expect(window.location.href).not.toContain('synthetic-');
-  expect(JSON.stringify(window.localStorage)).not.toContain('synthetic-');
+  for (const store of [local, session]) {
+    const entries = Array.from({length: store.length}, (_, index) => {const key=store.key(index)!; return [key,store.getItem(key)];});
+    expect(JSON.stringify(entries)).not.toContain('synthetic-');
+  }
+  expect(JSON.stringify(localWrite.mock.calls)).not.toContain('synthetic-');
+  expect(JSON.stringify(sessionWrite.mock.calls)).not.toContain('synthetic-');
+  localWrite.mockRestore(); sessionWrite.mockRestore(); storage.remove();
 });
 it('clears recovery input when leaving the form', async () => {
   transport.mockResolvedValueOnce(json(signedOut)); mount();

@@ -7,6 +7,7 @@ import {
   formatSnapshotDateIso,
   snapshotDateIsoFromFile,
 } from "../lib/api";
+import { SyncEvidence } from "./SyncEvidence";
 import { toGbp } from "../lib/formatters";
 import { usePreferences } from "../state/usePreferences";
 import { SegmentedControl, type Segment } from "./SegmentedControl";
@@ -278,6 +279,7 @@ export function ImportPanel() {
 
         </div>
       )}
+      {syncStatus && <SyncEvidence report={syncStatus.last_run ?? syncStatus} />}
       <section aria-labelledby="sync-all-heading" className="mt-5 border-t border-white/[0.06] pt-4">
         <h3 id="sync-all-heading" className="text-sm font-medium text-slate-200">Sync all accounts</h3>
         <p className="my-2 text-xs text-slate-400">
@@ -315,7 +317,7 @@ export function ImportPanel() {
         </button>
         )}
         {servicePending && <p role="status" className="mt-2 text-xs text-slate-400">Request accepted; waiting for the service to finish.</p>}
-        {serviceRequest?.state === "completed" && <p role="status" className="mt-2 text-xs text-pos">Sync complete.</p>}
+        {serviceRequest?.state === "completed" && <div role="status" className="mt-2"><SyncEvidence report={serviceRequest.last_run} /></div>}
         {serviceRequest && ["failed", "unknown", "busy", "disabled", "inactive"].includes(serviceRequest.state) && <p role="alert" className="mt-2 text-xs text-neg">
           {serviceRequest.state === "failed" ? "Sync failed or needs attention. Check the service logs." : "Sync status is unknown or unavailable. Check again later; the service may still be running."}
         </p>}
@@ -325,7 +327,7 @@ export function ImportPanel() {
             {syncAll.data.steps.map((step) => (
               <li key={step.name} className={
                 step.status === "failed" || step.status === "needs_attention" ? "text-neg"
-                  : step.status === "ok" ? "text-pos" : "text-slate-400"}>
+                  : "text-slate-400"}>
                 {step.name}: {step.status.replace("_", " ")}{step.detail ? ` — ${step.detail}` : ""}
               </li>
             ))}
@@ -350,7 +352,7 @@ export function ImportPanel() {
         {trading212Status && !trading212Status.configured && (
           <p className="mt-1 text-xs text-amber-400">Add the Trading 212 credentials to .env to enable sync.</p>
         )}
-        {syncTrading212.isSuccess && <p role="status" className="mt-2 text-xs text-pos">
+        {syncTrading212.isSuccess && <p role="status" className="mt-2 text-xs text-slate-300">
           Snapshot: {syncTrading212.data.snapshot}; orders: {syncTrading212.data.orders};
           cash: {syncTrading212.data.cash_flows_imported} new / {syncTrading212.data.cash_flows_total} total.
           Re-syncing is safe and does not duplicate records.

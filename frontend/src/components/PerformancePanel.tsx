@@ -87,6 +87,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
   // Raw account value is an optional overlay, off by default, so the primary
   // line (flow-adjusted) cannot be mistaken for investment return.
   const [showRaw, setShowRaw] = useState(false);
+  const [inspectedDate, setInspectedDate] = useState<string | null>(null);
   const [chartWidth, setChartWidth] = useState(320);
 
   const perfQ = useQuery({
@@ -178,8 +179,10 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
   if (!perf || perf.growth_curve.length === 0) {
     return (
       <div className="glass rounded-2xl p-5 text-sm text-slate-400">
-        Not enough snapshot history yet to calculate performance. Import a couple
-        more snapshots to unlock growth and risk metrics.
+        <p>Not enough snapshot history yet to calculate performance. Import a couple more snapshots to unlock growth and risk metrics.</p>
+        {perf && <AnalysisStatus kind="unavailable" title="Performance calculations unavailable."
+          reasons={Object.values(perf.metrics ?? {}).flatMap(metric=>metric.reasons)} />}
+        {perf?.scope?.warnings.map(warning=><p key={warning}>{warning}</p>)}
       </div>
     );
   }
@@ -192,7 +195,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
   // Missing flow-adjusted metrics must never be replaced with raw account returns.
   const metric = (key: PerformanceMetricKey) => performanceMetric(perf, key);
   const value = (key: PerformanceMetricKey) => chainAvailable && metric(key).status === "available" ? metric(key).value : null;
-  const reasons = (key: PerformanceMetricKey) => !chainAvailable ? chainMetric?.reasons ?? [] : metric(key).reasons;
+  const reasons = (key: PerformanceMetricKey) => !chainAvailable ? Array.from(new Map([...(chainMetric?.reasons ?? []), ...metric(key).reasons].map(reason=>[reason.code+reason.message,reason])).values()) : metric(key).reasons;
   const headlineReturn = value("total_return_pct");
   const headlineAnn = value("annualised_return_pct");
   const headlineVol = value("annualised_volatility_pct");
@@ -200,6 +203,12 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
   const headlineSortino = value("sortino_ratio");
   const headlineDrawdown = value("max_drawdown_pct");
 
+  const observationDates = Array.from(new Set([
+    ...perf.growth_curve.map(row=>row.as_of_date),
+    ...(perf.flow_adjusted_curve??[]).map(row=>row.date),
+    ...(perf.drawdown_curve??[]).map(row=>row.date),
+  ])).filter(date => (focusStart==null || chartUtcMs(date)>=focusStart) && (focusEnd==null || chartUtcMs(date)<=focusEnd)).sort();
+  const exactNumber=(value:number|null|undefined)=>value!=null&&Number.isFinite(value)?String(value):'Unavailable';
   const windowLabel =
     perf.period_start && perf.period_end
       ? `${perf.period_start} → ${perf.period_end}`
@@ -250,72 +259,17 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
           reasons={chainMetric?.reasons} />}
         {perf.scope?.warnings.map((warning) => <p key={warning} className="text-sm text-amber-200">{warning}</p>)}
         {(flow?.notes ?? []).filter((note) => note !== "flow-adjusted").map((note) => <p key={note} className="text-xs text-slate-300">{note}</p>)}
-        <p className="text-xs text-slate-400">{flow?.method ?? "Chain-linked interval Modified Dietz"} · {perf.growth_curve.length} snapshot observations · {windowLabel}. Risk-free assumption: {perf.risk_free_annual_pct}%.</p>
+        <p className="text-xs text-slate-400">Covered valuation dates: {windowLabel} · {perf.growth_curve.length} sparse snapshot observations, not daily measurements.</p>
+        <p className="text-xs text-amber-200">Carried-forward account valuations may mask changes between snapshots. Trade-derived proxy flows are assumptions, not confirmed deposits or withdrawals; synced external flows are used where available.</p>
+        {compact && Array.from(new Map((["total_return_pct","annualised_return_pct","annualised_volatility_pct","sharpe_ratio","sortino_ratio","max_drawdown_pct"] as PerformanceMetricKey[]).flatMap(key=>metric(key).reasons).map(reason=>[reason.code+reason.message,reason])).values()).map(reason=><p className="text-xs text-amber-200" key={reason.code+reason.message}>{reason.message}</p>)}
+        <details className="text-sm text-slate-400"><summary className="cursor-pointer">Methodology and assumptions</summary><p>{flow?.method ?? "Chain-linked interval Modified Dietz"}. Risk-free assumption: {perf.risk_free_annual_pct}%.</p><p>Interval returns link recorded valuations; lines connect observations only and do not measure the intervening daily path. Risk metrics use irregular recorded intervals.</p></details>
       </div>
-      {!compact && <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <MetricTile
-          infoKey="totalReturn" context={windowLabel}
-          label="Snapshot investment return"
-          value={fmtPct(headlineReturn)}
-          reasons={reasons("total_return_pct")}
-          sub={
-            flow && perf.total_return_pct != null
-              ? `raw ${fmtPct(perf.total_return_pct)}`
-              : `£${Math.round(perf.start_value_gbp ?? 0).toLocaleString()} → £${Math.round(perf.end_value_gbp ?? 0).toLocaleString()}`
-          }
-          tone={sign(headlineReturn)}
-        />
-        <MetricTile
-          infoKey="annualised" context={windowLabel}
-          label="Annualised"
-          value={fmtPct(headlineAnn)}
-          reasons={reasons("annualised_return_pct")}
-          sub="CAGR over window"
-          tone={sign(headlineAnn)}
-        />
-        <MetricTile
-          infoKey="volatility" context={windowLabel}
-          label="Volatility"
-          value={fmtPct(headlineVol)}
-          reasons={reasons("annualised_volatility_pct")}
-          sub="Annualised std. dev."
-          tone="muted"
-        />
-        <MetricTile
-          infoKey="sharpe" context={`${windowLabel} · risk-free assumption ${perf.risk_free_annual_pct}%`}
-          label="Sharpe"
-          value={fmtRatio(headlineSharpe)}
-          reasons={reasons("sharpe_ratio")}
-          sub={`Risk-free assumption ${perf.risk_free_annual_pct}%`}
-          tone={sign(headlineSharpe)}
-        />
-        <MetricTile
-          infoKey="sortino" context={`${windowLabel} · risk-free assumption ${perf.risk_free_annual_pct}%`}
-          label="Sortino"
-          value={fmtRatio(headlineSortino)}
-          reasons={reasons("sortino_ratio")}
-          sub="Downside-adjusted"
-          tone={sign(headlineSortino)}
-        />
-        <MetricTile
-          infoKey="maxDrawdown" context={windowLabel}
-          label="Max drawdown"
-          value={fmtPct(headlineDrawdown)}
-          reasons={reasons("max_drawdown_pct")}
-          sub={
-            perf.max_drawdown_raw_pct != null
-              ? `flow-adjusted · raw ${fmtPct(perf.max_drawdown_raw_pct)}`
-              : "flow-adjusted, peak to trough"
-          }
-          tone={sign(headlineDrawdown)}
-        />
-      </div>}
-
       {!compact && <div className="mt-4 flex items-center gap-2">
         <label className="flex cursor-pointer items-center gap-2 text-[11px] text-slate-400">
           <input
             type="checkbox"
-            checked={showRaw}
+            checked={showRaw && chainAvailable}
+            disabled={!chainAvailable}
             onChange={(e) => setShowRaw(e.target.checked)}
             className="h-3.5 w-3.5 accent-cyan-400"
           />
@@ -323,7 +277,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         </label>
       </div>}
 
-      {(chainAvailable || showRaw) && <div id="performance-chart" role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
+      {chainAvailable && <div id="performance-chart" role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
         <ResponsiveContainer width="100%" height="100%" onResize={(width) => setChartWidth(width)}>
           <AreaChart data={chartData.rows} margin={{ top: onEventDateSelect && markers.length ? 56 : 5, right: 5, bottom: 5, left: 5 }}>
             <defs>
@@ -461,6 +415,73 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         </div>
       ) : null}
 
+      {!compact && <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <MetricTile
+          infoKey="totalReturn" context={windowLabel}
+          label="Snapshot investment return"
+          value={fmtPct(headlineReturn)}
+          reasons={reasons("total_return_pct")}
+          sub={
+            flow && perf.total_return_pct != null
+              ? `raw ${fmtPct(perf.total_return_pct)}`
+              : `£${Math.round(perf.start_value_gbp ?? 0).toLocaleString()} → £${Math.round(perf.end_value_gbp ?? 0).toLocaleString()}`
+          }
+          tone={sign(headlineReturn)}
+        />
+        <MetricTile
+          infoKey="annualised" context={windowLabel}
+          label="Annualised"
+          value={fmtPct(headlineAnn)}
+          reasons={reasons("annualised_return_pct")}
+          sub="CAGR over window"
+          tone={sign(headlineAnn)}
+        />
+        <MetricTile
+          infoKey="volatility" context={windowLabel}
+          label="Volatility"
+          value={fmtPct(headlineVol)}
+          reasons={reasons("annualised_volatility_pct")}
+          sub="Annualised std. dev."
+          tone="muted"
+        />
+        <MetricTile
+          infoKey="sharpe" context={`${windowLabel} · risk-free assumption ${perf.risk_free_annual_pct}%`}
+          label="Sharpe"
+          value={fmtRatio(headlineSharpe)}
+          reasons={reasons("sharpe_ratio")}
+          sub={`Risk-free assumption ${perf.risk_free_annual_pct}%`}
+          tone={sign(headlineSharpe)}
+        />
+        <MetricTile
+          infoKey="sortino" context={`${windowLabel} · risk-free assumption ${perf.risk_free_annual_pct}%`}
+          label="Sortino"
+          value={fmtRatio(headlineSortino)}
+          reasons={reasons("sortino_ratio")}
+          sub="Downside-adjusted"
+          tone={sign(headlineSortino)}
+        />
+        <MetricTile
+          infoKey="maxDrawdown" context={windowLabel}
+          label="Max drawdown"
+          value={fmtPct(headlineDrawdown)}
+          reasons={reasons("max_drawdown_pct")}
+          sub={
+            perf.max_drawdown_raw_pct != null
+              ? `flow-adjusted · raw ${fmtPct(perf.max_drawdown_raw_pct)}`
+              : "flow-adjusted, peak to trough"
+          }
+          tone={sign(headlineDrawdown)}
+        />
+      </div>}
+
+      {!compact && chainAvailable && <div className="mt-4 max-h-64 overflow-auto" role="region" aria-label="Exact observations" tabIndex={0}>
+        <table className="w-full text-sm tabular" aria-label="Exact snapshot and drawdown observations">
+          <caption className="py-2 text-left text-slate-400">Recorded dates only. Select a date to inspect its exact flow-adjusted drawdown.</caption>
+          <thead><tr><th scope="col" className="text-left">Observation date</th><th scope="col" className="text-right">Flow-adjusted index</th><th scope="col" className="text-right">Drawdown (%)</th></tr></thead>
+          <tbody>{observationDates.map(date=><tr key={date}><th scope="row" className="text-left"><button type="button" aria-label={`Inspect observation ${date}`} onClick={()=>setInspectedDate(date)}>{date}</button></th><td className="text-right">{exactNumber(perf.flow_adjusted_curve?.find(row=>row.date===date)?.index)}</td><td className="text-right">{exactNumber(perf.drawdown_curve?.find(row=>row.date===date)?.drawdown_pct)}</td></tr>)}</tbody>
+        </table>
+        {inspectedDate && <p role="status">{inspectedDate}: flow-adjusted drawdown {perf.drawdown_curve?.find(row=>row.date===inspectedDate)?.drawdown_pct ?? 'Unavailable'}% at a recorded observation, not a daily estimate.</p>}
+      </div>}
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
         {chainAvailable && <span className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-cyan-400" /> Flow-adjusted (index, 100 = window start)

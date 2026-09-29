@@ -31,6 +31,7 @@ function LocationProbe() {
 describe("Topbar", () => {
   beforeEach(() => {
     vi.spyOn(api, "getSummary").mockResolvedValue(summary);
+    vi.spyOn(api,"getSyncStatus").mockResolvedValue({manual_sync_enabled:false,accounts:[],stale_after_days:7,running:false,last_run:null,outcome:"partial"});
   });
 
   it("provides a compact account selector for narrow screens", async () => {
@@ -56,6 +57,7 @@ describe("Topbar", () => {
     const selector = await screen.findByRole("combobox", { name: "Account" });
     expect(selector).toHaveValue("all");
     expect(screen.getByRole("button", { name: /refresh data/i })).toBeInTheDocument();
+    expect(await screen.findByText("Refresh outcome: partial")).not.toHaveClass("text-pos");
     expect(screen.getByRole("combobox", { name: "Performance period" })).toHaveValue("ALL");
     expect(screen.getByRole("button", { name: "Analysis settings" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Passkey security" })).toBeInTheDocument();

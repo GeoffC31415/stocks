@@ -9,7 +9,6 @@ import { usePreferences } from "../state/usePreferences";
 import { HoldingsTable } from "../components/HoldingsTable";
 import {
   InstrumentDetail,
-  InstrumentDetailEmpty,
 } from "../components/InstrumentDetail";
 import { MatchingWarningBanner } from "../components/MatchingWarningBanner";
 
@@ -101,22 +100,24 @@ export function Holdings() {
         </span>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-5">
-        <div className="min-w-0 lg:col-span-3">
-          <HoldingsTable
+      <div data-testid="holdings-layout" className={`grid gap-4 ${selectedRaw!==null ? 'lg:grid-cols-5' : ''}`}>
+        <div className={`min-w-0 ${selectedRaw!==null ? 'lg:col-span-3' : ''}`}>
+          {instrumentsQ.isPending ? <p role="status" className="min-h-64 p-5">Loading holdings…</p>
+          : instrumentsQ.isError ? <div role="alert" className="min-h-64 p-5"><p>Unable to load holdings. No empty account is inferred.</p><button type="button" onClick={()=>void instrumentsQ.refetch()}>Retry holdings</button></div>
+          : <HoldingsTable
             instruments={instruments}
-            scopeTotalValue={summaryQ.data?.total_value_gbp}
+            scopeTotalValue={summaryQ.isError || summaryQ.isPending ? undefined : summaryQ.data?.total_value_gbp}
             groups={groups}
             targetDrift={targetsQ.isError || targetsQ.isFetching ? undefined : targetsQ.data}
             selectedId={selectedInstrument}
             onSelect={setSelected}
-          />
+          />}
         </div>
-        <div className="min-w-0 lg:col-span-2">
+        {selectedRaw!==null && <div className="min-w-0 lg:col-span-2">
           {selectedRaw !== null && !confirmed ? (
             <div role="alert">{selectedInstrument === null ? "Invalid instrument selection." : instrumentsQ.isPending ? "Checking instrument account scope…" : "Instrument not available in the selected account. Clear the selection or change account."}<button type="button" onClick={()=>setSelected(null)}>Clear selection</button></div>
           ) : selectedInstrument === null ? (
-            <InstrumentDetailEmpty />
+            null
           ) : (
             <HoldingDetailPanel instrumentId={selectedInstrument} onClose={()=>setSelected(null)}><InstrumentDetail
               name={selectedName}
@@ -133,7 +134,7 @@ export function Holdings() {
               onRetryOrders={()=>{void instrOrdersQ.refetch();}}
             /></HoldingDetailPanel>
           )}
-        </div>
+        </div>}
       </div>
     </div>
   );
