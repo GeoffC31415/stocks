@@ -56,6 +56,9 @@ from app.services.matching.scoring import determine_method, score_candidate
 
 router = APIRouter(prefix="/api/matching", tags=["matching"])
 
+# Trusted HL owner enrollment is managed offline, never through alias CRUD.
+_HL_OWNER_PIN_SOURCE = "hl-client-identity"
+
 
 # ---------------------------------------------------------------------------
 # Summary
@@ -671,7 +674,9 @@ async def run_backfill(
 async def list_account_aliases(
     session: AsyncSession = Depends(get_session),
 ) -> list[AccountAliasOut]:
-    result = await session.execute(select(AccountAlias))
+    result = await session.execute(
+        select(AccountAlias).where(AccountAlias.source != _HL_OWNER_PIN_SOURCE)
+    )
     return list(result.scalars().all())
 
 
@@ -680,6 +685,10 @@ async def create_account_alias(
     body: AccountAliasIn,
     session: AsyncSession = Depends(get_session),
 ) -> AccountAliasOut:
+    if body.source == _HL_OWNER_PIN_SOURCE:
+        raise HTTPException(
+            status_code=403, detail="HL owner enrollment requires offline operator review"
+        )
     alias = AccountAlias(
         source=body.source,
         source_account_name=body.source_account_name,
@@ -701,6 +710,10 @@ async def delete_account_alias(
     alias = await session.get(AccountAlias, alias_id)
     if alias is None:
         raise HTTPException(status_code=404, detail=f"Account alias {alias_id} not found")
+    if alias.source == _HL_OWNER_PIN_SOURCE:
+        raise HTTPException(
+            status_code=403, detail="HL owner enrollment requires offline operator review"
+        )
     await session.delete(alias)
     await session.commit()
     return {"deleted": True}
