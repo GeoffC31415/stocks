@@ -11,6 +11,36 @@ import verify_analysis_ui as rehearsal
 from ui_contracts import allowed_gets
 
 
+@pytest.mark.parametrize('name', ['.env', 'backend/.env'])
+def test_factory_refuses_dotenv_before_any_application_import(tmp_path, monkeypatch, name):
+    import builtins
+    target = tmp_path / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text('SYNTHETIC_SENTINEL=must-not-be-read')
+    monkeypatch.setattr(rehearsal, 'REPO', tmp_path)
+    original = builtins.__import__
+    imports = []
+    def guarded(module, *args, **kwargs):
+        if module == 'app' or module.startswith('app.'):
+            imports.append(module)
+            raise AssertionError('Application imported before dotenv refusal')
+        return original(module, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', guarded)
+    with pytest.raises(RuntimeError, match='dotenv'):
+        rehearsal.create_app(tmp_path / 'absent.db', tmp_path / 'dist')
+    assert imports == []
+
+
+def test_zero_order_prerequisite_checks_database_not_just_filtered_page(tmp_path):
+    import sqlite3
+    db = tmp_path / 'fixture.db'
+    with sqlite3.connect(db) as connection:
+        connection.execute('CREATE TABLE orders (id INTEGER PRIMARY KEY)')
+        connection.execute('INSERT INTO orders VALUES (1)')
+    with pytest.raises(ValueError, match='zero-order'):
+        rehearsal.assert_zero_order_database(db)
+
+
 async def test_auth_baseline_wrapper_does_not_open_production_auth_store(tmp_path):
     import sqlite3
 
@@ -53,7 +83,7 @@ async def test_synthetic_preview_fixture_is_deterministic_zero_event_and_exclusi
         await engine.dispose()
 
 
-def test_zero_event_browser_journey_is_explicit(tmp_path):
+def test_zero_event_browser_journey_rejects_populated_orders(tmp_path):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path='/usr/bin/google-chrome', headless=True, args=['--no-sandbox'])
@@ -61,12 +91,12 @@ def test_zero_event_browser_journey_is_explicit(tmp_path):
             # Deterministic zero-event fixture, never a broker/order fabrication.
             def fixture(route):
                 if '/api/orders/page' in route.request.url:
-                    route.fulfill(json={'items': [], 'total_count': 0, 'has_more': False})
+                    route.fulfill(json={'items': [{'id': 1}], 'total_count': 1, 'has_more': False})
                 else:
                     route.fulfill(content_type='text/html', body='''<main><div role="region" aria-label="Order results">No orders on this page. Refine your filters or go back.</div><button disabled>Next page</button></main><script>fetch('/api/orders/page')</script>''')
             result = rehearsal.verify_zero_event_navigation(browser, 'http://fixture.test', route_fixture=fixture)
-            assert result['failures'] == []
-            assert result['checks'][0]['fixture'] == 'explicit-zero-event'
+            assert result['failures']
+            assert result['checks'] == []
         finally:
             browser.close()
 

@@ -51,7 +51,7 @@ def verify_episode_navigation(page, payload: dict) -> dict:
     return {"episodes": len(episodes), "zoom_and_reset": True}
 
 
-def verify_timeline_navigation(page, *, touch: bool, output) -> dict:
+def verify_timeline_navigation(page, *, touch: bool, output, zero_orders: bool = False) -> dict:
     from playwright.sync_api import expect
 
     with page.expect_response(lambda response: "/api/portfolio/timeline?" in response.url) as pending:
@@ -59,6 +59,10 @@ def verify_timeline_navigation(page, *, touch: bool, output) -> dict:
     expect(page.get_by_role("checkbox", name="Show timeline events", exact=True)).to_be_checked()
     payload = pending.value.json()
     assert payload["event_count"] > 0, "Timeline fixture must contain real source records"
+    if zero_orders:
+        assert not any(event["kind"] == "trade" or event.get("source_type") == "order"
+                       for event in payload["events"]), "Zero-order timeline prerequisite violated"
+        assert any(event["kind"] == "snapshot" for event in payload["events"]), "Zero-order fixture requires snapshot sources"
     day_counts = {}
     for event in payload["events"]:
         if event["kind"] in ("trade", "snapshot"):
@@ -100,7 +104,7 @@ def verify_timeline_navigation(page, *, touch: bool, output) -> dict:
     open_source("import")
     crowded_date = max(day_counts, key=day_counts.get)
     crowded_count = day_counts[crowded_date]
-    assert crowded_count >= 2, "Browser fixture requires crowded same-day events"
+    assert crowded_count >= (1 if zero_orders else 2), "Browser fixture requires source events on the selected day"
     day = page.locator(f"#timeline-day-{crowded_date}")
     for _ in range(len(day_counts)):
         if day.count():
@@ -109,11 +113,16 @@ def verify_timeline_navigation(page, *, touch: bool, output) -> dict:
     if day.locator("..").get_attribute("open") is None:
         day.click()
     expect(page.get_by_role("link", name=re.compile("^View source "))).to_have_count(crowded_count)
-    open_source("order")
+    if not zero_orders:
+        open_source("order")
+    else:
+        expect(page.get_by_role("link", name=re.compile("^View source order "))).to_have_count(0)
+        open_source("import")
     page.evaluate("document.activeElement?.blur(); window.scrollTo(0, 0)")
     page.mouse.move(0, 0)
     page.screenshot(path=str(output / f"timeline-{page.viewport_size['width']}.png"), full_page=True)
     page.get_by_role("checkbox", name="Show timeline events", exact=True).click()
     expect(page.get_by_role("checkbox", name="Show timeline events", exact=True)).not_to_be_checked()
-    return {"source_types_opened": ["import", "order"], "crowded_day_events": crowded_count,
+    return {"source_types_opened": ["import"] if zero_orders else ["import", "order"],
+            "zero_order_alternative": zero_orders, "crowded_day_events": crowded_count,
             "back_preserves_timeline": True, "touch": touch}

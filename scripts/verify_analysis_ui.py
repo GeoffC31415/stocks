@@ -56,6 +56,12 @@ def audited_route_paths(application) -> set[str]:
 
 def create_app(database: Path, dist: Path, *, security_config=None, auth_store=None):
     """Copy only audited GET routes, never the live application's lifespan."""
+    # Fail closed before imports can instantiate Settings and read private files.
+    if any((REPO / name).exists() or (REPO / name).is_symlink()
+           for name in (".env", "backend/.env")):
+        raise RuntimeError("Private dotenv reads prohibited; use an isolated worktree without dotenv files")
+    os.environ["PORTFOLIO_DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+    os.environ["PORTFOLIO_DEPLOYMENT_MODE"] = "local"
     sys.path.insert(0, str(REPO / "backend"))
     from app.database import get_session
 
@@ -176,12 +182,13 @@ def copy_database(database: Path, copy: Path) -> None:
             raise RuntimeError("Copied SQLite database failed integrity check")
 
 
-def verify_view(browser, base: str, view: str, width: int, output: Path, scenario: str = "default") -> dict:
+def verify_view(browser, base: str, view: str, width: int, output: Path, scenario: str = "default", *, zero_events: bool = False) -> dict:
     contract = dict(ROUTES[view])
     if scenario in {"empty", "error"}:
         contract["required"] = "/api/portfolio/summary"
         contract["heading"] = "Welcome to your portfolio"
-    page = browser.new_page(viewport={"width": width, "height": 1000},
+    height = 844 if width <= 390 else 900
+    page = browser.new_page(viewport={"width": width, "height": height},
                             device_scale_factor=2 if width == 720 else 1, reduced_motion="reduce", has_touch=width <= 390)
     page.set_default_timeout(8000)
     errors, blocked, responses = [], [], []
@@ -218,7 +225,8 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
         with page.expect_response(lambda r: r.url.split("?")[0] == base + contract["required"]) as pending:
             page.goto(base + contract["url"], wait_until="networkidle", timeout=20000)
         response = pending.value
-        if response.status != (503 if scenario == "error" else 200) or not response.json():
+        empty_alternative = zero_events and view in {"returns", "groups"} and response.json() == []
+        if response.status != (503 if scenario == "error" else 200) or (not response.json() and not empty_alternative):
             raise AssertionError("Required analytics response failed or was empty")
         if view == "overview" and scenario not in {"empty", "error"}:
             payload = response.json()
@@ -233,6 +241,13 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
             page.get_by_role("alert").filter(has_text="Unable to load portfolio summary").wait_for()
         else:
             page.get_by_role("heading", name=contract["heading"], exact=True).wait_for()
+        if empty_alternative:
+            if view == "returns":
+                page.get_by_role("heading", name="No positions yet", exact=True).wait_for()
+                page.get_by_text("Import order history to derive cost basis and returns.", exact=False).wait_for()
+            else:
+                page.get_by_text("No groups yet. Create a group below.", exact=True).wait_for()
+            result["empty_alternative"] = "explicit-zero-order" if view == "returns" else "explicit-empty-groups"
         measurement = measure_page(page)
         result["measurement"] = measurement
         result["failures"].extend(geometry_failures(measurement))
@@ -245,7 +260,7 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
             if not valid_curve and measurement["performanceDots"]:
                 result["failures"].append("unavailable-curve-plotted")
         if view == "overview" and scenario not in {"empty", "error"}:
-            if width == 1440 and (measurement["primaryTop"] is None or measurement["primaryTop"] >= 1000):
+            if valid_curve and (measurement["primaryTop"] is None or measurement["primaryTop"] >= height):
                 result["failures"].append("primary-performance-below-fold")
             if (width == 1440 and measurement["height"] > 2200) or (width <= 390 and measurement["height"] > 3600):
                 result["failures"].append("dashboard-height-budget")
@@ -274,7 +289,7 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
                 page.get_by_role("button", name="Show rounded values", exact=True).click()
         if view == "performance" and scenario == "default" and width in (390, 1440):
             result["episode_navigation"] = verify_episode_navigation(page, response.json())
-            result["timeline_navigation"] = verify_timeline_navigation(page, touch=width <= 390, output=output)
+            result["timeline_navigation"] = verify_timeline_navigation(page, touch=width <= 390, output=output, zero_orders=zero_events)
         if view == "overview" and scenario == "default" and width in (390, 1440):
             result["scope_navigation"] = verify_scope_navigation(page, width)
         result["accessibility"] = verify_accessibility(page, touch=width <= 390)
@@ -312,28 +327,70 @@ def verify_zero_event_navigation(browser, base: str, *, width: int = 390, route_
     def guard(route):
         if route.request.url.startswith("https://fonts.googleapis.com/"):
             route.fulfill(content_type="text/css", body="")
-        elif request_allowed(route.request.method, route.request.url, base, "orders"):
+        elif any(request_allowed(route.request.method, route.request.url, base, view) for view in ROUTES):
             route_fixture(route) if route_fixture else route.continue_()
         else:
             result["failures"].append("unexpected request")
             route.abort()
     page.route("**/*", guard)
+    page.set_default_timeout(8000)
     page.on("pageerror", lambda error: result["failures"].append(str(error)))
+    page.on("response", lambda response: result["failures"].append(f"HTTP {response.status}: {response.url}") if response.status >= 400 else None)
     try:
         with page.expect_response(lambda r: "/api/orders/page" in r.url) as pending:
             page.goto(base + "/activity?tab=orders&account=all", wait_until="networkidle")
         response = pending.value
         assert response.status == 200
         payload = response.json()
-        assert payload["items"] == [] and payload["total_count"] == 0 and payload["has_more"] is False
+        assert payload["items"] == [] and payload["total_count"] == 0 and payload["has_more"] is False, "Zero-order prerequisite violated"
         page.get_by_role("region", name="Order results").get_by_text("No orders on this page. Refine your filters or go back.", exact=True).wait_for()
         assert page.get_by_role("button", name="Next page", exact=True).is_disabled()
-        result["checks"].append({"name": "zero-event-orders", "fixture": "explicit-zero-event", "status": "passed"})
+        def passed(name):
+            result["checks"].append({"name": name, "fixture": "explicit-zero-event", "status": "passed", "alternative_not_populated_journey": True})
+        passed("zero-event-orders-pagination-disabled")
+        # Follow the actual holding-to-orders link; empty data is the expected
+        # safe alternative to the contributor/order drilldown, not a fake trade.
+        page.goto(base + "/portfolio?tab=holdings&account=all", wait_until="networkidle")
+        page.locator('[data-holding-id]').first.click()
+        link = page.get_by_role("link", name="View matching orders", exact=True)
+        link.wait_for()
+        with page.expect_response(lambda r: "/api/orders/page" in r.url) as pending:
+            link.click()
+        assert pending.value.json()["items"] == [] and pending.value.json()["total_count"] == 0
+        page.get_by_role("region", name="Order results").get_by_text("No orders on this page. Refine your filters or go back.", exact=True).wait_for()
+        page.go_back(wait_until="networkidle")
+        page.get_by_role("button", name="Close instrument detail").wait_for()
+        passed("zero-event-holding-orders-back")
+        with page.expect_response(lambda r: "/api/orders/income" in r.url) as pending:
+            page.goto(base + "/portfolio?tab=income&account=all", wait_until="networkidle")
+        income = pending.value.json()
+        assert income["current_count"] == 0 and income["prior_count"] == 0
+        assert not income["drivers"]
+        page.get_by_role("heading", name="DRIP purchase proxy", exact=True).wait_for()
+        assert page.get_by_role("link", name="Prior-period purchases", exact=True).count() == 0
+        passed("zero-event-income-current-orders-unavailable")
+        passed("zero-event-income-prior-orders-unavailable")
+        # Snapshot sources still work in Performance; no order source links or
+        # synthetic daily samples may be fabricated to satisfy the old journey.
+        page.goto(base + "/portfolio?tab=performance&account=all", wait_until="networkidle")
+        page.get_by_role("heading", name="Performance workspace", exact=True).wait_for()
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory(prefix="stocks-zero-timeline-") as directory:
+            evidence = verify_timeline_navigation(page, touch=False, output=Path(directory), zero_orders=True)
+        assert evidence["source_types_opened"] == ["import"]
+        passed("zero-event-performance-import-source-alternative")
     except Exception as exc:  # noqa: BLE001 - save evidence for every browser/contract failure
         result["failures"].append(str(exc))
     finally:
         page.close()
     return result
+
+
+def assert_zero_order_database(database: Path) -> None:
+    """Prove the global prerequisite; a filtered empty order page is insufficient."""
+    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as connection:
+        if connection.execute("SELECT count(*) FROM orders").fetchone()[0] != 0:
+            raise ValueError("Explicit zero-order fixture required for --zero-events")
 
 
 def verify(database: Path, dist: Path, output: Path, *, zero_events: bool = False) -> None:
@@ -347,6 +404,8 @@ def verify(database: Path, dist: Path, output: Path, *, zero_events: bool = Fals
     with tempfile.TemporaryDirectory(prefix="stocks-ui-") as temporary:
         copy = Path(temporary) / "portfolio.db"
         copy_database(database, copy)
+        if zero_events:
+            assert_zero_order_database(copy)
         copy_hash = hashlib.sha256(copy.read_bytes()).hexdigest()
         with socket.socket() as sock:
             sock.bind(("127.0.0.1", 0))
@@ -369,7 +428,7 @@ def verify(database: Path, dist: Path, output: Path, *, zero_events: bool = Fals
                                 if server.poll() is not None:
                                     raise RuntimeError("QA server exited during browser checks")
                                 for scenario in ("default", "long-names"):
-                                    report["views"].append(verify_view(browser, base, view, width, output, scenario))
+                                    report["views"].append(verify_view(browser, base, view, width, output, scenario, zero_events=zero_events))
                             for scenario in ("empty", "error"):
                                 report["views"].append(verify_view(browser, base, "overview", width, output, scenario))
                         for width in (390, 1440):
