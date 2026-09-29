@@ -7,7 +7,7 @@ from app.services.sync_runner import RunReport, StepResult
 @pytest.mark.parametrize(('steps', 'files', 'outcome'), [
     ([StepResult('Import files', 'no_op')], [], 'no_op'),
     ([StepResult('Trading 212', 'skipped')], [], 'disabled'),
-    ([StepResult('Trading 212', 'ok')], [], 'complete'),
+    ([StepResult('Trading 212', 'ok')], [], 'partial'),
     ([StepResult('Trading 212', 'ok'), StepResult('HL', 'failed')], [], 'partial'),
     ([StepResult('HL', 'failed')], [], 'failed'),
     ([StepResult('Import files', 'unchanged')], [{'status': 'rejected'}], 'failed'),
@@ -157,7 +157,7 @@ async def test_runner_accepts_staged_hl_pair_transport(tmp_path, monkeypatch):
         def as_of(self):
             return self.observed_at.date()
     called = []
-    async def import_pair(session, holdings, orders, *, as_of):
+    async def import_pair(session, holdings, orders, *, as_of, activity_start=None, activity_end=None):
         called.append((holdings, orders, as_of))
         return {'snapshot': 'unchanged', 'orders': 'unchanged', 'orders_imported': 0}
     module.FetchedHLPair = FetchedHLPair
@@ -172,7 +172,7 @@ async def test_runner_accepts_staged_hl_pair_transport(tmp_path, monkeypatch):
         assert len(called) == 1
         assert report.steps[0].status == 'unchanged'
         assert report.freshness['Hargreaves Lansdown']['holdings']['verified_at'] == '2026-09-29T00:00:00+00:00'
-        assert report.steps[0].sections['orders']['coverage'] == 'complete'
+        assert report.steps[0].sections['orders']['coverage'] == 'unknown'
     finally:
         await engine.dispose()
 

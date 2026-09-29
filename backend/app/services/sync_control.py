@@ -164,10 +164,11 @@ def public_report(report: dict[str, Any] | None) -> dict[str, Any] | None:
                 for key in ("last_attempt_at", "verified_at"):
                     stamp = _timestamp(item.get(key))
                     safe[key] = dt.datetime.fromtimestamp(stamp, dt.UTC).isoformat() if stamp else None
-                try:
-                    safe["valuation_at"] = dt.date.fromisoformat(str(item.get("valuation_at"))).isoformat()
-                except (TypeError, ValueError):
-                    safe["valuation_at"] = None
+                for key in ("valuation_at", "coverage_start", "coverage_end"):
+                    try:
+                        safe[key] = dt.date.fromisoformat(str(item.get(key))).isoformat()
+                    except (TypeError, ValueError):
+                        safe[key] = None
                 safe["status"] = item.get("status") if item.get("status") in statuses else "unknown"
                 safe["coverage"] = item.get("coverage") if item.get("coverage") in {"complete", "partial", "unknown"} else "unknown"
                 safe["reason_code"] = item.get("reason_code") if item.get("reason_code") in REASONS else "not_verified"

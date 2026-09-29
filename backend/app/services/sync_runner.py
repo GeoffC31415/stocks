@@ -28,7 +28,7 @@ from app.config import settings
 from app.services.barclays_sync_service import FetchedPair, import_pair
 from app.services.sync_all_service import SyncReport, sync_inbox
 from app.services.sync_control import atomic_json, file_lock, public_report, validated_invocation_id
-from app.services.sync_freshness import update_freshness, verified_sections
+from app.services.sync_freshness import REQUIRED_SECTIONS, update_freshness, verified_sections
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +37,14 @@ FETCH_TIMEOUT_SECONDS = 300
 
 # A fetcher downloads exports into the inbox and returns a short status line.
 class StagedPair(Protocol):
-    holdings: bytes
-    orders: bytes
-    observed_at: dt.datetime
+    @property
+    def holdings(self) -> bytes: ...
+
+    @property
+    def orders(self) -> bytes: ...
+
+    @property
+    def observed_at(self) -> dt.datetime: ...
 
     @property
     def as_of(self) -> dt.date: ...
@@ -71,15 +76,26 @@ class RunReport:
         bad = any(s.status in failures for s in self.steps) or any(
             f["status"] in failures for f in self.files
         ) or any(section.get("status") in failures for step in self.steps for section in step.sections.values())
+        # Provider success must attest every required section, not merely commit.
+        bad = bad or any(
+            step.status in {'ok', 'unchanged', 'committed_with_attention'}
+            and any(
+                step.sections.get(name, {}).get('status') not in {'ok', 'imported', 'unchanged'}
+                or step.sections.get(name, {}).get('coverage') != 'complete'
+                or not step.sections.get(name, {}).get('verified_at')
+                for name in REQUIRED_SECTIONS.get(step.name, set())
+            )
+            for step in self.steps
+        )
         # A rejected/duplicate local file is not a successful provider observation.
         useful = any(s.status in {"ok", "committed_with_attention"} for s in self.steps) or any(
             f["status"] in {"imported", "new", "committed_with_attention"} for f in self.files
         ) or any(s.status == "unchanged" and s.name != "Import files" for s in self.steps)
         if bad:
             return "partial" if useful else "failed"
-        if useful or any(s.status == "unchanged" for s in self.steps):
+        if useful:
             return "complete"
-        return "no_op" if any(s.status == "no_op" for s in self.steps) else "disabled"
+        return "no_op" if self.files or any(s.status in {"no_op", "unchanged"} for s in self.steps) else "disabled"
 
     @property
     def ok(self) -> bool:
@@ -142,8 +158,9 @@ async def _trading212_step(session: AsyncSession) -> StepResult:
         "ok" if changed else "unchanged",
         f"snapshot {result.snapshot}, orders {result.orders}, cash +{result.cash_flows_imported}",
         sections=verified_sections(
-            {"holdings": result.snapshot, "orders": result.orders, "transactions": "ok"},
-            result.fetched_at.isoformat(), result.fetched_at.date().isoformat(),
+            {"holdings": result.snapshot, "orders": result.orders, "cash": result.snapshot, "transactions": "ok"},
+            result.fetched_at.isoformat(), result.valuation_at.isoformat() if result.valuation_at else None,
+            coverage=dict.fromkeys(REQUIRED_SECTIONS["Trading 212"], "complete"),
         ),
     )
 
@@ -251,6 +268,7 @@ async def _execute_steps(session: AsyncSession, report: RunReport, *, fetchers: 
                             sections=verified_sections(
                                 {"holdings": imported_pair["snapshot"], "orders": imported_pair["orders"]},
                                 fetched.observed_at.isoformat(), fetched.as_of.isoformat(),
+                                coverage={"holdings": "complete", "orders": "unknown"},
                             ),
                         )
                     )
@@ -262,15 +280,21 @@ async def _execute_steps(session: AsyncSession, report: RunReport, *, fetchers: 
                     hl_pair = importlib.import_module("app.services.hl_sync_service")
                     if not isinstance(fetched, hl_pair.FetchedHLPair):
                         raise TypeError("Unsupported HL fetch result")
+                    activity_start = getattr(fetched, "activity_start", None)
+                    activity_end = getattr(fetched, "activity_end", None)
                     imported_pair = await hl_pair.import_pair(
-                        session, fetched.holdings, fetched.orders, as_of=fetched.as_of
+                        session, fetched.holdings, fetched.orders, as_of=fetched.as_of,
+                        activity_start=activity_start, activity_end=activity_end,
                     )
                     changed = any(imported_pair[key] == "imported" for key in ("snapshot", "orders"))
                     report.steps.append(StepResult(
                         name, "ok" if changed else "unchanged",
                         sections=verified_sections(
                             {"holdings": imported_pair["snapshot"], "orders": imported_pair["orders"]},
-                            fetched.observed_at.isoformat(), fetched.as_of.isoformat(),
+                            fetched.observed_at.isoformat(), str(imported_pair.get("valuation_at") or "") or None,
+                            coverage={"holdings": "complete", "orders": "partial" if activity_start else "unknown"},
+                            ranges={"orders": (activity_start.isoformat(), activity_end.isoformat())}
+                            if activity_start and activity_end else None,
                         ),
                     ))
                 else:

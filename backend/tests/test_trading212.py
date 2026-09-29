@@ -260,7 +260,7 @@ async def test_client_uses_basic_auth_and_follows_order_pagination() -> None:
                 },
             )
         if request.url.path.endswith("/history/orders"):
-            return httpx.Response(200, json={"items": [{"order": {"id": 2}}]})
+            return httpx.Response(200, json={"items": [{"order": {"id": 2}}], "nextPagePath": None})
         raise AssertionError(f"Unexpected request: {request.url}")
 
     client = Trading212Client(
@@ -557,24 +557,24 @@ def test_positions_reject_boolean_cash_values(bad_value: bool) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_portfolio_omits_cash_when_account_scope_is_forbidden() -> None:
+async def test_sync_portfolio_rejects_first_observation_when_cash_scope_is_forbidden() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
-        _, summary = await sync_portfolio_snapshot(
-            session,
-            PortfolioOnlyTrading212Client(),
-            account_name=ACCOUNT_NAME,
-        )
+        from app.services.trading212 import Trading212DataError
+
+        with pytest.raises(Trading212DataError, match="cash"):
+            await sync_portfolio_snapshot(
+                session, PortfolioOnlyTrading212Client(), account_name=ACCOUNT_NAME,
+            )
         snapshots = list((await session.execute(select(HoldingSnapshot))).scalars())
 
     await engine.dispose()
 
-    assert summary["row_count"] == 1
-    assert len(snapshots) == 1
+    assert len(snapshots) == 0
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,11 @@ from app.fetchers import hl
 from app.models import Base, HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
 from app.services import hl_sync_service
 
+# Labelled synthetic identity; colon labels preserve historical fingerprints.
+IDENTITY = "Client Name:,Synthetic Person\nClient Number:,SYNTHETIC-001\n"
+HOLDINGS = IDENTITY + HOLDINGS
+ACTIVITY = IDENTITY + ACTIVITY
+
 
 def service():
     return hl_sync_service

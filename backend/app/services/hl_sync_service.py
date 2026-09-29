@@ -26,6 +26,8 @@ class FetchedHLPair:
     holdings: bytes = field(repr=False)
     orders: bytes = field(repr=False)
     observed_at: dt.datetime
+    activity_start: dt.date | None = None
+    activity_end: dt.date | None = None
 
     @property
     def as_of(self) -> dt.date:
@@ -35,7 +37,8 @@ class FetchedHLPair:
 
 
 async def import_pair(
-    session: AsyncSession, holdings: bytes, orders: bytes, *, as_of: dt.date
+    session: AsyncSession, holdings: bytes, orders: bytes, *, as_of: dt.date,
+    activity_start: dt.date | None = None, activity_end: dt.date | None = None,
 ) -> dict[str, str | int]:
     """Validate both halves before writing; rollback both on errors/cancellation.
 
@@ -46,9 +49,14 @@ async def import_pair(
     validate_hl_pair_metadata(holdings, orders, as_of=as_of)
     parsed, inferred_as_of = parse_hl_holdings_csv_bytes(holdings)
     trades = parse_hl_activity_csv_bytes(orders)
+    if (activity_start is not None or activity_end is not None) and (
+        activity_start is None or activity_end is None or not activity_start <= activity_end <= as_of
+        or any(not activity_start <= row.order_date.date() <= activity_end for row in trades)
+    ):
+        raise HLParseError("HL activity does not match its verified fetch window.")
     if any(row.order_date.date() > as_of for row in trades):
         raise HLParseError("HL pair contains future activity.")
-    if not parsed or inferred_as_of != as_of:
+    if not parsed or inferred_as_of > as_of:
         raise HLParseError("HL pair snapshot observation is empty or incoherent.")
     accounts = {row.account_name for row in parsed}
     if len(accounts) != 1 or any(row.account_name not in accounts for row in trades):
@@ -59,6 +67,7 @@ async def import_pair(
         "snapshot": "unchanged",
         "orders": "unchanged",
         "orders_imported": 0,
+        "valuation_at": inferred_as_of.isoformat(),
     }
     try:
         async with AsyncSession(
@@ -70,10 +79,11 @@ async def import_pair(
                 await import_holding_snapshot(
                     worker,
                     parsed_rows=parsed,
-                    as_of_date=as_of,
+                    as_of_date=inferred_as_of,
                     filename="hl-pair-holdings.csv",
                     file_sha256=hashlib.sha256(holdings).hexdigest(),
                     commit=False,
+                    latest_observation=True,
                 )
                 result["snapshot"] = "imported"
             except DuplicateImportError:

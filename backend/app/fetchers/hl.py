@@ -158,4 +158,5 @@ async def fetch(inbox: Path, *, headless: bool = True) -> StepResult | FetchedHL
             return StepResult("Hargreaves Lansdown", "needs_attention", str(exc))
         except FetchError as exc:
             return StepResult("Hargreaves Lansdown", "failed", str(exc))
-    return FetchedHLPair(holdings=holdings, orders=orders, observed_at=dt.datetime.now(dt.UTC))
+    return FetchedHLPair(holdings=holdings, orders=orders, observed_at=dt.datetime.now(dt.UTC),
+                         activity_start=start, activity_end=end)

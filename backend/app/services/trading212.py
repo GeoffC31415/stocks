@@ -177,7 +177,8 @@ class Trading212Client:
                 raise Trading212DataError("Trading 212 returned an invalid pagination path.")
             seen_paths.add(path)
             result = await self._get(path)
-            if not isinstance(result, Mapping) or not isinstance(result.get("items"), list):
+            if (not isinstance(result, Mapping) or not isinstance(result.get("items"), list)
+                    or "nextPagePath" not in result or len(result["items"]) > 50):
                 raise Trading212DataError("Trading 212 returned an invalid order-history response.")
             page_items = result["items"]
             if any(not isinstance(item, Mapping) for item in page_items):
@@ -305,32 +306,19 @@ async def sync_portfolio_snapshot(
         )
 
     positions = await client.fetch_positions()
-    account_summary_available = True
     try:
         account = await client.fetch_account_summary()
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code != 403:
             raise
-        if "CASH" in previous_identifiers:
-            raise Trading212DataError(
-                "Trading 212 cash is unavailable; prior valuation cannot be replaced."
-            ) from exc
-        wallet_currencies = {
-            str((position.get("walletImpact") or {}).get("currency") or "").upper()
-            for position in positions
-        }
-        wallet_currencies.discard("")
-        if len(wallet_currencies) != 1:
-            raise Trading212CurrencyError(
-                "Cannot verify the Trading 212 account currency without account access."
-            ) from exc
-        account = {"currency": wallet_currencies.pop()}
-        account_summary_available = False
+        raise Trading212DataError(
+            "Trading 212 cash is unavailable; complete account observation required."
+        ) from exc
     rows = positions_to_rows(
         positions,
         account,
         account_name=account_name,
-        require_cash=account_summary_available,
+        require_cash=True,
     )
 
     missing = previous_identifiers - {row.identifier for row in rows} - {"CASH"}
@@ -355,8 +343,8 @@ async def sync_portfolio_snapshot(
         filename="trading212-api-portfolio.json",
         file_sha256=hashlib.sha256(source_payload).hexdigest(),
         force=force,
-        preserve_missing_identifiers={"CASH"} if not account_summary_available else None,
         commit=commit,
+        latest_observation=True,
     )
 
 

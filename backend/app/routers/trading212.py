@@ -54,6 +54,7 @@ class Trading212SyncResult(BaseModel):
     order_rows: int | None = None
     cash_flows_imported: int
     cash_flows_total: int
+    valuation_at: dt.date | None = None
     fetched_at: dt.datetime
 
 
@@ -210,9 +211,14 @@ async def run_trading212_sync(
                     force=force,
                     commit=False,
                 )
+                valuation_at: dt.date | None = _batch.as_of_date
                 snapshot = "imported"
                 snapshot_rows = summary.get("row_count") if isinstance(summary, dict) else None
-            except DuplicateImportError:
+            except DuplicateImportError as exc:
+                from app.models import ImportBatch
+
+                retained = await import_session.get(ImportBatch, exc.batch_id)
+                valuation_at = retained.as_of_date if retained else None
                 snapshot, snapshot_rows = "unchanged", None
             try:
                 order_batch, _inserted = await sync_order_history(
@@ -230,7 +236,8 @@ async def run_trading212_sync(
             )
             await import_session.flush()
         await session.commit()
-    except Exception:
+    except BaseException:
+        # Joined-session close is not an owner rollback, including cancellation.
         await session.rollback()
         raise
     return Trading212SyncResult(
@@ -241,6 +248,7 @@ async def run_trading212_sync(
         order_rows=order_rows,
         cash_flows_imported=cash["imported_count"],
         cash_flows_total=cash["total_count"],
+        valuation_at=valuation_at,
         fetched_at=cash["fetched_at"],
     )
 

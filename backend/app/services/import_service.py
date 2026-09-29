@@ -3,10 +3,9 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 from dataclasses import replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models import AccountAlias, HoldingSnapshot, ImportBatch, Instrument
@@ -14,6 +13,9 @@ from app.services.barclays_parser import ParsedHoldingRow, parse_barclays_xls_by
 from app.services.hl_parser import parse_hl_holdings_csv_bytes
 from app.services.portfolio_service import get_latest_batch_for_account
 from app.services.valuation_service import valuation_state_at_batch
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 async def resolve_account_name(
@@ -28,6 +30,19 @@ async def resolve_account_name(
     if alias is not None:
         return alias.canonical_account_name
     return source_account_name
+
+
+async def get_latest_observation_for_account(
+    session: AsyncSession, account_name: str,
+) -> ImportBatch | None:
+    """Latest ingested observation, distinct from latest-dated valuation."""
+    return await session.scalar(
+        select(ImportBatch)
+        .join(HoldingSnapshot, HoldingSnapshot.import_batch_id == ImportBatch.id)
+        .join(Instrument, Instrument.id == HoldingSnapshot.instrument_id)
+        .where(Instrument.account_name == account_name)
+        .order_by(ImportBatch.id.desc()).limit(1)
+    )
 
 
 class DuplicateImportError(Exception):
@@ -267,10 +282,19 @@ async def import_holding_snapshot(
     force: bool = False,
     preserve_missing_identifiers: set[str] | None = None,
     commit: bool = True,
+    latest_observation: bool = False,
 ) -> tuple[ImportBatch, dict[str, Any]]:
-    if not force:
+    if latest_observation and not force:
+        accounts = {await resolve_account_name(session, row.account_name) for row in parsed_rows}
+        latest = [await get_latest_observation_for_account(session, name) for name in accounts]
+        if latest and all(batch is not None and batch.file_sha256 == file_sha256 for batch in latest):
+            raise DuplicateImportError(max(batch.id for batch in latest if batch is not None))
+    elif not force:
         dup = (
-            await session.execute(select(ImportBatch).where(ImportBatch.file_sha256 == file_sha256))
+            await session.execute(
+                select(ImportBatch).where(ImportBatch.file_sha256 == file_sha256)
+                .order_by(ImportBatch.id.desc()).limit(1)
+            )
         ).scalar_one_or_none()
         if dup is not None:
             raise DuplicateImportError(dup.id)

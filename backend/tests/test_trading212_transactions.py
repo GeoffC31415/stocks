@@ -236,7 +236,7 @@ async def test_successful_sync_commits_all_data_once_and_repeats_idempotently(sy
 
 
 @pytest.mark.asyncio
-async def test_prefetched_account_forbidden_preserves_no_invented_cash_fallback(sync_database):
+async def test_prefetched_account_forbidden_rejects_without_writes(sync_database):
     _, sessions = sync_database
 
     class NoAccountReader(SyntheticReader):
@@ -245,16 +245,14 @@ async def test_prefetched_account_forbidden_preserves_no_invented_cash_fallback(
             raise httpx.HTTPStatusError("forbidden", request=response.request, response=response)
 
     async with sessions() as session:
-        result = await trading212.sync_trading212_all(
-            force=False,
-            _origin_guard=None,
-            session=session,
-            client=NoAccountReader(),
-        )
-    assert result.snapshot_rows == 1
+        with pytest.raises(HTTPException) as rejected:
+            await trading212.sync_trading212_all(
+                force=False, _origin_guard=None, session=session, client=NoAccountReader(),
+            )
+        assert rejected.value.status_code == 400
     async with sessions() as check:
-        assert await check.scalar(select(func.count()).select_from(Instrument)) == 1
-        assert await check.scalar(select(Instrument.is_cash)) is False
+        assert await check.scalar(select(func.count()).select_from(Instrument)) == 0
+        assert await check.scalar(select(func.count()).select_from(ImportBatch)) == 0
 
 
 @pytest.mark.asyncio

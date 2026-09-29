@@ -9,12 +9,15 @@ from app.services.sync_runner import run_sync_all
 
 hl = pytest.importorskip("app.services.hl_sync_service")
 
+IDENTITY = "Client Name:,Synthetic Person\nClient Number:,SYNTHETIC-001\n"
 HOLDINGS = (
+    IDENTITY +
     "Spreadsheet created at,29-09-2026 10:00\nStock value:,30\nNumber of holdings:,2\n"
     "Code,Stock,Units held,Price (pence),Value (£),Cost (£),Gain/loss (%)\n"
     "ONE,One,1,1000,10,9,11.11\nTWO,Two,2,1000,20,18,11.11\n,Totals,,,30,27,\n"
 ).encode()
 ACTIVITY = (
+    IDENTITY +
     "Trade date,Reference,Description,Unit cost (p),Quantity,Value (£)\n"
     "01/09/2026,B1,One 1 @ 1000,1000,1,-10\n"
 ).encode()
@@ -40,7 +43,8 @@ async def test_real_hl_pair_runner_commits_then_observes_unchanged(db_session, t
         return hl.FetchedHLPair(HOLDINGS, ACTIVITY, dt.datetime(2026, 9, 29, 11, tzinfo=dt.UTC))
     options = {"inbox": tmp_path, "fetchers": [("Hargreaves Lansdown", fetch)], "include_trading212": False}
     first = await run_sync_all(db_session, **options)
-    assert first.outcome == "complete"
+    assert first.outcome == "partial"  # Activity export does not attest universal history.
+    assert first.steps[0].sections["orders"]["coverage"] == "unknown"
     assert first.steps[0].status == "ok"
     before = [await db_session.scalar(select(func.count()).select_from(model)) for model in (HoldingSnapshot, Order)]
     assert before[0] >= 2 and before[1] == 1

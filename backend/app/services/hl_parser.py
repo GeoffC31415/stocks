@@ -73,7 +73,7 @@ def _metadata_value(rows: list[list[str]], label: str) -> str | None:
 
 
 def _holding_as_of(rows: list[list[str]]) -> dt.date:
-    created_at = _metadata_value(rows, "Spreadsheet created at")
+    created_at = _metadata_value(rows, "Valuation as at") or _metadata_value(rows, "Spreadsheet created at")
     if created_at is None:
         return dt.date.today()
     try:
@@ -184,16 +184,23 @@ def validate_hl_pair_metadata(holdings: bytes, activity: bytes, *, as_of: dt.dat
     activity_index, _ = _table(activity_rows, "trade date", {"trade date"})
     holding_meta, activity_meta = holding_rows[:holding_index], activity_rows[:activity_index]
     for label in ("Client Name", "Client Number"):
-        if _metadata_value(holding_meta, label) != _metadata_value(activity_meta, label):
-            raise HLParseError("HL pair client identity does not match.")
+        identity = _metadata_value(holding_meta, label)
+        if identity is None or identity != _metadata_value(activity_meta, label):
+            raise HLParseError("HL pair client identity is missing or does not match.")
+    if not (_metadata_value(holding_meta, 'Valuation as at')
+            or _metadata_value(holding_meta, 'Spreadsheet created at')):
+        raise HLParseError('HL pair requires explicit valuation date evidence.')
+    holding_date = _holding_as_of(holding_meta)
+    if holding_date > as_of:
+        raise HLParseError('HL pair valuation date is in the future.')
     valued = _metadata_value(activity_meta, "Valuation as at")
     if valued is not None:
         try:
             date = dt.datetime.strptime(valued, "%d-%m-%Y %H:%M").date()
         except ValueError:
             raise HLParseError("HL activity observation date is invalid.") from None
-        if date != as_of:
-            raise HLParseError("HL pair observation dates do not match.")
+        if date != holding_date:
+            raise HLParseError("HL pair valuation dates do not match.")
 
 
 def _security_name_from_description(description: str) -> str:
