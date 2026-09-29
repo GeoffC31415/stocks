@@ -6,7 +6,24 @@ Geoff approved nonprivileged implementation/testing while unavailable and requir
 
 ## Source and verification state
 
-**Source-spec PASS at `cba5015`, independently reviewed. Security/code-quality review is in progress; no release approval.**
+**Source-spec PASS at `cba5015`. Frontend quality APPROVED at `c596634`; backend quality APPROVED after independent review of the reserved-owner API fix, integrated at `041bbeb`. Test-only fixture isolation follows at `f1a262e`. Source implementation/review is complete; human, actual-data and release gates remain. No release approval.**
+
+The generic matching alias API now rejects reserved `hl-client-identity` creation/deletion with 403 and hides enrollment records from generic lists. Ordinary aliases and reviewed offline enrollment remain supported. Synthetic HTTP/import regressions and fresh-reader comparisons prove attempted repinning cannot accept a changed owner. Independent review passed 45 tests with SQLAlchemy warnings treated as errors. No real owner pin was accessed or changed.
+
+Final parent rerun at `f1a262e`: **1336 backend/root tests passed, no skips**, including the opt-in real Chrome zero-order test with `STOCKS_TEST_DIST` set to the isolated preview build. Only the existing openpyxl sheet-title warning remains. The fixture now owns a fresh FastAPI app with the production matching router: unsupported methods reliably return 405 independently of the global app’s optional frontend fallback, which legitimately returns 404. Security assertions were not relaxed.
+
+Parent rerun at `c596634`: **1326 backend/root tests passed,1 skipped,2 warnings**; **256 frontend tests passed across68 files**, typecheck/build passed; **9 exact preview-contract/metrics tests passed**. Full parent Chrome orchestration passed **100 geometry rows and5 interaction rows**. Initial/cached503, account changes, read-only retries and recovery passed390×844/1440×900 without forbidden requests or page errors. One transaction-deassociation SAWarning occurred in a cancellation regression alongside the existing openpyxl warning; report it rather than claiming warning-free output.
+
+Owner-binding now introduces an explicit operator gate: **paired HL sync will intentionally reject until independently verified owner-pin enrollment**. No live pin enrolled, no migration or production change. Old closure manifests need both ingestion and valuation baseline fields; see `backend/OWNER_REVIEW.md`.
+
+Quality findings repaired in isolated worktrees:
+- Reviewed closures bound latest ingestion but mutated latest valuation baseline; bind both and reject backdated reviewed observations under the writer transaction.
+- HL coherent raw pair identity not bound to canonical retained account owner; prevent a different client pair overwriting the legacy shared account without rewriting historical fingerprints.
+- Actual public serializer now emits nullable coverage-range fields absent from frontend exact fixture; regenerate and retain exact equality regression.
+- Initial/cached refresh-status fetch failures need explicit unavailable/cached qualification instead of endless loading or stale-looking current evidence.
+- Harden malformed public report collection/value shapes as a scoped resilience improvement.
+
+All reported important source-quality defects are repaired and independently reviewed. Historical source-spec PASS did not waive them. Real financial/service release readiness still requires the remaining human/operator gates.
 
 Integrated history:
 - `2855e01`: original plan, baseline and preview gate.
@@ -61,22 +78,22 @@ Evidence directories: `/home/geoff/.hermes/cache/scratch/stocks-parent-final-ver
 
 ## Preview and user review
 
-Parent restarted loopback GET-only fixture preview on port8794 using the parent-built `cba5015` candidate:
+Parent restarted loopback GET-only fixture preview on port8794 using the parent-built `c596634` frontend candidate (later changes are backend guard/test-only):
 - URL: `http://127.0.0.1:8794/` on the Surface.
-- Build: `/home/geoff/.hermes/cache/scratch/stocks-user-review-cba5015`.
-- Process handle: `proc_ff8e78ff047b`.
+- Build: `/home/geoff/.hermes/cache/scratch/stocks-review-c596634/dist`.
+- Process handle: `proc_f6f46add8b44`.
 - Variants: `/demo/chart-first.html`, `/demo/ledger-first.html`.
 - Synthetic JSON only; no upstream proxy, production DB, broker credentials or auth store. Mutations denied. Unknown reads fail explicitly.
 
-The build and same server implementation were exercised in independent parent Chrome hierarchy tests on an ephemeral loopback port. Original older-preview smoke command was approval-blocked and never retried. Do not misstate that command as successful, or equate local browser testing with off-LAN/public access. No public preview listener is authorized. SSH forwarding can be used through existing authorized access; see `docs/improvement-preview-review.md`.
+The current build passed parent Chrome hierarchy and refresh-error scenarios. Parent verified the running process and GET HTML containing `DEMO / SYNTHETIC DATA` after the final full-suite rerun; this is loopback reachability, not off-LAN/public access. Production pointer was read back unchanged at `/opt/stocks/releases/stocks-passkeys-31590ff`, with stocks service and sync timer active. No public preview listener is authorized. SSH forwarding can be used through existing authorized access; see `docs/improvement-preview-review.md`.
 
 ## Remaining gates
 
-1. Finish independent security/code-quality review; address important defects before release readiness.
+1. Independent security/code-quality review is complete for the reported source fixes; rerun acceptance before any separately approved release.
 2. Geoff tests preview and selects design; preserve human approval as real gate.
 3. Approved consistent actual-data snapshot/reconciliation without permission widening.
 4. Actual passkey/logout/remote-access and manual accessibility/true-device zoom checks.
 5. Installed narrow policy inspection and any correlated real broker run need separate authorization.
 6. Production release needs explicit approval, applicable backup/rollback and exact running-release read-back.
 
-The overall plan is not complete: human/actual-data/live gates remain. Source-spec PASS is not code-quality approval, production readiness, or permission to deploy.
+Source implementation and independent quality review are complete. The overall plan is not fully accepted: human/actual-data/live gates remain. Neither source-spec nor quality approval grants permission to deploy.
