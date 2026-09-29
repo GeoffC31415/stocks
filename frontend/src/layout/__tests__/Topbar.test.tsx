@@ -34,6 +34,18 @@ describe("Topbar", () => {
     vi.spyOn(api,"getSyncStatus").mockResolvedValue({manual_sync_enabled:false,accounts:[],stale_after_days:7,running:false,last_run:null,outcome:"partial"});
   });
 
+  it("shows an initial refresh status fetch failure and lets the user retry", async () => {
+    vi.mocked(api.getSyncStatus).mockRejectedValueOnce(new Error("503 Service Unavailable"));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><MemoryRouter><Topbar /></MemoryRouter></QueryClientProvider>);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Refresh status unavailable");
+    expect(screen.queryByText("Checking refresh…")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry refresh status" }));
+    expect(await screen.findByText("Refresh outcome: partial")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(api.getSyncStatus).toHaveBeenCalledTimes(2);
+  });
+
   it("provides a compact account selector for narrow screens", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(

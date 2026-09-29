@@ -30,7 +30,7 @@ export function DataConfidencePanel({ compact = false }: { compact?: boolean }) 
   const reminders = data?.attention.filter((item) => item.severity !== "critical") ?? [];
   return <section className="surface-card min-w-0 space-y-3 p-4 [overflow-wrap:anywhere] sm:p-5" aria-label="Data confidence">
     <h2 className="text-base font-semibold">Data confidence</h2>
-    {syncQ.data ? <SyncEvidence report={syncQ.data.last_run ?? syncQ.data} compact={compact} /> : <p className="text-xs text-slate-400">Refresh evidence {syncQ.isError ? "unavailable" : "loading"}; valuation and coverage checks remain separate.</p>}
+    {syncQ.data || syncQ.isError ? <SyncEvidence report={syncQ.data?.last_run ?? syncQ.data} compact={compact} unavailable={syncQ.isError} onRetry={() => void syncQ.refetch()} /> : <p className="text-xs text-slate-400">Refresh evidence loading; valuation and coverage checks remain separate.</p>}
     {query.isLoading ? <p role="status" className="text-sm text-slate-400">Checking recorded data…</p>
       : query.isError ? <AnalysisStatus kind="error" title="Unable to check data confidence." onRetry={() => void query.refetch()} />
       : data && <>

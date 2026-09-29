@@ -3,7 +3,7 @@ export function refreshOutcome(report: unknown): string {
  const value=(report as SyncReport | null)?.outcome;
  return value && ['complete','partial','failed','no_op','disabled'].includes(value) ? value : 'unreported';
 }
-export function SyncEvidence({report,compact=false}:{report?:unknown;compact?:boolean}) {
+export function SyncEvidence({report,compact=false,unavailable=false,onRetry}:{report?:unknown;compact?:boolean;unavailable?:boolean;onRetry?:()=>void}) {
  const data=report as SyncReport | null;
  const outcome=refreshOutcome(data);
  const byProvider = new Map<string, Map<string, SyncSection>>();
@@ -22,8 +22,9 @@ export function SyncEvidence({report,compact=false}:{report?:unknown;compact?:bo
   [...sections].map(([section, evidence]) => ({name: `${provider} / ${section}`, evidence})));
  const date=(value:string|null|undefined)=>value || 'Not reported';
  return <div aria-label="Refresh evidence" className="space-y-2 break-words text-xs text-slate-300">
-  <p>Refresh outcome: {outcome}</p>
-  {!compact && <><p>Successful checks do not prove a new valuation or complete transaction coverage.</p>
+  {unavailable && <div role="alert"><p>Refresh status unavailable{data ? " — showing cached evidence; current status is unknown." : "."}</p>{onRetry && <button type="button" className="min-h-11 min-w-11 underline" onClick={onRetry}>Retry refresh status</button>}</div>}
+  {(data || !unavailable) && <p>{unavailable ? "Cached refresh outcome" : "Refresh outcome"}: {outcome}</p>}
+  {(data || !unavailable) && !compact && <><p>Successful checks do not prove a new valuation or complete transaction coverage.</p>
   <p>Coverage describes the retained verified observation; current status and reason may report a newer failed attempt.</p>
   {rows.length ? <ul className="space-y-2">{rows.map(({name,evidence:row})=><li key={name}><p className="font-medium">{name}: {row.status??'Unreported'}</p><p>Checked: {date(row.verified_at)}</p><p>Valuation: {date(row.valuation_at)}</p><p>Attempt: {date(row.last_attempt_at)}</p><p>Coverage: {row.coverage??'unknown'}</p><p>Reason: {row.reason_code??'Not reported'}</p><p>Action: {row.action_code??'Not reported'}</p></li>)}</ul>:<p>Per-section checked, valuation, attempt and coverage evidence is not reported by this server.</p>}</>}
  </div>;

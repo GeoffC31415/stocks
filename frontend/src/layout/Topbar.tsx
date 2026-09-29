@@ -35,7 +35,7 @@ export function Topbar() {
   return (
     <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.05] bg-aurora-base/60 px-3 py-3 backdrop-blur-xl sm:px-6">
       <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-        <div className="min-h-4 w-36 shrink-0">{syncQ.data ? <SyncEvidence report={syncQ.data.last_run ?? syncQ.data} compact /> : <span>Checking refresh…</span>}</div>
+        <div className="min-h-4 w-36 shrink-0">{syncQ.data || syncQ.isError ? <SyncEvidence report={syncQ.data?.last_run ?? syncQ.data} compact unavailable={syncQ.isError} onRetry={() => void syncQ.refetch()} /> : <span>Checking refresh…</span>}</div>
         <Calendar size={14} className="hidden text-slate-500 sm:block" />
         <span className="min-w-[190px] text-xs text-slate-400">
           {dateLabel ? `Snapshot valuation · ${dateLabel}` : summaryQ.isError ? "Valuation unavailable" : "No valuation in scope"}
