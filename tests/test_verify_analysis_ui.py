@@ -1,4 +1,5 @@
 """Route rehearsal uses disposable SQLite only, no production lifespan."""
+import os
 import sys
 from pathlib import Path
 
@@ -9,6 +10,68 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / 'scripts'))
 import verify_analysis_ui as rehearsal
 from ui_contracts import allowed_gets
+
+
+@pytest.fixture
+def isolated_rehearsal(monkeypatch):
+    """Adapt the CLI-only bootstrap for calls inside the pytest process."""
+    def create_app(*args, **kwargs):
+        # The CLI bootstrap intentionally overrides inherited settings before
+        # imports. Register those writes so success AND exceptions restore the
+        # exact caller environment, rather than deleting inherited values.
+        with monkeypatch.context() as scope:
+            scope.setenv('PORTFOLIO_DATABASE_URL', 'sqlite+aiosqlite:///:memory:')
+            scope.setenv('PORTFOLIO_DEPLOYMENT_MODE', 'local')
+            scope.setattr(sys, 'path', sys.path.copy())
+            return rehearsal.create_app(*args, **kwargs)
+    return create_app
+
+
+@pytest.mark.parametrize('inherited_environment', [False, True])
+@pytest.mark.parametrize('failed_preview', [False, True])
+async def test_preview_preserves_environment_and_process_database(
+    tmp_path, monkeypatch, isolated_rehearsal, inherited_environment, failed_preview,
+):
+    from app import database
+    from app.config import Settings
+    from app.main import create_app
+    from sqlalchemy.engine import make_url
+
+    keys = ('PORTFOLIO_DATABASE_URL', 'PORTFOLIO_DEPLOYMENT_MODE')
+    if inherited_environment:
+        monkeypatch.setenv(keys[0], str(database.engine.url))
+        monkeypatch.setenv(keys[1], 'local')
+    else:
+        for key in keys:
+            monkeypatch.delenv(key, raising=False)
+    before_environment = {key: os.environ.get(key) for key in keys}
+    before_path = sys.path.copy()
+    before_engine = database.engine
+    before_sessions = database.SessionLocal
+    before_settings = database.settings
+    config = Settings(_env_file=None)
+    assert make_url(config.resolved_database_url()) == before_engine.url
+    assert make_url(before_settings.resolved_database_url()) == before_engine.url
+    assert before_sessions.kw['bind'] is before_engine
+
+    if failed_preview:
+        with pytest.raises(RuntimeError, match='does not exist'):
+            isolated_rehearsal(tmp_path / 'synthetic.db', tmp_path / 'missing-dist')
+    else:
+        (tmp_path / 'assets').mkdir()
+        (tmp_path / 'index.html').write_text('synthetic')
+        _, engine = isolated_rehearsal(tmp_path / 'synthetic.db', tmp_path)
+        await engine.dispose()
+
+    assert {key: os.environ.get(key) for key in keys} == before_environment
+    assert sys.path == before_path
+    assert database.engine is before_engine
+    assert database.SessionLocal is before_sessions
+    assert database.settings is before_settings
+    assert make_url(Settings(_env_file=None).resolved_database_url()) == before_engine.url
+    # Exercise the real fail-closed factory after preview (without lifespan or DB IO).
+    application = create_app(Settings(_env_file=None, frontend_dist=tmp_path / 'not-built'))
+    assert application.state.web_config.resolved_database_url() == config.resolved_database_url()
 
 
 @pytest.mark.parametrize('name', ['.env', 'backend/.env'])
@@ -41,7 +104,7 @@ def test_zero_order_prerequisite_checks_database_not_just_filtered_page(tmp_path
         rehearsal.assert_zero_order_database(db)
 
 
-async def test_auth_baseline_wrapper_does_not_open_production_auth_store(tmp_path):
+async def test_auth_baseline_wrapper_does_not_open_production_auth_store(tmp_path, isolated_rehearsal):
     import sqlite3
 
     from app.config import Settings
@@ -52,7 +115,7 @@ async def test_auth_baseline_wrapper_does_not_open_production_auth_store(tmp_pat
     (tmp_path / 'index.html').write_text('synthetic')
     config = Settings(_env_file=None, deployment_mode='public', public_origin='https://example.test',
                       auth_username='fixture', auth_password_hash=hash_password('synthetic-only'))
-    app, engine = rehearsal.create_app(db, tmp_path, security_config=config)
+    app, engine = isolated_rehearsal(db, tmp_path, security_config=config)
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='https://example.test') as client:
             assert (await client.get('/api/health')).status_code == 401
@@ -101,7 +164,7 @@ def test_zero_event_browser_journey_rejects_populated_orders(tmp_path):
             browser.close()
 
 
-async def test_rehearsal_includes_every_audited_get_without_startup(tmp_path, monkeypatch):
+async def test_rehearsal_includes_every_audited_get_without_startup(tmp_path, monkeypatch, isolated_rehearsal):
     from app import database
     from app.models import Base
     from sqlalchemy.ext.asyncio import create_async_engine
@@ -116,7 +179,7 @@ async def test_rehearsal_includes_every_audited_get_without_startup(tmp_path, mo
     async def forbidden():
         raise AssertionError('Production startup migrations prohibited')
     monkeypatch.setattr(database, 'init_db', forbidden)
-    app, engine = rehearsal.create_app(db, dist)
+    app, engine = isolated_rehearsal(db, dist)
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
             assert (await client.get('/api/portfolio/summary')).status_code == 200

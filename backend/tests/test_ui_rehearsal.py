@@ -1,5 +1,6 @@
 """Safety tests for the harness; only synthetic, temporary SQLite data."""
 import importlib
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -26,8 +27,17 @@ def test_browser_allowlist_blocks_mutations_external_hosts_and_unrelated_gets():
 
 @pytest.mark.asyncio
 async def test_rehearsal_uses_its_own_read_only_database_and_blocks_writes(tmp_path, monkeypatch):
+    from app import database as runtime
+    from app.config import Settings
     from app.database import get_session
     from app.main import app as original
+    from app.main import create_app
+
+    keys = ("PORTFOLIO_DATABASE_URL", "PORTFOLIO_DEPLOYMENT_MODE")
+    before_environment = {key: os.environ.get(key) for key in keys}
+    before_path = sys.path.copy()
+    before_engine, before_sessions, before_settings = runtime.engine, runtime.SessionLocal, runtime.settings
+    assert Settings(_env_file=None).resolved_database_url() == str(before_engine.url)
 
     database = tmp_path / "synthetic.db"
     with sqlite3.connect(database) as db:
@@ -35,7 +45,13 @@ async def test_rehearsal_uses_its_own_read_only_database_and_blocks_writes(tmp_p
         db.execute("INSERT INTO evidence VALUES ('copy-only')")
     (tmp_path / "assets").mkdir()
     (tmp_path / "index.html").write_text("isolated UI")
-    app, engine = harness.create_app(database, tmp_path)
+    # The standalone preview owns its process; in-process tests must scope its
+    # bootstrap so freshly constructed Settings still agree with cached globals.
+    with monkeypatch.context() as scope:
+        scope.setenv("PORTFOLIO_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+        scope.setenv("PORTFOLIO_DEPLOYMENT_MODE", "local")
+        scope.setattr(sys, "path", sys.path.copy())
+        app, engine = harness.create_app(database, tmp_path)
     assert app is not original
     assert original.dependency_overrides.get(get_session) is None
     # Verify routing really uses our dependency provider, not original.routes'.
@@ -53,6 +69,13 @@ async def test_rehearsal_uses_its_own_read_only_database_and_blocks_writes(tmp_p
             assert (await client.get("/api/market-data/refresh")).status_code == 404
     finally:
         await engine.dispose()
+    assert {key: os.environ.get(key) for key in keys} == before_environment
+    assert sys.path == before_path
+    assert runtime.engine is before_engine
+    assert runtime.SessionLocal is before_sessions
+    assert runtime.settings is before_settings
+    application = create_app(Settings(_env_file=None, frontend_dist=tmp_path / "not-built"))
+    assert application.state.web_config.resolved_database_url() == str(before_engine.url)
 
 
 def test_child_failure_detected_before_readiness_request(monkeypatch):
