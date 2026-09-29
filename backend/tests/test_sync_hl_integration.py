@@ -33,6 +33,9 @@ async def db_session():
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         async with async_sessionmaker(engine)() as session:
+            from test_gate_a_hl_pair import enroll_synthetic_hl_owner
+
+            await enroll_synthetic_hl_owner(session)
             yield session
     finally:
         await engine.dispose()

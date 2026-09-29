@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.import_service import get_latest_observation_for_account, resolve_account_name
+from app.services.portfolio_service import get_latest_batch_for_account
 from app.services.trading212 import Trading212DataError, sync_portfolio_snapshot
 
 if TYPE_CHECKING:
-    import datetime as dt
     from collections.abc import Mapping
 
 
@@ -38,6 +40,8 @@ async def review_closure_observation(
     account_name: str,
     expected_batch_id: int,
     expected_batch_sha256: str,
+    expected_valuation_batch_id: int,
+    expected_valuation_batch_sha256: str,
     observation_sha256: str,
     identifiers: frozenset[str],
     positions: list[Mapping[str, Any]],
@@ -53,6 +57,9 @@ async def review_closure_observation(
     if session.new or session.dirty or session.deleted:
         raise Trading212DataError("Closure review requires a clean session.")
     try:
+        # Acquire SQLite's writer reservation before either baseline is read.
+        # Also upgrades an existing caller transaction without committing it.
+        await session.execute(text("UPDATE import_batches SET id = id WHERE 0"))
         canonical = await resolve_account_name(session, account_name)
         latest = await get_latest_observation_for_account(session, canonical)
         if (
@@ -64,7 +71,16 @@ async def review_closure_observation(
             raise Trading212DataError(
                 "Closure review account or latest observation does not match."
             )
-        if observation_date is not None and observation_date < latest.as_of_date:
+        valuation = await get_latest_batch_for_account(session, canonical)
+        if (
+            valuation is None
+            or valuation.id != expected_valuation_batch_id
+            or valuation.file_sha256 != expected_valuation_batch_sha256
+            or valuation.filename != "trading212-api-portfolio.json"
+        ):
+            raise Trading212DataError("Closure review valuation baseline does not match.")
+        effective_date = observation_date or dt.datetime.now(dt.UTC).date()
+        if effective_date < max(latest.as_of_date, valuation.as_of_date):
             raise Trading212DataError("Closure review observation predates retained valuation.")
         if not identifiers or not isinstance(identifiers, frozenset):
             raise Trading212DataError("Closure review requires an explicit nonempty allowlist.")
@@ -90,9 +106,10 @@ async def review_closure_observation(
                 account_name=canonical,
                 reviewed_closed_identifiers=identifiers,
                 commit=False,
+                observation_date=effective_date,
             )
-            if observation_date is not None:
-                batch.as_of_date = observation_date
+            if (batch.diff_summary or {}).get("previous_batch_id") != valuation.id:
+                raise Trading212DataError("Closure review valuation baseline changed.")
             await worker.flush()
         if apply:
             await session.commit()
@@ -104,6 +121,7 @@ async def review_closure_observation(
             "account_name": canonical,
             "closed": summary["closed"],
             "expected_batch_id": expected_batch_id,
+            "expected_valuation_batch_id": expected_valuation_batch_id,
             "observation_sha256": observation_sha256,
         }
     except BaseException:

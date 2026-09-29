@@ -10,7 +10,15 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_gate_a_hl_parser import ACTIVITY, ACTIVITY_HEADER, HOLDINGS
 
 from app.fetchers import hl
-from app.models import Base, HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
+from app.models import (
+    AccountAlias,
+    Base,
+    HoldingSnapshot,
+    ImportBatch,
+    Instrument,
+    Order,
+    OrderImportBatch,
+)
 from app.services import hl_sync_service
 
 # Labelled synthetic identity; colon labels preserve historical fingerprints.
@@ -23,12 +31,25 @@ def service():
     return hl_sync_service
 
 
+async def enroll_synthetic_hl_owner(session, canonical="HL Fund & Share Account"):
+    from app.services.hl_parser import hl_client_identity_key
+
+    session.add(AccountAlias(
+        source="hl-client-identity",
+        source_account_name=hl_client_identity_key("Synthetic Person", "SYNTHETIC-001"),
+        canonical_account_name=canonical,
+        created_by="synthetic-test-operator",
+    ))
+    await session.commit()
+
+
 @pytest.fixture
 async def db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
+        await enroll_synthetic_hl_owner(session)
         yield session
     await engine.dispose()
 

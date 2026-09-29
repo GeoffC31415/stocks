@@ -131,9 +131,13 @@ def _timestamp(value: Any) -> float:
         return 0
 
 
+def _public_code(value: Any, allowed: set[str], fallback: str) -> str:
+    return value if isinstance(value, str) and value in allowed else fallback
+
+
 def public_report(report: dict[str, Any] | None) -> dict[str, Any] | None:
     from app.services.sync_freshness import ACTIONS, PROVIDERS, REASONS, SECTIONS
-    if not report or not _timestamp(report.get("started_at")):
+    if not isinstance(report, dict) or not _timestamp(report.get("started_at")):
         return None
     names = {"Barclays", "Hargreaves Lansdown", "Trading 212", "Import files"}
     statuses = {
@@ -169,14 +173,14 @@ def public_report(report: dict[str, Any] | None) -> dict[str, Any] | None:
                         safe[key] = dt.date.fromisoformat(str(item.get(key))).isoformat()
                     except (TypeError, ValueError):
                         safe[key] = None
-                safe["status"] = item.get("status") if item.get("status") in statuses else "unknown"
-                safe["coverage"] = item.get("coverage") if item.get("coverage") in {"complete", "partial", "unknown"} else "unknown"
-                safe["reason_code"] = item.get("reason_code") if item.get("reason_code") in REASONS else "not_verified"
-                safe["action_code"] = item.get("action_code") if item.get("action_code") in ACTIONS else "operator_review"
+                safe["status"] = _public_code(item.get("status"), statuses, "unknown")
+                safe["coverage"] = _public_code(item.get("coverage"), {"complete", "partial", "unknown"}, "unknown")
+                safe["reason_code"] = _public_code(item.get("reason_code"), REASONS, "not_verified")
+                safe["action_code"] = _public_code(item.get("action_code"), ACTIONS, "operator_review")
                 freshness[provider][section] = safe
     return {
         "schema_version": 2,
-        "outcome": report.get("outcome") if report.get("outcome") in {"complete", "partial", "failed", "no_op", "disabled"} else ("complete" if report.get("ok") is True else "failed"),
+        "outcome": _public_code(report.get("outcome"), {"complete", "partial", "failed", "no_op", "disabled"}, "complete" if report.get("ok") is True else "failed"),
         "freshness": freshness,
         "started_at": dt.datetime.fromtimestamp(
             _timestamp(report["started_at"]), dt.UTC
@@ -189,8 +193,8 @@ def public_report(report: dict[str, Any] | None) -> dict[str, Any] | None:
         "ok": report.get("ok") is True,
         "steps": [
             {
-                "name": s["name"] if s.get("name") in names else "Sync step",
-                "status": s.get("status") if s.get("status") in statuses else "unknown",
+                "name": _public_code(s.get("name"), names, "Sync step"),
+                "status": _public_code(s.get("status"), statuses, "unknown"),
                 "detail": None,
                 "sections": {
                     section: freshness.get(str(s.get("name")), {}).get(section, {})
@@ -198,7 +202,7 @@ def public_report(report: dict[str, Any] | None) -> dict[str, Any] | None:
                     if section in SECTIONS
                 } if isinstance(s.get("sections", {}), dict) else {},
             }
-            for s in report.get("steps", [])
+            for s in (report["steps"] if isinstance(report.get("steps"), list) else [])
             if isinstance(s, dict)
         ],
         "files": [
@@ -207,9 +211,9 @@ def public_report(report: dict[str, Any] | None) -> dict[str, Any] | None:
                 "kind": None,
                 "as_of": None,
                 "detail": None,
-                "status": f.get("status") if f.get("status") in statuses else "unknown",
+                "status": _public_code(f.get("status"), statuses, "unknown"),
             }
-            for f in report.get("files", [])
+            for f in (report["files"] if isinstance(report.get("files"), list) else [])
             if isinstance(f, dict)
         ],
     }

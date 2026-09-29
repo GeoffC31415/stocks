@@ -129,6 +129,9 @@ async def test_hl_ninety_day_window_is_bounded_not_universal(tmp_path, bounded):
             )
 
         async with async_sessionmaker(engine)() as session:
+            from test_gate_a_hl_pair import enroll_synthetic_hl_owner
+
+            await enroll_synthetic_hl_owner(session)
             report = await sync_runner.run_sync_all(
                 session,
                 inbox=tmp_path,
@@ -183,6 +186,9 @@ async def test_hl_valuation_metadata_is_not_spreadsheet_check_date(tmp_path):
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
         async with async_sessionmaker(engine)() as session:
+            from test_gate_a_hl_pair import enroll_synthetic_hl_owner
+
+            await enroll_synthetic_hl_owner(session)
             await import_pair(session, holdings, ACTIVITY, as_of=dt.date(2026, 9, 29))
             assert (await session.scalar(select(ImportBatch))).as_of_date == valued
     finally:
@@ -311,6 +317,8 @@ async def test_operational_closure_review_is_exact_and_offline(tmp_path, case):
                 "account_name": "Wrong" if case == "wrong_account" else "Alias",
                 "expected_batch_id": batch.id + (case == "stale"),
                 "expected_batch_sha256": batch.file_sha256,
+                "expected_valuation_batch_id": batch.id,
+                "expected_valuation_batch_sha256": batch.file_sha256,
                 "observation_sha256": "0" * 64 if case == "wrong_observation" else digest,
                 "identifiers": frozenset({"CASH" if case == "cash" else "TWO"}),
                 "positions": positions,
@@ -373,6 +381,8 @@ async def test_closure_cli_preview_then_explicit_apply_on_disposable_database(
                 "account_name": "Trading 212",
                 "expected_batch_id": batch.id,
                 "expected_batch_sha256": batch.file_sha256,
+                "expected_valuation_batch_id": batch.id,
+                "expected_valuation_batch_sha256": batch.file_sha256,
                 "observation_sha256": digest,
                 "identifiers": ["TWO"],
                 "positions": positions,
@@ -489,6 +499,9 @@ async def test_hl_pair_requires_real_valuation_date_evidence(tmp_path, dates):
                     await import_pair(session, holdings, activity, as_of=dt.date(2026, 9, 29))
                 assert await session.scalar(select(func.count()).select_from(ImportBatch)) == 0
             else:
+                from test_gate_a_hl_pair import enroll_synthetic_hl_owner
+
+                await enroll_synthetic_hl_owner(session)
                 await import_pair(session, holdings, activity, as_of=dt.date(2026, 9, 29))
                 assert (await session.scalar(select(ImportBatch))).as_of_date == dt.date(
                     2026, 9, 28
@@ -529,6 +542,10 @@ async def test_latest_observation_dedupe_allows_a_b_a_then_unchanged(tmp_path, p
                             session, Observation(), account_name="Trading 212"
                         )
                 else:
+                    if index == 0:
+                        from test_gate_a_hl_pair import enroll_synthetic_hl_owner
+
+                        await enroll_synthetic_hl_owner(session)
                     payload = (
                         HOLDINGS
                         if cash == 25

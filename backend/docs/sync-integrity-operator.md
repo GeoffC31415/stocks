@@ -32,6 +32,11 @@ migrate a live database without operator approval after the requested preview.
 - Both HL halves must independently contain matching, nonempty `Client Name` and
   `Client Number`. Legacy account labels/fingerprints are unchanged. Missing or
   different raw identity is rejected even when old hardcoded account names agree.
+  Pair agreement alone does not establish canonical ownership: every paired import
+  also requires exactly one trusted operator-enrolled `hl-client-identity` pin in
+  `account_aliases` for the resolved owner. No first-use enrollment or automatic
+  repinning occurs. See [owner enrollment review](../OWNER_REVIEW.md) for the
+  explicit fail-closed bootstrap path, including legacy and empty accounts.
 
 ## Genuine Trading 212 sale: narrow offline resolution
 
@@ -43,8 +48,10 @@ imports orders/transactions nor advances provider freshness.
 
 1. Make a consistent SQLite backup/copy using SQLite's backup API (not an unsafe
    copy of a live WAL database). Use the copy for the preview. Identify the canonical
-   account and its latest Trading 212 snapshot batch ID and `file_sha256` from that
-   copy. The latest batch must be a `trading212-api-portfolio.json` observation.
+   account and BOTH its latest ingested snapshot (`id DESC`) and latest canonical
+   retained valuation (`as_of_date DESC, id DESC`) batch IDs/hashes from that copy.
+   Both must be `trading212-api-portfolio.json` observations; they can differ after
+   a backdated import. Review missing holdings against the valuation baseline.
 2. Stage positions and a successful account summary offline from independently
    reviewed, read-only evidence. Do not place partial exports in the automatic inbox.
 3. Create a private JSON review manifest containing exactly these fields:
@@ -52,13 +59,15 @@ imports orders/transactions nor advances provider freshness.
    | Field | Required evidence |
    |---|---|
    | `account_name` | Exact reviewed canonical name, or an existing alias resolving to it |
-   | `expected_batch_id` | Exact latest account snapshot batch ID |
+   | `expected_batch_id` | Exact latest ingested account snapshot batch ID |
    | `expected_batch_sha256` | That batch's exact stored hash |
+   | `expected_valuation_batch_id` | Exact latest canonical retained valuation batch ID |
+   | `expected_valuation_batch_sha256` | That valuation batch's exact stored hash |
    | `observation_sha256` | Canonical staged snapshot digest, as defined below |
    | `identifiers` | Nonempty array of exact missing security identifiers approved for closure; never `CASH` |
    | `positions` | Complete staged provider positions array |
    | `account_summary` | Complete successful provider summary with verified GBP cash buckets |
-   | `observed_at` | Actual timezone-aware, nonfuture source observation timestamp |
+   | `observed_at` | Actual timezone-aware, nonfuture source observation timestamp, not predating either retained baseline |
 
    Digest algorithm (same bytes as the existing snapshot fingerprint):
    `sha256(json.dumps({"account_name": CANONICAL_ACCOUNT, "account": SUMMARY,
@@ -81,7 +90,7 @@ imports orders/transactions nor advances provider freshness.
 5. Only after actual operator approval, an operator may run the same command with
    `--apply` against the explicitly selected target. There is no database default,
    broker credential access, network fetch, `--force` or wildcard account option.
-   SQLite `BEGIN IMMEDIATE` serializes the baseline check and mutation against
+   SQLite writer reservation serializes BOTH baseline checks and mutation against
    concurrent writers. Changed account/batch/hash, stale valuation evidence,
    mismatched staged observation, other-provider baseline and cash closures reject.
    Successful apply commits one reviewed snapshot; reusing its old approval fails
@@ -99,3 +108,8 @@ oversized pages; account/alias/stale/provider/cash/exact-observation closure che
 CLI preview/apply on disposable SQLite; raw HL identity and date rejection; bounded
 activity and privacy-safe public ranges. Existing parser/pair/API/reliability tests
 use labelled synthetic fixtures and preserve historical fingerprint expectations.
+`backend/tests/test_quality_owner_boundaries.py` additionally covers divergent
+ingestion/valuation order, competing writer exclusion, invalid apply/preview with
+owner commit and fresh reader, explicit HL pins/aliases, changed name/number,
+legacy/empty bootstrap rejection, unchanged legacy fingerprints, and malformed
+public report shapes.

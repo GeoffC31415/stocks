@@ -7,15 +7,21 @@ import hashlib
 from dataclasses import dataclass, field
 from zoneinfo import ZoneInfo
 
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models import AccountAlias
 from app.services.hl_parser import (
     HLParseError,
     parse_hl_activity_csv_bytes,
     parse_hl_holdings_csv_bytes,
     validate_hl_pair_metadata,
 )
-from app.services.import_service import DuplicateImportError, import_holding_snapshot
+from app.services.import_service import (
+    DuplicateImportError,
+    import_holding_snapshot,
+    resolve_account_name,
+)
 from app.services.order_service import DuplicateOrderImportError, ingest_parsed_orders
 
 
@@ -46,7 +52,7 @@ async def import_pair(
     matcher's internal commits using a rollback-only joined session. The caller
     can catch a failure and run another broker with the same session safely.
     """
-    validate_hl_pair_metadata(holdings, orders, as_of=as_of)
+    identity_key = validate_hl_pair_metadata(holdings, orders, as_of=as_of)
     parsed, inferred_as_of = parse_hl_holdings_csv_bytes(holdings)
     trades = parse_hl_activity_csv_bytes(orders)
     if (activity_start is not None or activity_end is not None) and (
@@ -70,6 +76,15 @@ async def import_pair(
         "valuation_at": inferred_as_of.isoformat(),
     }
     try:
+        # Pin validation and mutation must share SQLite's writer reservation.
+        await session.execute(text("UPDATE import_batches SET id = id WHERE 0"))
+        canonical = await resolve_account_name(session, next(iter(accounts)))
+        pins = list((await session.scalars(select(AccountAlias).where(
+            AccountAlias.source == "hl-client-identity",
+            AccountAlias.canonical_account_name == canonical,
+        ))).all())
+        if len(pins) != 1 or pins[0].source_account_name != identity_key:
+            raise HLParseError("HL owner identity is unverified or changed; operator review required.")
         async with AsyncSession(
             bind=await session.connection(),
             expire_on_commit=False,

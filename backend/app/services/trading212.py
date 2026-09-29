@@ -274,6 +274,7 @@ async def sync_portfolio_snapshot(
     force: bool = False,
     commit: bool = True,
     reviewed_closed_identifiers: frozenset[str] = frozenset(),
+    observation_date: dt.date | None = None,
 ) -> tuple[ImportBatch, dict[str, Any]]:
     from sqlalchemy import select
 
@@ -339,7 +340,7 @@ async def sync_portfolio_snapshot(
     return await import_holding_snapshot(
         session,
         parsed_rows=rows,
-        as_of_date=dt.datetime.now(dt.UTC).date(),
+        as_of_date=observation_date or dt.datetime.now(dt.UTC).date(),
         filename="trading212-api-portfolio.json",
         file_sha256=hashlib.sha256(source_payload).hexdigest(),
         force=force,

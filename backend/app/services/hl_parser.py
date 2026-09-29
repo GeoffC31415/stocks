@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import hashlib
 import io
+import json
 import math
 import re
 from typing import TYPE_CHECKING, Any
@@ -177,16 +179,25 @@ def parse_hl_holdings_csv_bytes(data: bytes) -> tuple[list[ParsedHoldingRow], dt
     return parsed_rows, _holding_as_of(rows[:index])
 
 
-def validate_hl_pair_metadata(holdings: bytes, activity: bytes, *, as_of: dt.date) -> None:
+def hl_client_identity_key(client_name: str, client_number: str) -> str:
+    """Private operator pin key, independent of legacy economic fingerprints."""
+    return "hl-client:" + hashlib.sha256(
+        json.dumps([client_name, client_number], ensure_ascii=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def validate_hl_pair_metadata(holdings: bytes, activity: bytes, *, as_of: dt.date) -> str:
     """Check raw client identity independently of legacy fingerprint labels."""
     holding_rows, activity_rows = _decode_csv(holdings), _decode_csv(activity)
     holding_index, _ = _table(holding_rows, "code", {"code"})
     activity_index, _ = _table(activity_rows, "trade date", {"trade date"})
     holding_meta, activity_meta = holding_rows[:holding_index], activity_rows[:activity_index]
+    identities = []
     for label in ("Client Name", "Client Number"):
         identity = _metadata_value(holding_meta, label)
         if identity is None or identity != _metadata_value(activity_meta, label):
             raise HLParseError("HL pair client identity is missing or does not match.")
+        identities.append(identity)
     if not (_metadata_value(holding_meta, 'Valuation as at')
             or _metadata_value(holding_meta, 'Spreadsheet created at')):
         raise HLParseError('HL pair requires explicit valuation date evidence.')
@@ -201,6 +212,7 @@ def validate_hl_pair_metadata(holdings: bytes, activity: bytes, *, as_of: dt.dat
             raise HLParseError("HL activity observation date is invalid.") from None
         if date != holding_date:
             raise HLParseError("HL pair valuation dates do not match.")
+    return hl_client_identity_key(*identities)
 
 
 def _security_name_from_description(description: str) -> str:

@@ -7,6 +7,7 @@ import asyncio
 import datetime as dt
 import json
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -33,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def run(args: argparse.Namespace) -> dict:
+async def run(args: argparse.Namespace) -> dict[str, Any]:
     database = args.database.resolve(strict=True)
     if not database.is_file():
         raise ValueError("Explicit existing SQLite database required.")
@@ -42,6 +43,8 @@ async def run(args: argparse.Namespace) -> dict:
         "account_name",
         "expected_batch_id",
         "expected_batch_sha256",
+        "expected_valuation_batch_id",
+        "expected_valuation_batch_sha256",
         "observation_sha256",
         "identifiers",
         "positions",
@@ -76,6 +79,8 @@ async def run(args: argparse.Namespace) -> dict:
                     account_name=review["account_name"],
                     expected_batch_id=review["expected_batch_id"],
                     expected_batch_sha256=review["expected_batch_sha256"],
+                    expected_valuation_batch_id=review["expected_valuation_batch_id"],
+                    expected_valuation_batch_sha256=review["expected_valuation_batch_sha256"],
                     observation_sha256=review["observation_sha256"],
                     identifiers=frozenset(review["identifiers"]),
                     positions=review["positions"],
