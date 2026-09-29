@@ -86,7 +86,7 @@ export function Diff() {
           aria-label="Opening snapshot"
           value={fromBatchId || ""}
           onChange={(event) => setBatch("from", event.target.value)}
-          className="max-w-full rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
+          className="w-full max-w-full sm:w-72 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
         >
           {imports.map((batch) => (
             <option key={batch.id} value={batch.id}>
@@ -99,7 +99,7 @@ export function Diff() {
           aria-label="Closing snapshot"
           value={toBatchId || ""}
           onChange={(event) => setBatch("to", event.target.value)}
-          className="max-w-full rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
+          className="w-full max-w-full sm:w-72 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-slate-200 focus:border-aurora-cyan/60 focus:outline-none"
         >
           {imports.map((batch) => (
             <option key={batch.id} value={batch.id}>
@@ -120,7 +120,7 @@ export function Diff() {
         </select>
       </div>
 
-      {attributionQ.isError ? <AnalysisStatus kind="error" title="Unable to load contribution estimates." onRetry={() => void attributionQ.refetch()} />
+      {attributionQ.isLoading ? <div role="status" className="min-h-[640px]">Loading contribution estimates…</div> : attributionQ.isError ? <AnalysisStatus kind="error" title="Unable to load contribution estimates." onRetry={() => void attributionQ.refetch()} />
         : attributionQ.data && <>
           <AttributionSummaryCard attribution={attributionQ.data} search={params.toString()} selectedComparison={params.has("from") || params.has("to")} />
           <ContributionDetails attribution={attributionQ.data} instrumentId={selectedInstrument} />

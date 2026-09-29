@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 
 export const PERIODS = ["1M", "3M", "6M", "1Y", "YTD", "ALL"] as const;
 export type AnalysisPeriod = typeof PERIODS[number];
@@ -39,13 +39,16 @@ function storedDefaults(): ScopeDefaults {
 
 export function useAnalysisScopeUrl(accounts?: string[]) {
   const [params, setParams] = useSearchParams();
+  const { pathname } = useLocation();
   const [defaults] = useState(storedDefaults);
   const scope = parseAnalysisScope(params, defaults, accounts);
   const valid = scope.errors.length === 0;
   // Materialise defaults once per unscoped location so Back never depends on
   // a subsequently changed storage value. Explicit URL values always win.
   useEffect(() => {
-    if (!valid) return;
+    // Security is not an analysis route. A parent scope replacement here can
+    // race the child local-mode Navigate and strand an empty /security outlet.
+    if (!valid || pathname === "/security") return;
     if (!params.has("account") || !params.has("period")) {
       const next = new URLSearchParams(params);
       next.set("account", scope.account);
@@ -56,7 +59,7 @@ export function useAnalysisScopeUrl(accounts?: string[]) {
       localStorage.setItem("portfolio.accountFilter", scope.account);
       localStorage.setItem("portfolio.analysisPeriod", scope.period);
     } catch { /* Private browsing may disable preference storage. */ }
-  }, [params, scope.account, scope.period, valid, setParams]);
+  }, [params, pathname, scope.account, scope.period, valid, setParams]);
 
   const update = (key: "account" | "period", value: string) => {
     const next = new URLSearchParams(params);

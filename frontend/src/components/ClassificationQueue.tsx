@@ -44,12 +44,12 @@ function ClassificationRow({ instrument }: { instrument: Instrument }) {
   });
 
   const fieldClass =
-    "min-h-9 rounded-lg border border-white/[0.07] bg-aurora-base/70 px-2.5 text-xs text-slate-200 placeholder:text-slate-700 focus:border-aurora-cyan/60 focus:outline-none";
+    "min-w-0 w-full min-h-9 rounded-lg border border-white/[0.07] bg-aurora-base/70 px-2.5 text-xs text-slate-200 placeholder:text-slate-700 focus:border-aurora-cyan/60 focus:outline-none";
 
   return (
-    <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
+    <div className="min-w-0 rounded-xl border border-white/[0.05] bg-white/[0.02] p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-full break-words [overflow-wrap:anywhere]">
           <p className="font-medium text-white">{instrument.identifier}</p>
           <p className="truncate text-xs text-slate-500" title={instrument.security_name}>
             {instrument.security_name}
@@ -64,7 +64,7 @@ function ClassificationRow({ instrument }: { instrument: Instrument }) {
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        <label className="grid gap-1 text-[10px] uppercase tracking-wider text-slate-500">
+        <label className="min-w-0 grid gap-1 text-[10px] uppercase tracking-wider text-slate-500">
           Ticker
           <input
             aria-label={`Ticker for ${instrument.identifier}`}
@@ -74,7 +74,7 @@ function ClassificationRow({ instrument }: { instrument: Instrument }) {
             placeholder="e.g. EQQQ.L"
           />
         </label>
-        <label className="grid gap-1 text-[10px] uppercase tracking-wider text-slate-500">
+        <label className="min-w-0 grid gap-1 text-[10px] uppercase tracking-wider text-slate-500">
           Asset class
           <select
             aria-label={`Asset class for ${instrument.identifier}`}
@@ -89,7 +89,7 @@ function ClassificationRow({ instrument }: { instrument: Instrument }) {
             ))}
           </select>
         </label>
-        <label className="grid gap-1 text-[10px] uppercase tracking-wider text-slate-500">
+        <label className="min-w-0 grid gap-1 text-[10px] uppercase tracking-wider text-slate-500">
           Sector
           <input
             aria-label={`Sector for ${instrument.identifier}`}
@@ -99,7 +99,7 @@ function ClassificationRow({ instrument }: { instrument: Instrument }) {
             placeholder="e.g. Technology"
           />
         </label>
-        <label className="grid gap-1 text-[10px] uppercase tracking-wider text-slate-500">
+        <label className="min-w-0 grid gap-1 text-[10px] uppercase tracking-wider text-slate-500">
           Region
           <input
             aria-label={`Region for ${instrument.identifier}`}

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Link, MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { Link, MemoryRouter, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseAnalysisScope, useAnalysisScopeUrl } from "../useAnalysisScope";
 import { scopedNavigationUrl } from "../../routing";
@@ -30,6 +30,14 @@ describe("analysis scope", () => {
     });
   });
   afterEach(() => vi.unstubAllGlobals());
+  it("does not overwrite a local security redirect while materialising scope", async () => {
+    function Shell() { useAnalysisScopeUrl(); return <Outlet />; }
+    render(<MemoryRouter initialEntries={["/security"]}><Routes><Route element={<Shell />}>
+      <Route path="/security" element={<Navigate to="/" replace />} />
+      <Route path="/" element={<h1>Overview after local redirect</h1>} />
+    </Route></Routes></MemoryRouter>);
+    expect(await screen.findByRole("heading", { name: "Overview after local redirect" })).toBeVisible();
+  });
   it("gives exact URL scope precedence over stored defaults", () => {
     const result = parseAnalysisScope(new URLSearchParams("account=ISA+%26+pension&period=YTD&inst=0007"), defaults, ["ISA & pension"]);
     expect(result).toEqual({ account: "ISA & pension", period: "YTD", errors: [] });

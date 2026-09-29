@@ -157,7 +157,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
 
   if (perfQ.isLoading) {
     return (
-      <div className="glass flex min-h-[200px] items-center justify-center rounded-2xl p-5 text-slate-400">
+      <div className="glass flex min-h-[1200px] lg:min-h-[900px] items-center justify-center rounded-2xl p-5 text-slate-400">
         <Loader2 size={18} className="mr-2 animate-spin" />
         <span className="text-sm">Crunching performance…</span>
       </div>
@@ -215,7 +215,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
       : "";
 
   return (
-    <div className="glass rounded-2xl p-5">
+    <div className={`glass rounded-2xl p-5 ${compact ? "flex flex-col" : ""}`}>
       <SectionHeader title="Performance"
         description={<>Growth and risk for {windowLabel || "the selected period"}. Returns and risk ratios are flow-adjusted, using observed snapshots and order-derived flow assumptions.</>}
         actions={<SegmentedControl layoutId="perf-period-pill" size="sm" value={period}
@@ -253,7 +253,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         </div>
       )}
 
-      <div className="mt-4 space-y-2">
+      <div className={`mt-4 space-y-2 ${compact && chainAvailable ? "order-2" : ""}`}>
         {!chainAvailable && <AnalysisStatus kind="unavailable"
           title="Flow-adjusted performance unavailable for this window. Raw account values are not a substitute for investment returns."
           reasons={chainMetric?.reasons} />}
@@ -277,7 +277,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         </label>
       </div>}
 
-      {chainAvailable && <div id="performance-chart" role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
+      {chainAvailable && <div id="performance-chart" role="region" aria-label="Snapshot performance chart" className={`mt-2 h-64 ${compact ? "order-1" : ""}`}>
         <ResponsiveContainer width="100%" height="100%" onResize={(width) => setChartWidth(width)}>
           <AreaChart data={chartData.rows} margin={{ top: onEventDateSelect && markers.length ? 56 : 5, right: 5, bottom: 5, left: 5 }}>
             <defs>
@@ -366,7 +366,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             Flow-adjusted drawdown
           </p>
-          <div className="h-28">
+          <div role="region" aria-label="Snapshot drawdown chart" className="h-28">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={drawdownData}>
                 <defs>
@@ -397,6 +397,11 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
                   width={44}
                   domain={[Math.min(-1, ...drawdownData.map((row) => row.drawdown ?? 0)), 0]}
                 />
+                <Tooltip content={<ChartTooltip
+                  formatLabel={(label) => typeof label === "number" && Number.isFinite(label)
+                    ? new Date(label).toISOString().slice(0, 10) : String(label ?? "")}
+                  formatValue={(value) => value != null && Number.isFinite(value) ? `${String(value)}%` : "Unavailable"}
+                />} />
                 <ReferenceLine y={0} stroke="rgba(148,163,184,0.4)" strokeDasharray="3 3" />
                 <Area
                   type="linear"
@@ -482,7 +487,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         </table>
         {inspectedDate && <p role="status">{inspectedDate}: flow-adjusted drawdown {perf.drawdown_curve?.find(row=>row.date===inspectedDate)?.drawdown_pct ?? 'Unavailable'}% at a recorded observation, not a daily estimate.</p>}
       </div>}
-      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
+      <div className={`mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500 ${compact ? "order-3" : ""}`}>
         {chainAvailable && <span className="flex items-center gap-1.5">
           <span className="h-2 w-2 rounded-full bg-cyan-400" /> Flow-adjusted (index, 100 = window start)
         </span>}

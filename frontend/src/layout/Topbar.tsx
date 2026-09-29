@@ -35,25 +35,25 @@ export function Topbar() {
   return (
     <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.05] bg-aurora-base/60 px-3 py-3 backdrop-blur-xl sm:px-6">
       <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
-        {syncQ.data && <SyncEvidence report={syncQ.data.last_run ?? syncQ.data} compact />}
+        <div className="min-h-4 w-36 shrink-0">{syncQ.data ? <SyncEvidence report={syncQ.data.last_run ?? syncQ.data} compact /> : <span>Checking refresh…</span>}</div>
         <Calendar size={14} className="hidden text-slate-500 sm:block" />
-        <span className="text-xs text-slate-400">
+        <span className="min-w-[190px] text-xs text-slate-400">
           {dateLabel ? `Snapshot valuation · ${dateLabel}` : summaryQ.isError ? "Valuation unavailable" : "No valuation in scope"}
         </span>
       </div>
       <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2 sm:gap-3">
-        {accountSegments.length > 1 ? <>
+        <>
           <label className="sr-only" htmlFor="mobile-account-filter">Account</label>
-          <select id="mobile-account-filter" aria-label="Account" value={accountFilter}
+          <select id="mobile-account-filter" aria-label="Account" value={accountFilter} disabled={!catalogQ.data}
             onChange={(event) => setAccountFilter(event.target.value)}
-            className="max-w-36 rounded-lg border border-white/[0.08] bg-aurora-base/80 px-2 py-2 text-xs text-slate-200 md:hidden">
+            className="w-24 max-w-36 rounded-lg border border-white/[0.08] bg-aurora-base/80 px-2 py-2 text-xs text-slate-200 md:hidden">
             {accountSegments.map((segment) => <option key={segment.key} value={segment.key}>{segment.label}</option>)}
           </select>
           <div className="hidden min-w-0 max-w-full md:block">
             <SegmentedControl layoutId="account-filter" value={accountFilter} onChange={setAccountFilter}
               tone="violet" size="sm" segments={accountSegments} />
           </div>
-        </> : null}
+        </>
         <label className="flex items-center gap-2 text-xs text-slate-300">
           Performance period
           <select aria-label="Performance period" value={period}
