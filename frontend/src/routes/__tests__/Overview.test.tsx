@@ -38,6 +38,26 @@ beforeEach(() => {
 });
 
 describe("Overview states", () => {
+  it("keeps primary value and secondary metrics before performance in DOM and responsive order", async () => {
+    vi.spyOn(api, "getSummary").mockResolvedValue(zero);
+    show();
+    const balance = await screen.findByText("Portfolio balance: 0");
+    const performance = screen.getByText("Performance workspace");
+    const metrics = screen.getByRole("region", { name: "Portfolio headline metrics" });
+    const changes = screen.getByRole("region", { name: "Latest snapshot changes" });
+    const precedes = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(precedes(balance, screen.getByText("Snapshot investment return"))).toBe(true);
+    expect(precedes(screen.getByText("Net external flows"), performance)).toBe(true);
+    expect(precedes(performance, changes)).toBe(true);
+    expect(precedes(changes, screen.getByText("Allocation summary"))).toBe(true);
+    // jsdom cannot evaluate Tailwind media queries: forbid responsive CSS reordering
+    // here, and exercise the same semantic regions in the Chrome layout test.
+    for (const element of [metrics, performance, changes]) {
+      for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+        expect(ancestor.className).not.toMatch(/(?:^|\s)(?:\S+:)?order-/);
+      }
+    }
+  });
   it("keeps the dashboard compact and links to the relocated full analysis", async () => {
     vi.spyOn(api, "getSummary").mockResolvedValue(zero);
     show();

@@ -77,6 +77,12 @@ function renderPanel(ui: React.ReactNode, perfOverride?: PerformanceSummary) {
 }
 
 describe("PerformancePanel", () => {
+  it('uses the global performance period control rather than duplicating it in the compact briefing', async () => {
+    renderPanel(<PerformancePanel compact />);
+    await screen.findByText('Performance');
+    expect(screen.queryByRole('button', { name: '1M' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Flow-adjusted snapshot returns/)).toHaveTextContent('2026-01-01');
+  });
   it('keeps essential caveats and unavailable reasons visible in compact mode, with expandable methodology',async()=>{
     renderPanel(<PerformancePanel compact />, {...basePerf, metrics:{annualised_return_pct:{status:'unavailable',value:null,unit:'percent',method:'Dietz',start_date:null,end_date:null,observations:2,reasons:[{code:'short',message:'Custom annualisation unavailable.',action_href:null}]}}});
     await screen.findByText('Performance');

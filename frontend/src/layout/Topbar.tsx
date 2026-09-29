@@ -46,7 +46,7 @@ export function Topbar() {
           <label className="sr-only" htmlFor="mobile-account-filter">Account</label>
           <select id="mobile-account-filter" aria-label="Account" value={accountFilter} disabled={!catalogQ.data}
             onChange={(event) => setAccountFilter(event.target.value)}
-            className="w-24 max-w-36 rounded-lg border border-white/[0.08] bg-aurora-base/80 px-2 py-2 text-xs text-slate-200 md:hidden">
+            className="w-20 max-w-36 rounded-lg border border-white/[0.08] bg-aurora-base/80 px-2 py-2 text-xs text-slate-200 sm:w-24 md:hidden">
             {accountSegments.map((segment) => <option key={segment.key} value={segment.key}>{segment.label}</option>)}
           </select>
           <div className="hidden min-w-0 max-w-full md:block">
@@ -55,7 +55,8 @@ export function Topbar() {
           </div>
         </>
         <label className="flex items-center gap-2 text-xs text-slate-300">
-          Performance period
+          <span className="sm:hidden" aria-hidden="true">Period</span>
+          <span className="sr-only sm:not-sr-only">Performance period</span>
           <select aria-label="Performance period" value={period}
             onChange={(event) => { if (isAnalysisPeriod(event.target.value)) setPeriod(event.target.value); }}
             className="min-h-9 rounded-lg bg-aurora-base px-2 text-slate-200">

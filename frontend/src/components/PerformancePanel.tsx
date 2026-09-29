@@ -215,10 +215,12 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
       : "";
 
   return (
-    <div className={`glass rounded-2xl p-5 ${compact ? "flex flex-col" : ""}`}>
+    <div className={`glass rounded-2xl ${compact ? "flex flex-col p-4 sm:p-5" : "p-5"}`}>
       <SectionHeader title="Performance"
-        description={<>Growth and risk for {windowLabel || "the selected period"}. Returns and risk ratios are flow-adjusted, using observed snapshots and order-derived flow assumptions.</>}
-        actions={<SegmentedControl layoutId="perf-period-pill" size="sm" value={period}
+        description={compact
+          ? <>Flow-adjusted snapshot returns · {windowLabel || "selected period"}.</>
+          : <>Growth and risk for {windowLabel || "the selected period"}. Returns and risk ratios are flow-adjusted, using observed snapshots and order-derived flow assumptions.</>}
+        actions={!compact && <SegmentedControl layoutId="perf-period-pill" size="sm" value={period}
           onChange={(p) => setPeriod(p)} segments={PERIOD_SEGMENTS} />} />
 
       {focusWindow && <p className="mt-3 text-sm text-cyan-200">Chart zoom: {focusWindow.start} – {focusWindow.end}. All metrics still describe the full selected performance period.</p>}
