@@ -5,13 +5,14 @@ from contextlib import asynccontextmanager
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from test_gate_a_hl_pair import ACTIVITY, HOLDINGS, enroll_synthetic_hl_owner
 
 from app.database import get_session
-from app.main import app
 from app.models import AccountAlias, Base
+from app.routers.matching import router as matching_router
 from app.services.hl_parser import HLParseError, hl_client_identity_key
 from app.services.hl_sync_service import import_pair
 
@@ -22,9 +23,14 @@ CANONICAL = "HL Fund & Share Account"
 
 @asynccontextmanager
 async def synthetic_api(tmp_path):
+    # Own the app as well as its database. The global app's optional frontend
+    # mount fully matches unsupported API methods before the router can emit
+    # 405, then rejects the API namespace with 404. Test the real matching
+    # router without that unrelated deployment-dependent fallback/shared state.
+    app = FastAPI()
+    app.include_router(matching_router)
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'synthetic-aliases.db'}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
-    previous = app.dependency_overrides.get(get_session)
 
     async def isolated_session():
         async with factory() as session:
@@ -39,10 +45,7 @@ async def synthetic_api(tmp_path):
         ) as client:
             yield factory, client
     finally:
-        if previous is None:
-            app.dependency_overrides.pop(get_session, None)
-        else:
-            app.dependency_overrides[get_session] = previous
+        app.dependency_overrides.clear()
         await engine.dispose()
 
 
@@ -179,4 +182,6 @@ async def test_no_generic_update_or_upsert_can_rewrite_reserved_pin(tmp_path, me
         for path in [ALIASES, f"{ALIASES}/{pin_id}"]:
             response = await client.request(method, path, json=reserved_payload())
             assert response.status_code == 405
-        assert await database_state(factory) == before
+            assert response.json() == {"detail": "Method Not Allowed"}
+            assert method not in response.headers["allow"].split(", ")
+            assert await database_state(factory) == before
