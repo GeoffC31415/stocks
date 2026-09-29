@@ -5,7 +5,8 @@ from urllib.parse import urlsplit
 
 # Exact application route templates, never broad /api/* access. Mutations and
 # provider refresh endpoints are deliberately absent, including GET refreshes.
-COMMON_GETS = {"/api/health", "/api/portfolio/summary", "/api/instruments"}
+COMMON_GETS = {"/api/health", "/api/portfolio/summary", "/api/instruments",
+               "/api/auth/session", "/api/sync/status", "/api/sync/request"}
 ROUTES = {
     "overview": {
         "url": "/", "heading": "Performance", "required": "/api/portfolio/performance",

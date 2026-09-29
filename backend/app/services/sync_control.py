@@ -12,9 +12,10 @@ import tempfile
 import time
 import uuid
 from contextlib import contextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 START_ARGV = [
@@ -41,7 +42,7 @@ class SyncBusy(Exception):
 
 
 @contextmanager
-def file_lock(path: Path):
+def file_lock(path: Path) -> Iterator[None]:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Never unlink or replace this inode, including after a crash.
     with path.open("a+") as handle:
@@ -55,7 +56,7 @@ def file_lock(path: Path):
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def atomic_json(path: Path, value: dict, *, mode: int = 0o600) -> None:
+def atomic_json(path: Path, value: dict[str, Any], *, mode: int = 0o600) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
@@ -65,12 +66,17 @@ def atomic_json(path: Path, value: dict, *, mode: int = 0o600) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
 
 
-def read_json(path: Path) -> dict | None:
+def read_json(path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(path.read_text())
         return value if isinstance(value, dict) else None
@@ -105,14 +111,28 @@ def service_state() -> str:
     return service_snapshot()[0]
 
 
-def _timestamp(value) -> float:
+def next_run_at() -> str | None:
+    """Read effective next elapse, including randomized delay; never trigger."""
+    argv = ["/usr/bin/systemctl", "show", "stocks-sync.timer",
+            "--property=NextElapseUSecRealtime", "--value", "--timestamp=unix"]
+    try:
+        value = subprocess.run(argv, timeout=5, check=True, capture_output=True, text=True).stdout.strip()
+        if not re.fullmatch(r"@[0-9]{1,12}(?:\.[0-9]+)?", value):
+            return None
+        return dt.datetime.fromtimestamp(float(value[1:]), dt.UTC).isoformat()
+    except (OSError, subprocess.SubprocessError, ValueError, OverflowError):
+        return None
+
+
+def _timestamp(value: Any) -> float:
     try:
         return dt.datetime.fromisoformat(value).timestamp()
     except (TypeError, ValueError, OverflowError):
         return 0
 
 
-def public_report(report: dict | None) -> dict | None:
+def public_report(report: dict[str, Any] | None) -> dict[str, Any] | None:
+    from app.services.sync_freshness import ACTIONS, PROVIDERS, REASONS, SECTIONS
     if not report or not _timestamp(report.get("started_at")):
         return None
     names = {"Barclays", "Hargreaves Lansdown", "Trading 212", "Import files"}
@@ -125,8 +145,38 @@ def public_report(report: dict | None) -> dict | None:
         "imported",
         "rejected",
         "new",
+        "no_op",
+        "disabled",
+        "committed_with_attention",
+        "running",
     }
+    freshness: dict[str, Any] = {}
+    raw = report.get("freshness", {})
+    if isinstance(raw, dict):
+        for provider, sections in raw.items():
+            if provider not in PROVIDERS or not isinstance(sections, dict):
+                continue
+            freshness[provider] = {}
+            for section, item in sections.items():
+                if section not in SECTIONS or not isinstance(item, dict):
+                    continue
+                safe = {}
+                for key in ("last_attempt_at", "verified_at"):
+                    stamp = _timestamp(item.get(key))
+                    safe[key] = dt.datetime.fromtimestamp(stamp, dt.UTC).isoformat() if stamp else None
+                try:
+                    safe["valuation_at"] = dt.date.fromisoformat(str(item.get("valuation_at"))).isoformat()
+                except (TypeError, ValueError):
+                    safe["valuation_at"] = None
+                safe["status"] = item.get("status") if item.get("status") in statuses else "unknown"
+                safe["coverage"] = item.get("coverage") if item.get("coverage") in {"complete", "partial", "unknown"} else "unknown"
+                safe["reason_code"] = item.get("reason_code") if item.get("reason_code") in REASONS else "not_verified"
+                safe["action_code"] = item.get("action_code") if item.get("action_code") in ACTIONS else "operator_review"
+                freshness[provider][section] = safe
     return {
+        "schema_version": 2,
+        "outcome": report.get("outcome") if report.get("outcome") in {"complete", "partial", "failed", "no_op", "disabled"} else ("complete" if report.get("ok") is True else "failed"),
+        "freshness": freshness,
         "started_at": dt.datetime.fromtimestamp(
             _timestamp(report["started_at"]), dt.UTC
         ).isoformat(),
@@ -141,6 +191,11 @@ def public_report(report: dict | None) -> dict | None:
                 "name": s["name"] if s.get("name") in names else "Sync step",
                 "status": s.get("status") if s.get("status") in statuses else "unknown",
                 "detail": None,
+                "sections": {
+                    section: freshness.get(str(s.get("name")), {}).get(section, {})
+                    for section in s.get("sections", {})
+                    if section in SECTIONS
+                } if isinstance(s.get("sections", {}), dict) else {},
             }
             for s in report.get("steps", [])
             if isinstance(s, dict)
@@ -159,7 +214,7 @@ def public_report(report: dict | None) -> dict | None:
     }
 
 
-def _correlated(marker: dict, report: dict | None) -> bool:
+def _correlated(marker: dict[str, Any], report: dict[str, Any] | None) -> bool:
     invocation_id = marker.get("target_invocation_id")
     if invocation_id:
         # Never fall back to timestamps when bound to a specific service run.
@@ -177,7 +232,7 @@ def _correlated(marker: dict, report: dict | None) -> bool:
     )
 
 
-def service_sync_status(inbox: Path, *, status_dir: Path | None = None) -> dict:
+def service_sync_status(inbox: Path, *, status_dir: Path | None = None) -> dict[str, Any]:
     state = service_state()
     marker = read_json(inbox / "sync-request.json")
     report = read_json((status_dir or inbox) / "last-sync.json")
@@ -207,7 +262,7 @@ def service_sync_status(inbox: Path, *, status_dir: Path | None = None) -> dict:
     return result
 
 
-def request_service_sync(inbox: Path, *, status_dir: Path | None = None) -> dict:
+def request_service_sync(inbox: Path, *, status_dir: Path | None = None) -> dict[str, Any]:
     try:
         with file_lock(inbox / "sync-request.lock"):
             state, invocation_id = service_snapshot()

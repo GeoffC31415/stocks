@@ -74,9 +74,8 @@ async def _run_locked(args: argparse.Namespace) -> int:
         print(json.dumps(report.to_json(), indent=2))
     else:
         print("\n".join(report.summary_lines()))
-    # Non-zero only when nothing at all refreshed, so a timer can alert.
-    refreshed = any(s.status in {"ok", "unchanged"} for s in report.steps)
-    return 0 if report.ok or refreshed else 1
+    # Partial completion still needs operator attention and must fail the timer.
+    return 0 if report.ok else 1
 
 
 def main() -> None:

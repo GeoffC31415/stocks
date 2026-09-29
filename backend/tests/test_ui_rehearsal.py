@@ -39,7 +39,7 @@ async def test_rehearsal_uses_its_own_read_only_database_and_blocks_writes(tmp_p
     assert app is not original
     assert original.dependency_overrides.get(get_session) is None
     # Verify routing really uses our dependency provider, not original.routes'.
-    summary = next(r for r in app.routes if r.path == "/api/portfolio/summary")
+    summary = next(r for r in harness.effective_routes(app) if r.path == "/api/portfolio/summary")
     assert summary.dependency_overrides_provider is app
     try:
         async for session in app.dependency_overrides[get_session]():

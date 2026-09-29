@@ -1,8 +1,8 @@
 """Installer safety entry points; no sudo, network, or service writes."""
 import os
-from pathlib import Path
 import sqlite3
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -10,8 +10,43 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "deploy/install-surface.sh"
 
 
+@pytest.fixture(autouse=True)
+def synthetic_host(tmp_path_factory, monkeypatch):
+    """Exercise the unchanged production guards against a synthetic host tree."""
+    import shlex
+    tmp_path = tmp_path_factory.mktemp('synthetic-installer-host')
+    original = SCRIPT.read_text()
+    for prefix in ('/var/lib/stocks', '/etc/stocks', '/opt/stocks', '/var/backups/stocks', '/etc/systemd/system'):
+        original = original.replace(prefix, str(tmp_path / 'host' / prefix.lstrip('/')))
+    copied = tmp_path / 'deploy/install-surface.sh'
+    copied.parent.mkdir()
+    copied.write_text(original)
+    monkeypatch.setattr(__import__(__name__, fromlist=['SCRIPT']), 'SCRIPT', copied)
+    binary = tmp_path / 'synthetic-bin'
+    binary.mkdir()
+    units = tmp_path / 'empty-units'
+    units.mkdir()
+    programs = {
+        'hostname': "printf 'geoff-Surface-Pro-4\\n'",
+        'systemd-analyze': "printf '%s\\n' " + shlex.quote(str(units)),
+        'systemctl': "if [[ $1 == show ]]; then printf 'not-found\\n'; else exit 1; fi",
+        'getent': 'exit 2',
+        'ss': 'exit 0',
+    }
+    for name, body in programs.items():
+        program = binary / name
+        program.write_text('#!/bin/bash\n' + body + '\n')
+        program.chmod(0o755)
+    monkeypatch.setenv('STOCKS_TEST_BIN', str(binary))
+    monkeypatch.setenv('PATH', str(binary) + os.pathsep + os.environ['PATH'])
+
+
 def run(*args):
-    return subprocess.run(["bash", str(SCRIPT), *args], capture_output=True, text=True, timeout=20)
+    env = dict(os.environ)
+    binary = env['STOCKS_TEST_BIN']
+    if binary not in env['PATH'].split(os.pathsep):
+        env['PATH'] = binary + os.pathsep + env['PATH']
+    return subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=20)
 
 
 def test_check_finds_uv_outside_normal_terminal_path(tmp_path, monkeypatch):

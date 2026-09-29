@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
@@ -16,6 +17,7 @@ from app.models import HoldingSnapshot, ImportBatch, Instrument
 from app.routers.trading212 import require_local_origin
 from app.services.sync_control import (
     SyncBusy,
+    next_run_at,
     public_report,
     request_service_sync,
     service_sync_status,
@@ -38,11 +40,13 @@ class SyncStatus(BaseModel):
     service_trigger_enabled: bool = False
     accounts: list[AccountFreshness]
     stale_after_days: int
-    last_run: dict | None
+    last_run: dict[str, Any] | None
     running: bool
+    next_run_at: str | None = None
+    schedule: str = "daily 18:30 Europe/London; randomized delay up to 2min"
 
 
-def _fetchers(include_fetch: bool) -> list:
+def _fetchers(include_fetch: bool) -> list[tuple[str, Any]]:
     if not include_fetch:
         return []
     from app.fetchers import barclays, hl
@@ -62,7 +66,7 @@ def require_manual_sync(request: Request) -> None:
 
 
 @router.post("/request", status_code=202)
-async def request_sync(request: Request) -> dict:
+async def request_sync(request: Request) -> dict[str, Any]:
     config = getattr(getattr(request.scope.get("app"), "state", None), "web_config", settings)
     if config.deployment_mode != "public" or not config.sync_service_trigger_enabled:
         raise HTTPException(status_code=403, detail="Service sync is disabled.")
@@ -77,7 +81,7 @@ async def request_sync(request: Request) -> dict:
 
 
 @router.get("/request")
-async def requested_sync_status(request: Request) -> dict:
+async def requested_sync_status(request: Request) -> dict[str, Any]:
     config = getattr(getattr(request.scope.get("app"), "state", None), "web_config", settings)
     if config.deployment_mode != "public" or not config.sync_service_trigger_enabled:
         return {"state": "disabled", "request_id": None, "last_run": None}
@@ -93,7 +97,7 @@ async def sync_all(
     _manual_guard: None = Depends(require_manual_sync),
     _origin_guard: None = Depends(require_local_origin),
     session: AsyncSession = Depends(get_session),
-) -> dict:
+) -> dict[str, Any]:
     if _lock.locked():
         raise HTTPException(status_code=409, detail="A sync is already running.")
     async with _lock:
@@ -128,6 +132,7 @@ async def sync_status(request: Request, session: AsyncSession = Depends(get_sess
             )
         )
     return SyncStatus(
+        next_run_at=await asyncio.to_thread(next_run_at) if config.sync_service_trigger_enabled else None,
         manual_sync_enabled=config.deployment_mode != "public",
         service_trigger_enabled=config.deployment_mode == "public"
         and config.sync_service_trigger_enabled,

@@ -181,14 +181,10 @@ def test_new_closed_holdings_and_unlinked_flows_reconcile_without_percentage_gue
 
 
 def test_snapshot_attribution_endpoint_is_registered_with_response_schema() -> None:
-    route = next(
-        route
-        for route in app.routes
-        if getattr(route, "path", None) == "/api/portfolio/attribution"
-    )
-
-    assert route.methods == {"GET"}
-    assert route.response_model.__name__ == "SnapshotAttributionResponse"
+    operations = app.openapi()["paths"]["/api/portfolio/attribution"]
+    assert set(operations) == {"get"}
+    schema = operations["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert schema["$ref"].endswith("/SnapshotAttributionResponse")
 
 
 def test_default_attribution_uses_previous_distinct_snapshot_date() -> None:

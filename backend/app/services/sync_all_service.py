@@ -22,17 +22,21 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.models import ImportBatch, OrderImportBatch
+from app.services.barclays_parser import parse_barclays_xls_bytes
 from app.services.export_classifier import ExportKind, UnrecognisedExport, classify_export
+from app.services.hl_parser import parse_hl_holdings_csv_bytes
 from app.services.import_service import (
     DuplicateImportError,
     import_barclays_xls,
     import_hl_holdings_csv,
+    resolve_account_name,
 )
 from app.services.order_service import (
     DuplicateOrderImportError,
     import_hl_orders_csv,
     import_order_history,
 )
+from app.services.portfolio_service import get_latest_batch_for_account
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +48,11 @@ Importer = Callable[..., Awaitable[Any]]
 
 
 async def _hl_holdings(session: AsyncSession, data: bytes, name: str, as_of: dt.date) -> None:
-    await import_hl_holdings_csv(session, file_bytes=data, filename=name, as_of_date=as_of)
+    await import_hl_holdings_csv(session, file_bytes=data, filename=name, as_of_date=as_of, force=True)
 
 
 async def _barclays_holdings(session: AsyncSession, data: bytes, name: str, as_of: dt.date) -> None:
-    await import_barclays_xls(session, file_bytes=data, filename=name, as_of_date=as_of)
+    await import_barclays_xls(session, file_bytes=data, filename=name, as_of_date=as_of, force=True)
 
 
 async def _hl_activity(session: AsyncSession, data: bytes, name: str, as_of: dt.date) -> None:
@@ -109,7 +113,16 @@ def _list_files(folder: Path) -> list[Path]:
     return sorted(p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in _SUFFIXES)
 
 
-async def _already_imported(session: AsyncSession, kind: str, sha: str) -> bool:
+async def _already_imported(session: AsyncSession, kind: str, sha: str, data: bytes) -> bool:
+    if kind in _SNAPSHOT_KINDS:
+        parser = parse_hl_holdings_csv_bytes if kind == ExportKind.HL_HOLDINGS.value else parse_barclays_xls_bytes
+        rows, _ = parser(data)
+        accounts = {await resolve_account_name(session, row.account_name) for row in rows}
+        for account in accounts:
+            latest = await get_latest_batch_for_account(session, account)
+            if latest is None or latest.file_sha256 != sha:
+                return False
+        return bool(accounts)
     model = ImportBatch if kind in _SNAPSHOT_KINDS else OrderImportBatch
     found = await session.execute(select(model.id).where(model.file_sha256 == sha).limit(1))
     return found.scalar_one_or_none() is not None
@@ -140,8 +153,18 @@ async def sync_inbox(
     sources = [(inbox, True)] + [(Path(s), False) for s in extra_sources]
 
     for folder, in_inbox in sources:
-        for path in _list_files(folder):
-            data = path.read_bytes()
+        try:
+            paths = _list_files(folder)
+        except OSError:
+            report.files.append(FileResult("Folder", "", None, None, "failed", "scan_failed"))
+            continue
+        for path in paths:
+            try:
+                data = path.read_bytes()
+                modified = path.stat().st_mtime
+            except OSError:
+                report.files.append(FileResult(path.name, str(folder), None, None, "failed", "read_failed"))
+                continue
             try:
                 classified = classify_export(path.name, data)
             except UnrecognisedExport as exc:
@@ -150,9 +173,12 @@ async def sync_inbox(
                         FileResult(path.name, str(folder), None, None, "rejected", str(exc))
                     )
                     if not dry_run:
-                        _move(path, inbox / "rejected")
+                        try:
+                            _move(path, inbox / "rejected")
+                        except OSError:
+                            report.files[-1].detail = "archive_failed"
                 continue
-            generated = classified.generated_at or dt.datetime.fromtimestamp(path.stat().st_mtime)
+            generated = classified.generated_at or dt.datetime.fromtimestamp(modified)
             candidates.append(
                 _Candidate(
                     path,
@@ -172,24 +198,29 @@ async def sync_inbox(
             cand.path.name, str(cand.path.parent), cand.kind, cand.generated_at.date(), "imported"
         )
         key = (cand.kind in _SNAPSHOT_KINDS and "snap" or "orders", cand.sha)
-        if key in seen or await _already_imported(session, cand.kind, cand.sha):
-            result.status = "unchanged"
-        elif dry_run:
-            result.status = "new"
-        else:
-            try:
-                await _IMPORTERS[cand.kind](session, cand.data, cand.path.name, result.as_of)
-            except (DuplicateImportError, DuplicateOrderImportError):
-                await session.rollback()
+        try:
+            if (cand.kind not in _SNAPSHOT_KINDS and key in seen) or await _already_imported(session, cand.kind, cand.sha, cand.data):
                 result.status = "unchanged"
-            except Exception as exc:
-                await session.rollback()
-                logger.exception("Import failed for %s", cand.path.name)
-                result.status = "failed"
-                result.detail = f"{type(exc).__name__}: {exc}"[:300]
-        seen.add(key)
+            elif dry_run:
+                result.status = "new"
+            else:
+                await _IMPORTERS[cand.kind](session, cand.data, cand.path.name, result.as_of)
+        except (DuplicateImportError, DuplicateOrderImportError):
+            await session.rollback()
+            result.status = "unchanged"
+        except Exception as exc:
+            await session.rollback()
+            logger.error("Import failed (%s)", type(exc).__name__)
+            result.status = "failed"
+            result.detail = "import_failed"
+        if result.status in {"imported", "unchanged", "new"}:
+            seen.add(key)
         if cand.in_inbox and not dry_run and result.status in {"imported", "unchanged"}:
-            _move(cand.path, inbox / "processed" / today.isoformat())
+            try:
+                _move(cand.path, inbox / "processed" / today.isoformat())
+            except OSError:
+                result.status = "committed_with_attention" if result.status == "imported" else "needs_attention"
+                result.detail = "archive_failed"
         if cand.in_inbox or result.status != "unchanged":
             report.files.append(result)
     return report

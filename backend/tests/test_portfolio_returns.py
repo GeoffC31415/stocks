@@ -88,10 +88,10 @@ def calculate(*args, **kwargs) -> dict:
 
 
 def test_portfolio_return_endpoint_is_registered_with_response_schema() -> None:
-    route = next(route for route in app.routes if getattr(route, "path", None) == "/api/portfolio/returns")
-
-    assert route.methods == {"GET"}
-    assert route.response_model.__name__ == "PortfolioReturnSummary"
+    operations = app.openapi()["paths"]["/api/portfolio/returns"]
+    assert set(operations) == {"get"}
+    schema = operations["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    assert schema["$ref"].endswith("/PortfolioReturnSummary")
 
 
 def test_portfolio_return_is_unavailable_without_snapshots() -> None:

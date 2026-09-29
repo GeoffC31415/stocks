@@ -8,11 +8,9 @@ exits nonzero *after* saving evidence; loading/empty/error pages cannot pass.
 from __future__ import annotations
 
 import argparse
-from contextlib import closing
 import hashlib
 import json
 import os
-from pathlib import Path
 import socket
 import sqlite3
 import subprocess
@@ -20,24 +18,75 @@ import sys
 import tempfile
 import time
 import urllib.request
+from contextlib import closing
+from pathlib import Path
 
-from ui_contracts import ROUTES, allowed_gets, geometry_failures, measure_page, request_allowed
+from ui_contracts import (
+    ROUTES,
+    allowed_gets,
+    geometry_failures,
+    measure_page,
+    request_allowed,
+)
 from ui_fixtures import EMPTY_SUMMARY, focus_controls, long_names, verify_accessibility
 from ui_r3_contracts import verify_r3_navigation
-from ui_scope_contracts import verify_episode_navigation, verify_scope_navigation, verify_timeline_navigation
+from ui_scope_contracts import (
+    verify_episode_navigation,
+    verify_scope_navigation,
+    verify_timeline_navigation,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 
 
-def create_app(database: Path, dist: Path):
+def effective_routes(application):
+    """FastAPI 0.141 keeps included routers lazy; older versions flatten them."""
+    for route in application.routes:
+        if hasattr(route, "effective_route_contexts"):
+            yield from route.effective_route_contexts()
+        else:
+            yield route
+
+
+def audited_route_paths(application) -> set[str]:
+    return {route.path for route in effective_routes(application)
+            if getattr(route, "path", "") in allowed_gets()
+            and "GET" in getattr(route, "methods", set())}
+
+
+def create_app(database: Path, dist: Path, *, security_config=None, auth_store=None):
     """Copy only audited GET routes, never the live application's lifespan."""
     sys.path.insert(0, str(REPO / "backend"))
+    from app.database import get_session
+
+    # Assemble audited routers directly: importing app.main could construct a
+    # production auth store even without running its lifespan.
+    from app.routers import groups, imports, instruments, matching, orders, portfolio
     from fastapi import APIRouter, FastAPI, HTTPException
     from fastapi.responses import FileResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from app.database import get_session
-    from app.main import app as original
+    original = FastAPI()
+    for module in (groups, imports, instruments, matching, orders, portfolio):
+        original.include_router(module.router)
+
+    @original.get("/api/health")
+    async def health():
+        return {"status": "ok"}
+
+    @original.get("/api/auth/session")
+    async def synthetic_auth_session():
+        return {"mode": "local", "authenticated": True, "passkey_authenticated": False,
+                "can_register": False, "expires_at": None}
+
+    @original.get("/api/sync/status")
+    async def synthetic_sync_status():
+        return {"manual_sync_enabled": False, "service_trigger_enabled": False,
+                "accounts": [], "stale_after_days": 7, "last_run": None, "running": False}
+
+    @original.get("/api/sync/request")
+    async def synthetic_sync_request():
+        return {"state": "disabled", "request_id": None, "last_run": None}
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{database.as_uri()}?mode=ro&uri=true")
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -56,12 +105,20 @@ def create_app(database: Path, dist: Path):
         return await call_next(request)
 
     selected = APIRouter()
-    for route in original.routes:
+    for route in effective_routes(original):
         if getattr(route, "path", "") in allowed_gets() and "GET" in getattr(route, "methods", set()):
-            selected.routes.append(route)
+            selected.add_api_route(
+                route.path, route.endpoint, methods=["GET"],
+                response_model=getattr(route, "response_model", None),
+                dependencies=getattr(route, "dependencies", []),
+                response_class=getattr(route, "response_class", JSONResponse),
+            )
     # include_router clones API routes with this app's dependency provider.
     # Appending original routes directly would retain the live DB dependency.
     app.include_router(selected)
+    missing = allowed_gets() - audited_route_paths(app)
+    if missing:
+        raise RuntimeError("Missing audited GET routes: " + ", ".join(sorted(missing)))
     app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
 
     @app.get("/{path:path}")
@@ -70,11 +127,17 @@ def create_app(database: Path, dist: Path):
             raise HTTPException(status_code=404)
         return FileResponse(dist / "index.html")
 
+    if security_config is not None:
+        from app.security import WebSecurityMiddleware
+        # Caller supplies synthetic auth state; never construct a PasskeyStore
+        # or run normal application's migrations/lifespan in a rehearsal.
+        return WebSecurityMiddleware(app, security_config, auth_store), engine
     return app, engine
 
 
 def serve(database: Path, dist: Path, port: int) -> None:
     import asyncio
+
     import uvicorn
 
     app, engine = create_app(database, dist)
@@ -104,11 +167,13 @@ def wait_ready(server, base: str, *, timeout: float = 10) -> None:
 
 
 def copy_database(database: Path, copy: Path) -> None:
-    with closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as source:
-        with closing(sqlite3.connect(copy)) as destination:
-            source.backup(destination)
-            if destination.execute("PRAGMA integrity_check").fetchone() != ("ok",):
-                raise RuntimeError("Copied SQLite database failed integrity check")
+    with (
+        closing(sqlite3.connect(database.as_uri() + "?mode=ro", uri=True)) as source,
+        closing(sqlite3.connect(copy)) as destination,
+    ):
+        source.backup(destination)
+        if destination.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+            raise RuntimeError("Copied SQLite database failed integrity check")
 
 
 def verify_view(browser, base: str, view: str, width: int, output: Path, scenario: str = "default") -> dict:
@@ -221,7 +286,7 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
             scenario == "error" and r["url"].endswith("/api/portfolio/summary") and r["status"] == 503
         ) for r in responses):
             result["failures"].append("browser-or-api-errors")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - save evidence for every browser/contract failure
         result["failures"].append(f"readiness-or-contract: {exc}")
     finally:
         # The focus sweep leaves nested scrollers wherever the last control
@@ -240,7 +305,38 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
     return result
 
 
-def verify(database: Path, dist: Path, output: Path) -> None:
+def verify_zero_event_navigation(browser, base: str, *, width: int = 390, route_fixture=None) -> dict:
+    """Explicit alternative to order-heavy R3 journeys, not an inferred skip."""
+    result = {"width": width, "checks": [], "failures": []}
+    page = browser.new_page(viewport={"width": width, "height": 1000})
+    def guard(route):
+        if route.request.url.startswith("https://fonts.googleapis.com/"):
+            route.fulfill(content_type="text/css", body="")
+        elif request_allowed(route.request.method, route.request.url, base, "orders"):
+            route_fixture(route) if route_fixture else route.continue_()
+        else:
+            result["failures"].append("unexpected request")
+            route.abort()
+    page.route("**/*", guard)
+    page.on("pageerror", lambda error: result["failures"].append(str(error)))
+    try:
+        with page.expect_response(lambda r: "/api/orders/page" in r.url) as pending:
+            page.goto(base + "/activity?tab=orders&account=all", wait_until="networkidle")
+        response = pending.value
+        assert response.status == 200
+        payload = response.json()
+        assert payload["items"] == [] and payload["total_count"] == 0 and payload["has_more"] is False
+        page.get_by_role("region", name="Order results").get_by_text("No orders on this page. Refine your filters or go back.", exact=True).wait_for()
+        assert page.get_by_role("button", name="Next page", exact=True).is_disabled()
+        result["checks"].append({"name": "zero-event-orders", "fixture": "explicit-zero-event", "status": "passed"})
+    except Exception as exc:  # noqa: BLE001 - save evidence for every browser/contract failure
+        result["failures"].append(str(exc))
+    finally:
+        page.close()
+    return result
+
+
+def verify(database: Path, dist: Path, output: Path, *, zero_events: bool = False) -> None:
     from playwright.sync_api import sync_playwright
 
     if not database.is_file() or not (dist / "index.html").is_file():
@@ -277,7 +373,10 @@ def verify(database: Path, dist: Path, output: Path) -> None:
                             for scenario in ("empty", "error"):
                                 report["views"].append(verify_view(browser, base, "overview", width, output, scenario))
                         for width in (390, 1440):
-                            report["journeys"].append(verify_r3_navigation(browser, base, output, width))
+                            report["journeys"].append(
+                                verify_zero_event_navigation(browser, base, width=width) if zero_events
+                                else verify_r3_navigation(browser, base, output, width)
+                            )
                     finally:
                         browser.close()
             finally:
@@ -303,8 +402,9 @@ if __name__ == "__main__":
     parser.add_argument("--dist", type=Path, required=True)
     parser.add_argument("--output", type=Path, default=Path("/tmp/stocks-ui-verification"))
     parser.add_argument("--serve", type=int, help=argparse.SUPPRESS)
+    parser.add_argument("--zero-events", action="store_true", help="explicit zero-order fixture journey instead of order-heavy R3")
     args = parser.parse_args()
     if args.serve:
         serve(args.database.resolve(), args.dist.resolve(), args.serve)
     else:
-        verify(args.database.resolve(), args.dist.resolve(), args.output.resolve())
+        verify(args.database.resolve(), args.dist.resolve(), args.output.resolve(), zero_events=args.zero_events)

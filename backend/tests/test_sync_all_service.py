@@ -185,6 +185,69 @@ async def test_import_failure_is_isolated_and_file_left_in_place(
     assert await _count(session, ImportBatch) == 1
 
 
+async def test_duplicate_validation_failure_is_isolated(session, tmp_path, monkeypatch):
+    from app.services import sync_all_service as service
+    _write(tmp_path, 'h.csv', _hl_holdings('21-09-2026 19:11', '10'), dt.datetime(2026, 9, 21))
+    async def invalid(*args):
+        raise ValueError('synthetic invalid export')
+    monkeypatch.setattr(service, '_already_imported', invalid)
+    report = await sync_inbox(session, tmp_path)
+    assert report.files[0].status == 'failed'
+    assert (tmp_path / 'h.csv').exists()
+
+
+async def test_latest_snapshot_restoration_is_not_historical_duplicate(session, tmp_path):
+    statuses = []
+    for units in ('10', '12', '10', '10'):
+        _write(tmp_path, 'h.csv', _hl_holdings('21-09-2026 19:11', units), dt.datetime(2026, 9, 21))
+        report = await sync_inbox(session, tmp_path)
+        statuses.append(report.files[0].status)
+    assert statuses == ['imported', 'imported', 'imported', 'unchanged']
+    assert await _count(session, ImportBatch) == 3
+
+
+async def test_archive_failure_preserves_committed_import(session, tmp_path, monkeypatch):
+    from app.services import sync_all_service as service
+    _write(tmp_path, 'h.csv', _hl_holdings('21-09-2026 19:11', '10'), dt.datetime(2026, 9, 21))
+
+    def denied(*args):
+        raise PermissionError('PRIVATE_SENTINEL')
+
+    monkeypatch.setattr(service, '_move', denied)
+    report = await sync_inbox(session, tmp_path)
+    assert report.files[0].status == 'committed_with_attention'
+    assert report.files[0].detail == 'archive_failed'
+    assert await _count(session, ImportBatch) == 1
+    assert (tmp_path / 'h.csv').exists()
+
+
+async def test_read_failure_does_not_abort_other_files(session, tmp_path, monkeypatch):
+    _write(tmp_path, 'bad.csv', b'x', dt.datetime(2026, 9, 21))
+    _write(tmp_path, 'good.csv', HL_ACTIVITY, dt.datetime(2026, 9, 21))
+    original = Path.read_bytes
+
+    def read(path):
+        if path.name == 'bad.csv':
+            raise PermissionError('PRIVATE_SENTINEL')
+        return original(path)
+
+    monkeypatch.setattr(Path, 'read_bytes', read)
+    report = await sync_inbox(session, tmp_path)
+    assert {f.filename: f.status for f in report.files} == {'bad.csv': 'failed', 'good.csv': 'imported'}
+    assert report.files[0].detail == 'read_failed'
+
+
+async def test_failed_payload_is_not_marked_duplicate_for_later_file(session, tmp_path, monkeypatch):
+    from app.services import sync_all_service as service
+    _write(tmp_path, 'a.csv', HL_ACTIVITY, dt.datetime(2026, 9, 21))
+    _write(tmp_path, 'b.csv', HL_ACTIVITY, dt.datetime(2026, 9, 21))
+    async def fails(*args):
+        raise RuntimeError('PRIVATE_SENTINEL')
+    monkeypatch.setitem(service._IMPORTERS, 'hl_activity', fails)
+    report = await sync_inbox(session, tmp_path)
+    assert [f.status for f in report.files] == ['failed', 'failed']
+
+
 async def test_extra_sources_are_scanned_without_moving(session, tmp_path: Path) -> None:
     inbox = tmp_path / "inbox"
     inbox.mkdir()

@@ -1,8 +1,8 @@
 [Unit]
-Description=Weekday 18:30 Stocks broker sync
+Description=Daily 18:30 Europe/London Stocks broker sync
 
 [Timer]
-OnCalendar=Mon..Fri 18:30 Europe/London
+OnCalendar=*-*-* 18:30:00 Europe/London
 Persistent=true
 RandomizedDelaySec=2min
 

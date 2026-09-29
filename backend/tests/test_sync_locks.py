@@ -100,8 +100,10 @@ async def test_runner_publishes_started_and_finished_atomically(tmp_path, monkey
     report = await runner.run_sync_all(
         None, inbox=tmp_path, include_trading212=False, fetchers=[("Barclays", fetch)]
     )
-    assert len(observed) == 2
+    assert len(observed) == 3  # run start, durable provider attempt, terminal
     assert observed[0]["finished_at"] is None
-    assert observed[1]["finished_at"] is not None
+    assert observed[1]["finished_at"] is None
+    assert observed[1]["freshness"]["Barclays"]["holdings"]["last_attempt_at"] == report.started_at
+    assert observed[2]["finished_at"] is not None
     assert observed[0]["started_at"] == report.started_at
     assert report.steps[0].status == "ok"
