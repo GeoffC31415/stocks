@@ -1,0 +1,39 @@
+{
+  "schema_version": 2,
+  "outcome": "partial",
+  "freshness": {
+    "Trading 212": {
+      "holdings": {
+        "last_attempt_at": "2026-09-29T18:29:00+00:00",
+        "verified_at": "2026-09-01T18:30:00+00:00",
+        "valuation_at": "2026-09-01",
+        "status": "failed",
+        "coverage": "partial",
+        "reason_code": "provider_failed",
+        "action_code": "retry"
+      }
+    }
+  },
+  "started_at": "2026-09-29T18:29:00+00:00",
+  "finished_at": "2026-09-29T18:30:00+00:00",
+  "ok": false,
+  "steps": [
+    {
+      "name": "Trading 212",
+      "status": "failed",
+      "detail": null,
+      "sections": {
+        "holdings": {
+          "last_attempt_at": "2026-09-29T18:29:00+00:00",
+          "verified_at": "2026-09-01T18:30:00+00:00",
+          "valuation_at": "2026-09-01",
+          "status": "failed",
+          "coverage": "partial",
+          "reason_code": "provider_failed",
+          "action_code": "retry"
+        }
+      }
+    }
+  ],
+  "files": []
+}

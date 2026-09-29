@@ -246,11 +246,19 @@ export type OrderImportBatchOut = {
   row_count: number;
 };
 
-export type SyncStep = { name: string; status: string; detail: string | null };
+export type SyncSection = {
+  status?: string;
+  last_attempt_at?: string | null;
+  verified_at?: string | null;
+  valuation_at?: string | null;
+  coverage?: "complete" | "partial" | "unknown";
+  reason_code?: string;
+  action_code?: "none" | "retry" | "configure" | "operator_review";
+};
+export type SyncStep = { name: string; status: string; detail: string | null; sections?: Record<string, SyncSection> };
 export type SyncFile = { filename: string; kind: string | null; as_of: string | null; status: string; detail: string | null };
-export type SyncOutcome = "complete" | "partial" | "failed" | "no-op" | "disabled";
-export type SyncSection = { name?: string; status?: string; checked_at?: string | null; valuation_date?: string | null; attempted_at?: string | null; coverage_start?: string | null; coverage_end?: string | null; detail?: string | null };
-export type SyncReport = { outcome?: SyncOutcome; sections?: SyncSection[] | Record<string, SyncSection> };
+export type SyncOutcome = "complete" | "partial" | "failed" | "no_op" | "disabled";
+export type SyncReport = { schema_version?: number; outcome?: SyncOutcome; freshness?: Record<string, Record<string, SyncSection>>; steps?: SyncStep[] };
 export type SyncRun = SyncReport & { started_at: string; finished_at: string | null; ok: boolean; steps: SyncStep[]; files: SyncFile[] };
 export type ServiceSync = {
   state: "accepted" | "running" | "completed" | "failed" | "unknown" | "busy" | "disabled" | "inactive";
@@ -260,6 +268,8 @@ export type ServiceSync = {
 export type SyncStatus = SyncReport & {
   manual_sync_enabled: boolean;
   service_trigger_enabled?: boolean;
+  next_run_at?: string | null;
+  schedule?: string;
   accounts: Array<{ account_name: string; last_snapshot_date: string | null; age_days: number | null; stale: boolean }>;
   stale_after_days: number;
   last_run: SyncRun | null;

@@ -1,15 +1,16 @@
 # Frontend review candidate — no production release
 
-All changes are frontend-only. No broker, database, permissions or production assets were changed. Human design approval and release remain pending.
+All UI changes are review-only. This integrated checkout also contains the backend sync worker and analytical service changes; no broker, real database, permissions or production assets were changed by this frontend integration. Human design approval and release remain pending.
 
 ## Run the isolated review UI
 
-From `/home/geoff/code/stocks-improve-ui/frontend`:
+From `/home/geoff/code/stocks`:
 
 ```sh
-npm ci # only if dependencies are absent
-npm run build -- --outDir "$TMPDIR/stocks-ui-preview" --emptyOutDir
-python scripts/preview_demo.py --dist "$TMPDIR/stocks-ui-preview" --port 8794
+npm --prefix frontend ci --ignore-scripts # only if dependencies are absent
+npm --prefix frontend run build -- --outDir /home/geoff/.hermes/cache/scratch/stocks-integrated-preview-dist --emptyOutDir
+.venv/bin/python frontend/scripts/preview_demo.py \
+  --dist /home/geoff/.hermes/cache/scratch/stocks-integrated-preview-dist --port 8794
 ```
 
 Open `http://127.0.0.1:8794/`. Layout alternatives:
@@ -17,6 +18,17 @@ Open `http://127.0.0.1:8794/`. Layout alternatives:
 - `/demo/ledger-first.html` — ledger-led alternative.
 
 The preview binds loopback only. It has deterministic labelled synthetic fixtures, no upstream proxy, and rejects every mutation. Unknown API reads fail visibly rather than hitting a live backend. If using a remote machine, forward loopback port 8794 over your existing SSH connection; do not expose it publicly. Stop the server with Ctrl-C. Scratch build directories may be pruned; rebuild if absent.
+
+For the combined backend + built frontend rehearsal, use an isolated checkout/worktree with **no `.env` or `backend/.env`** and the shared venv (run from that worktree root):
+
+```sh
+/home/geoff/code/stocks/.venv/bin/python scripts/synthetic_preview.py \
+  --dist /home/geoff/.hermes/cache/scratch/stocks-integrated-preview-dist \
+  --output /home/geoff/.hermes/cache/scratch/stocks-integrated-backend-review \
+  --port 8127
+```
+
+The output directory must be new; choose another name if it exists. This is the real analytical GET-router rehearsal on an exclusively created synthetic DB, **not** the panel fixtures below. It deliberately has zero orders and synthetic disabled sync. Never launch the normal production app or supply a real DB/broker/auth store for review. These frontend browser results were obtained on the GET-only fixture server, not this backend rehearsal.
 
 Recommendation: chart-first makes observation-based performance and its limitations immediately legible, while latest-snapshot attribution remains separately dated. Ledger-first is better for routine position inspection but places the investment story below the ledger. Both are static design artifacts, not proposed real financial data.
 
@@ -36,49 +48,62 @@ Recommendation: chart-first makes observation-based performance and its limitati
 | E1 | Raw snapshot history has independent state and survives reconstruction/order failures. History queries only run when their view is selected. HistoryViews and PerformanceWorkspace tests; Chrome induced reconstruction failure then successful snapshot history. |
 | E2 | Accessible exact observation table and date inspection use recorded date union, never manufactured daily samples. Missing drawdown remains unavailable. PerformancePanel tests; five sparse fixture observations and dated inspection in Chrome. |
 | E4 | Lazy route imports retain auth, legacy redirects and shell; stable 560px loading region. App and workspace route tests, real isolated Vite build. Bundle measurement below. |
-| D4 frontend | Tolerant structured outcome/section contract; complete/partial/failed/no-op/disabled remain explicit; legacy missing outcome is unreported. DataConfidencePanel, ImportPanel and Topbar no longer infer generic green success. SyncEvidence and integration tests. Backend worker integration remains another owner's work. |
+| D4 integrated | Actual backend v2 `no_op` outcome and `freshness[provider][section]` contract; sanitized `steps[].sections` fallback, with freshness taking precedence and no duplicate rows. Checked (`verified_at`), attempt (`last_attempt_at`), valuation (`valuation_at`), retained coverage, current status, reason and action are separate. Real `public_report` serialization feeds component, Data confidence and Import browser checks; legacy `ok` cannot infer green success. Live broker semantics remain unverified. |
 
-## Structured refresh contract for backend coordination
+## Authoritative structured refresh contract (schema version 2)
 
-Existing `/api/sync/status` and run types remain compatible. Optional additions at status or last_run level:
+Source of truth: `docs/sync-reliability-operator-notes.md` and backend `sync_control.public_report`. `/api/sync/status.last_run` and completed service requests carry this report:
 
 ```ts
-outcome?: 'complete' | 'partial' | 'failed' | 'no-op' | 'disabled';
-sections?: Array<{
-  name?: string; status?: string;
-  checked_at?: string | null;
-  valuation_date?: string | null;
-  attempted_at?: string | null;
-  coverage_start?: string | null;
-  coverage_end?: string | null;
-  detail?: string | null;
-}> | Record<string, /* same section fields */ object>;
+schema_version?: number;
+outcome?: 'complete' | 'partial' | 'failed' | 'no_op' | 'disabled';
+freshness?: Record<string, Record<string, {
+  verified_at?: string | null;
+  valuation_at?: string | null;
+  last_attempt_at?: string | null;
+  coverage?: 'complete' | 'partial' | 'unknown';
+  status?: string;
+  reason_code?: string;
+  action_code?: 'none' | 'retry' | 'configure' | 'operator_review';
+}>>;
+// steps[].sections is a section-keyed map of the same sanitized metadata.
+// status also provides next_run_at: UTC timestamp | null, and schedule: string.
 ```
 
-Date meanings stay separate: a check timestamp does not imply newer valuation, an attempted refresh does not prove success, and coverage is not inferred from valuation. No outcome is inferred from legacy `ok`. The service worker must supply authoritative outcome/section evidence; frontend contract tests do not certify live backend semantics.
+Providers include Barclays, Hargreaves Lansdown and Trading 212; section keys are holdings, orders, cash and transactions. Optional fields support readable legacy reports; absence never manufactures evidence. Checked means committed verified broker observation, not a local duplicate or attempt. A failed newer attempt preserves prior verification, valuation and coverage, so current status/reason/action remain displayed alongside retained evidence. Coverage is an enum, **not a date range**, and is never inferred from valuation. No outcome is inferred from legacy `ok`; `no_op` is the literal wire value, not `no-op`.
 
-## Verified final candidate
+`frontend/scripts/serialize_sync_fixture.py` feeds explicit synthetic input through the real backend public serializer without reading worker state, databases or credentials. The committed JSON fixture is consumed by React tests and the GET-only preview. Python tests regenerate it and compare both uses with the actual serializer, making backend contract drift fail rather than silently changing the fixture.
+
+## Verified integrated candidate
 
 - TypeScript `npm run typecheck`: pass.
-- Vitest: **244 tests / 67 files passed**. Node's existing experimental localStorage warning remains; actual storage-backed AuthGate secret-leak checks pass.
-- Python preview contract: **3 tests passed**.
-- Vite isolated build: pass; no production output directory used.
-- Chrome/Playwright: **24 route/viewport rows** (8 routes at 320/390/1440), **3 interaction sequences**. No document horizontal overflow, undersized inspected controls, wrapped mobile-nav labels or uncaught page errors. Horizontal holdings table scrolling is intentional.
+- Vitest: **249 tests / 67 files passed**. Node's existing experimental localStorage warning remains; actual storage-backed AuthGate secret-leak checks pass.
+- Python preview/real-serializer contract: **5 tests passed**.
+- Vite build: pass into `/home/geoff/.hermes/cache/scratch/stocks-integrated-preview-dist`; no production output directory used.
+- Chrome/Playwright: **60 route/viewport rows** (20 routes at 320/390/1440), **3 interaction sequences**, and eight legacy redirects at each width. Every Portfolio/Activity/Data tab plus Overview, Tax, Help and both static design variants is explicitly checked. Tax includes an expanded synthetic sale; Holding returns and Orders are populated. Data confidence and Import display real serialized v2 evidence.
+- No document horizontal overflow, uncontained content overflow, undersized inspected controls, wrapped mobile-nav labels, unexpected HTTP/console errors or uncaught page errors in that matrix. Deliberate bounded table scrolling and clipped empty decorative background shapes are not content failures. The reconstruction failure interaction is intentional.
+- Mobile Tax, Orders, Holding returns and confidence final content clears fixed navigation; top/bottom viewport captures distinguish actual layout from stitched full-page sticky-navigation artifacts. Horizontal scrolling of the returns table is exercised separately. Screenshot inspection covered these added mobile routes; human design approval remains pending.
 - `git diff --check`: pass.
-- Runtime evidence: `/home/geoff/.hermes/cache/scratch/stocks-ui-browser/geometry.json` and screenshots in the same directory. These are scratch evidence, not committed assets.
+- Runtime evidence: `/home/geoff/.hermes/cache/scratch/stocks-integrated-ui-browser/geometry.json` and screenshots in the same directory. Scratch evidence is not committed. Owned ephemeral preview servers were stopped; no server is promised to remain running.
 
-Re-run browser checks with the preview running:
+Re-run from the repo root with the fixture preview running:
 
 ```sh
-uv run --with playwright python scripts/verify_preview.py --out "$TMPDIR/stocks-ui-browser"
+.venv/bin/python frontend/scripts/verify_preview.py \
+  --out /home/geoff/.hermes/cache/scratch/stocks-integrated-ui-browser
+.venv/bin/python -m unittest discover -s frontend/scripts -p 'test_preview_demo.py' -v
 ```
 
-Chrome executable is `/usr/bin/google-chrome`. The browser blocks non-GET and non-preview-origin requests. Screenshot inspection identified wrapped mobile labels; a failing browser regression was added, then labels were fixed and checks passed.
+Chrome executable is `/usr/bin/google-chrome`. The browser blocks non-GET and non-preview-origin requests. The matrix is a synthetic panel-layout/contract exercise, not a claim that fixture financial panels reconcile as a ledger.
+
+**Known separate route gap:** adding `/security` to the local-mode redirect check failed at 320px: the URL remained `/security?account=all&period=ALL` with empty main content rather than redirecting to Overview. This is not included in the passing matrix and was not fixed by this sync-contract change. Reproduce the failing acceptance gate with `verify_preview.py --check-local-security-redirect` (same `--out`/`--url` arguments). Passkey-mode security and real login/logout remain unverified.
 
 ### Measured bundle evidence
+
+Current integrated entry: `index-BQBhs0-l.js`, **440,147 bytes** (Vite: 440.15 kB / 140.76 kB gzip). The following is historical measurement from the prior frontend candidate, not a fresh integrated all-resource measurement:
 
 Saved baseline artifact: `/home/geoff/.hermes/cache/scratch/stocks-improvement-baseline/dist/assets/index-UNc25X-i.js`, **1,090,200 bytes**. Final entry: **439,727 bytes** (Vite reports 439.73 kB / 140.58 kB gzip). Do not equate entry reduction with whole Overview load: Chrome observed **9 JavaScript chunks / 860,599 bytes** on initial Overview navigation. Python gzip measurement gives baseline 319,988, entry 139,991 and loaded Overview sum 269,250 bytes; compressor settings differ from Vite's gzip report. Other route chunks are deferred, not deleted. `scripts/measure_bundle.py` reproduces these file/browser-resource measurements.
 
 ## Remaining real acceptance boundaries
 
-Synthetic browser coverage is not a live-account or production-auth acceptance test. Do not release without isolated clone/staging rehearsal and human review. Pending: real broker completeness/worker contract validation; authenticated passkey/logout browser exercise; full Tax, Activity and Holding-returns responsive geometry; all error/empty states at real data volumes; keyboard/screen-reader manual usability and chart hover interaction. Full-page screenshots of fixed bottom navigation can show content passing behind it; app bottom padding allows final content to scroll clear. Table date buttons provide accessible drawdown inspection independent of chart hover.
+Synthetic browser coverage is not live-account or production-auth acceptance. Do not release without isolated clone/staging rehearsal and human review. Pending: real broker completeness/worker semantics; local-mode `/security` redirect failure above; authenticated passkey/logout browser exercise; populated Allocation and advanced Matching tools geometry (the matrix uses intentionally empty allocation and healthy matching); all error/empty states at real data volumes; keyboard/screen-reader manual usability and chart hover interaction. Tax, Activity and Holding-returns fixture geometry is now covered, not real-volume semantics. Stitched full-page screenshots can put sticky header/fixed bottom navigation over content; real top/bottom viewport captures and final-content clearance checks pass for the added mobile routes. Table date buttons provide accessible drawdown inspection independent of chart hover.

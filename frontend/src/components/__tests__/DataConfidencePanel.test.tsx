@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { DataConfidencePanel } from "../DataConfidencePanel";
-import { api } from "../../lib/api";
+import { api, type SyncRun } from "../../lib/api";
+import publicReport from './fixtures/public-sync-v2.json';
 import { dataQualityApi, type DataConfidence } from "../../lib/dataQualityApi";
 import { PreferencesContext } from "../../state/usePreferences";
 
@@ -22,7 +23,7 @@ function show() {
   </QueryClientProvider>);
 }
 beforeEach(() => {
-  vi.spyOn(api,"getSyncStatus").mockResolvedValue({manual_sync_enabled:false,accounts:[],stale_after_days:7,running:false,last_run:null,outcome:"no-op",sections:[]});
+  vi.spyOn(api,"getSyncStatus").mockResolvedValue({manual_sync_enabled:false,accounts:[],stale_after_days:7,running:false,last_run:null,outcome:"no_op",freshness:{}});
   const values = new Map<string, string>();
   vi.stubGlobal("localStorage", { getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => values.set(key, value) });
@@ -34,11 +35,22 @@ it("discloses unknown transaction completeness and keeps unavailable proxy histo
   show();
   expect(await screen.findByText("Core data checks healthy — view coverage and limitations")).toBeInTheDocument();
   expect(screen.getByText(/Completeness is unknown/)).toBeInTheDocument();
-  expect(await screen.findByText("Refresh outcome: no-op")).toBeInTheDocument();
+  expect(await screen.findByText("Refresh outcome: no_op")).toBeInTheDocument();
   expect(screen.getByText(/does not block snapshot or holdings analysis/)).toBeInTheDocument();
   expect(request).toHaveBeenCalledWith("ISA", "ALL", 14);
   fireEvent.change(screen.getByRole("combobox", { name: "Snapshot freshness tolerance" }), { target: { value: "30" } });
   await waitFor(() => expect(request).toHaveBeenCalledWith("ISA", "ALL", 30));
+});
+
+it('shows real serialized last-run v2 evidence on the full confidence surface', async () => {
+  vi.mocked(api.getSyncStatus).mockResolvedValue({manual_sync_enabled:false,accounts:[],stale_after_days:7,running:false,last_run:publicReport as SyncRun});
+  vi.spyOn(dataQualityApi, 'getConfidence').mockResolvedValue(data);
+  show();
+  expect(await screen.findByText('Trading 212 / holdings: failed')).toBeInTheDocument();
+  expect(screen.getByText('Checked: 2026-09-01T18:30:00+00:00')).toBeInTheDocument();
+  expect(screen.getByText('Attempt: 2026-09-29T18:29:00+00:00')).toBeInTheDocument();
+  expect(screen.getByText('Coverage: partial')).toBeInTheDocument();
+  expect(screen.getByText('Action: retry')).toBeInTheDocument();
 });
 
 it("never renders a failed check as healthy and offers retry", async () => {
