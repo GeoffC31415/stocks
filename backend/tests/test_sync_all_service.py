@@ -24,6 +24,7 @@ def _hl_holdings(created: str, units: str) -> bytes:
         "\n"
         "Code,Stock,Units held,Price (pence),Value (\u00a3),Cost (\u00a3),Gain/loss (\u00a3),Gain/loss (%)\n"
         f'ABC,Example Fund,"{units}","100.0","{float(units):.2f}","5.00","5.00","100"\n'
+        f",Totals,,,{float(units):.2f},5.00,,\n"
     ).encode()
 
 

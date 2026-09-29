@@ -16,10 +16,12 @@ from app.fetchers.base import (
     requested_positions,
 )
 from app.services.export_classifier import ExportKind, UnrecognisedExport, classify_export
+from app.services.hl_sync_service import FetchedHLPair
 from app.services.sync_runner import StepResult
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
+    from pydantic import SecretStr
 
 HL_HOSTS = ("hl.co.uk",)
 LOGIN_URL = "https://online.hl.co.uk/my-accounts/login-step-one"
@@ -38,7 +40,7 @@ def _block(reason: str) -> None:
 
 
 def _secret(name: str) -> str:
-    value = getattr(settings, name)
+    value: SecretStr | None = getattr(settings, name)
     if value is None or not value.get_secret_value().strip():
         raise FetchError(f"HL: PORTFOLIO_{name.upper()} is not set in .env.")
     return value.get_secret_value().strip()
@@ -105,7 +107,7 @@ ACTIVITY_CSV = (
 ACTIVITY_WINDOW_DAYS = 90
 
 
-async def _save(page: Page, url: str, inbox: Path, prefix: str, expected: ExportKind) -> Path:
+async def _download(page: Page, url: str, prefix: str, expected: ExportKind) -> bytes:
     resp = await page.context.request.get(url)
     if resp.status != 200:
         raise FetchError(f"HL: {prefix} download returned HTTP {resp.status}.")
@@ -116,15 +118,11 @@ async def _save(page: Page, url: str, inbox: Path, prefix: str, expected: Export
         raise FetchError(f"HL: {prefix} download was not a valid export.") from exc
     if kind is not expected:
         raise FetchError(f"HL: {prefix} download was {kind.value}, expected {expected.value}.")
-    path = inbox / f"{prefix}-{dt.datetime.now():%Y%m%d-%H%M%S}.csv"
-    tmp = path.with_suffix(".part")
-    tmp.write_bytes(data)
-    tmp.rename(path)
-    return path
+    return data
 
 
-async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
-    """Download HL holdings and recent capital-account activity into the inbox."""
+async def fetch(inbox: Path, *, headless: bool = True) -> StepResult | FetchedHLPair:
+    """Stage a coherent pair in memory; the runner must call HL import_pair."""
     if block_marker().exists():
         return StepResult(
             "Hargreaves Lansdown",
@@ -145,15 +143,14 @@ async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
             await page.goto(href, wait_until="domcontentloaded")
             if not await page.locator("a[href*='account_summary_csv']").count():
                 raise FetchError("HL: account summary Download link not found.")
-            await _save(
-                page, ACCOUNT_SUMMARY_CSV, inbox, "hl-account-summary", ExportKind.HL_HOLDINGS
+            holdings = await _download(
+                page, ACCOUNT_SUMMARY_CSV, "hl-account-summary", ExportKind.HL_HOLDINGS
             )
             end = dt.date.today()
             start = end - dt.timedelta(days=ACTIVITY_WINDOW_DAYS)
-            await _save(
+            orders = await _download(
                 page,
                 ACTIVITY_CSV.format(start=start.isoformat(), end=end.isoformat()),
-                inbox,
                 "hl-activity",
                 ExportKind.HL_ACTIVITY,
             )
@@ -161,4 +158,4 @@ async def fetch(inbox: Path, *, headless: bool = True) -> StepResult:
             return StepResult("Hargreaves Lansdown", "needs_attention", str(exc))
         except FetchError as exc:
             return StepResult("Hargreaves Lansdown", "failed", str(exc))
-    return StepResult("Hargreaves Lansdown", "ok", "holdings + 90-day activity downloaded")
+    return FetchedHLPair(holdings=holdings, orders=orders, observed_at=dt.datetime.now(dt.UTC))

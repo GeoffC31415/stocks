@@ -514,50 +514,28 @@ class PortfolioOnlyTrading212Client(FakeTrading212Client):
 
 
 @pytest.mark.asyncio
-async def test_account_summary_403_preserves_prior_cash_holding() -> None:
+async def test_account_summary_403_rejects_prior_cash_valuation() -> None:
+    from app.services.trading212 import Trading212DataError
+
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
-        await sync_portfolio_snapshot(
-            session,
-            FakeTrading212Client(),
-            account_name=ACCOUNT_NAME,
+        initial_batch, _ = await sync_portfolio_snapshot(
+            session, FakeTrading212Client(), account_name=ACCOUNT_NAME,
         )
-        fallback_batch, summary = await sync_portfolio_snapshot(
-            session,
-            PortfolioOnlyTrading212Client(),
-            account_name=ACCOUNT_NAME,
-            force=True,
-        )
-        cash = (
-            await session.execute(
-                select(Instrument).where(
-                    Instrument.account_name == ACCOUNT_NAME,
-                    Instrument.identifier == "CASH",
-                )
+        with pytest.raises(Trading212DataError, match="cash"):
+            await sync_portfolio_snapshot(
+                session, PortfolioOnlyTrading212Client(), account_name=ACCOUNT_NAME, force=True,
             )
-        ).scalar_one()
-        fallback_cash_snapshots = list(
-            (
-                await session.execute(
-                    select(HoldingSnapshot)
-                    .join(Instrument)
-                    .where(
-                        HoldingSnapshot.import_batch_id == fallback_batch.id,
-                        Instrument.identifier == "CASH",
-                    )
-                )
-            ).scalars()
-        )
-
+        snapshots = list((await session.scalars(select(HoldingSnapshot))).all())
+        assert len(snapshots) == 2
+        assert {row.import_batch_id for row in snapshots} == {initial_batch.id}
+        cash = await session.scalar(select(Instrument).where(Instrument.identifier == "CASH"))
+        assert cash.closed_at is None
     await engine.dispose()
-
-    assert cash.closed_at is None
-    assert fallback_cash_snapshots == []
-    assert all(closed["identifier"] != "CASH" for closed in summary["closed"])
 
 
 @pytest.mark.parametrize("bad_value", [True, False])

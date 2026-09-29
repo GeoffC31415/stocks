@@ -5,8 +5,10 @@ import datetime as dt
 import hashlib
 import json
 import math
+import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import parse_qs, urlsplit
 
@@ -45,9 +47,17 @@ class Trading212Client:
         timeout: float = 30.0,
         page_delay: float = 10.1,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        runtime_budget: float = 180.0,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if not api_key or not api_secret:
             raise ValueError("Trading 212 API credentials are not configured.")
+        for value, minimum in ((runtime_budget, 0.000001), (timeout, 0.000001), (page_delay, 0)):
+            if isinstance(value, bool) or not math.isfinite(value) or not minimum <= value <= 900:
+                raise ValueError("Trading 212 runtime limits must be finite and bounded.")
+        self._runtime_budget = runtime_budget
+        self._clock = clock
+        self._deadline: float | None = None
         self._api_key = api_key
         self._api_secret = api_secret
         self._transport = transport
@@ -79,6 +89,42 @@ class Trading212Client:
         if parsed.query != expected_query:
             raise Trading212DataError("Trading 212 returned an invalid pagination path.")
 
+    def _remaining(self) -> float:
+        if self._deadline is None:
+            self._deadline = self._clock() + self._runtime_budget
+        remaining = self._deadline - self._clock()
+        if remaining <= 0:
+            raise Trading212DataError("Trading 212 runtime budget exhausted.")
+        return remaining
+
+    async def _pause(self, seconds: float) -> None:
+        remaining = self._remaining()
+        if seconds >= remaining:
+            raise Trading212DataError("Trading 212 retry/pagination exceeds runtime budget.")
+        try:
+            async with asyncio.timeout(remaining):
+                await self._sleep(seconds)
+        except TimeoutError:
+            raise Trading212DataError("Trading 212 runtime budget exhausted.") from None
+        self._remaining()
+
+    def _retry_delay(self, response: httpx.Response, attempt: int) -> float:
+        retry_after = response.headers.get("Retry-After")
+        if retry_after is None:
+            return self._page_delay * (2.0**attempt)
+        if retry_after.isascii() and retry_after.isdecimal():
+            # Bound conversion before parsing attacker-controlled enormous integers.
+            if len(retry_after) > 6:
+                raise Trading212DataError("Trading 212 Retry-After exceeds runtime budget.")
+            return float(retry_after)
+        try:
+            when = parsedate_to_datetime(retry_after)
+            if when.tzinfo is None:
+                raise ValueError
+            return max(0.0, (when - dt.datetime.now(dt.UTC)).total_seconds())
+        except (TypeError, ValueError, OverflowError):
+            raise Trading212DataError("Trading 212 returned invalid Retry-After.") from None
+
     async def _get(self, path: str) -> Any:
         async with httpx.AsyncClient(
             base_url=self._BASE_URL,
@@ -87,9 +133,25 @@ class Trading212Client:
             timeout=self._timeout,
             headers={"Accept": "application/json"},
         ) as client:
-            response = await client.get(path)
-            response.raise_for_status()
-            return response.json()
+            for attempt in range(3):
+                remaining = self._remaining()
+                try:
+                    async with asyncio.timeout(min(remaining, self._timeout)):
+                        response = await client.get(path)
+                except (TimeoutError, httpx.TransportError) as exc:
+                    if self._remaining() <= 0 or attempt == 2:
+                        raise Trading212DataError(
+                            "Trading 212 request failed within runtime budget."
+                        ) from exc
+                    await self._pause(self._page_delay * (2**attempt))
+                    continue
+                self._remaining()
+                if response.status_code in {429, 500, 502, 503, 504} and attempt < 2:
+                    await self._pause(self._retry_delay(response, attempt))
+                    continue
+                response.raise_for_status()
+                return response.json()
+        raise Trading212DataError("Trading 212 request failed.")
 
     async def fetch_account_summary(self) -> Mapping[str, Any]:
         result = await self._get("/api/v0/equity/account/summary")
@@ -129,7 +191,7 @@ class Trading212Client:
             self._validate_orders_path(next_path, continuation=True)
             if next_path in seen_paths:
                 raise Trading212DataError("Trading 212 returned an invalid pagination path.")
-            await self._sleep(self._page_delay)
+            await self._pause(self._page_delay)
             path = next_path
         return items
 
@@ -187,7 +249,7 @@ class Trading212Client:
             self._validate_transactions_path(next_path, continuation=True)
             if next_path in seen:
                 raise Trading212DataError("Trading 212 cash pagination repeated a page.")
-            await self._sleep(self._page_delay)
+            await self._pause(self._page_delay)
             path = next_path
 
 
@@ -210,8 +272,37 @@ async def sync_portfolio_snapshot(
     account_name: str,
     force: bool = False,
     commit: bool = True,
+    reviewed_closed_identifiers: frozenset[str] = frozenset(),
 ) -> tuple[ImportBatch, dict[str, Any]]:
-    from app.services.import_service import import_holding_snapshot
+    from sqlalchemy import select
+
+    from app.models import HoldingSnapshot, Instrument
+    from app.services.import_service import import_holding_snapshot, resolve_account_name
+    from app.services.portfolio_service import get_latest_batch_for_account
+
+    # Only a trusted, explicit operator review may approve disappearing securities.
+    # Never expose this allowlist through an automatic provider/sale inference.
+    if not isinstance(reviewed_closed_identifiers, frozenset) or any(
+        not isinstance(identifier, str) or not identifier.strip() or identifier == "CASH"
+        for identifier in reviewed_closed_identifiers
+    ):
+        raise Trading212DataError("Invalid reviewed closure allowlist.")
+    account_name = await resolve_account_name(session, account_name)
+    latest = await get_latest_batch_for_account(session, account_name)
+    previous_identifiers = set()
+    if latest is not None:
+        previous_identifiers = set(
+            (
+                await session.scalars(
+                    select(Instrument.identifier)
+                    .join(HoldingSnapshot)
+                    .where(
+                        HoldingSnapshot.import_batch_id == latest.id,
+                        Instrument.account_name == account_name,
+                    )
+                )
+            ).all()
+        )
 
     positions = await client.fetch_positions()
     account_summary_available = True
@@ -220,6 +311,10 @@ async def sync_portfolio_snapshot(
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code != 403:
             raise
+        if "CASH" in previous_identifiers:
+            raise Trading212DataError(
+                "Trading 212 cash is unavailable; prior valuation cannot be replaced."
+            ) from exc
         wallet_currencies = {
             str((position.get("walletImpact") or {}).get("currency") or "").upper()
             for position in positions
@@ -237,6 +332,14 @@ async def sync_portfolio_snapshot(
         account_name=account_name,
         require_cash=account_summary_available,
     )
+
+    missing = previous_identifiers - {row.identifier for row in rows} - {"CASH"}
+    if missing - reviewed_closed_identifiers:
+        raise Trading212DataError("Trading 212 positions disappeared; operator review required.")
+    if reviewed_closed_identifiers - missing:
+        raise Trading212DataError(
+            "Reviewed closure allowlist does not match disappearing positions."
+        )
 
     positions = sorted(positions, key=lambda item: json.dumps(item, sort_keys=True))
     source_payload = json.dumps(
