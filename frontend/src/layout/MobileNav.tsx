@@ -16,7 +16,7 @@ export function MobileNav() {
               to={scopedNavigationUrl(item.to, location.search)}
               end={item.to === "/"}
               className={({ isActive }) =>
-                `flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-medium transition-colors ${
+                `flex min-h-12 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-medium transition-colors ${
                   isActive
                     ? "bg-white/[0.06] text-white"
                     : "text-slate-500 hover:bg-white/[0.03] hover:text-slate-200"
@@ -30,7 +30,7 @@ export function MobileNav() {
                     size={18}
                     className={isActive ? "text-aurora-cyan" : undefined}
                   />
-                  <span className="max-w-full whitespace-nowrap text-[9px] leading-3">{item.to === "/" ? "Overview" : item.label}</span>
+                  <span>{item.label}</span>
                 </>
               )}
             </NavLink>

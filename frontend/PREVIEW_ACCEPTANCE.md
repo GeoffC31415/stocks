@@ -1,4 +1,8 @@
-# Frontend review candidate — no production release
+# Archived redesigned UI acceptance — superseded
+
+The chart-first/ledger-first redesign below is **not** the current candidate. The user requires the production UI from `31590ff`. Current scope, exact verification, exceptions and continuation commands are in [`../docs/ui-preservation-review.md`](../docs/ui-preservation-review.md). Former fold, compact-control, collapsed-attribution and 44px-global-CSS gates are replaced by production-baseline contracts; former performance budgets remain measured but are not certified. Static `/demo/` alternatives are retained only as historical artifacts and are no longer advertised by the preview banner.
+
+## Historical redesigned candidate (not release acceptance)
 
 All UI changes are review-only. This integrated checkout also contains the backend sync worker and analytical service changes; no broker, real database, permissions or production assets were changed by this frontend integration. Human design approval and release remain pending.
 

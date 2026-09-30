@@ -260,10 +260,16 @@ def verify_view(browser, base: str, view: str, width: int, output: Path, scenari
             if not valid_curve and measurement["performanceDots"]:
                 result["failures"].append("unavailable-curve-plotted")
         if view == "overview" and scenario not in {"empty", "error"}:
-            if valid_curve and (measurement["primaryTop"] is None or measurement["primaryTop"] >= height):
-                result["failures"].append("primary-performance-below-fold")
-            if (width == 1440 and measurement["height"] > 2200) or (width <= 390 and measurement["height"] > 3600):
-                result["failures"].append("dashboard-height-budget")
+            # Preserve production spacing instead of enforcing the superseded
+            # chart-first redesign's fold/height budgets. Keep chart clipping,
+            # labels, real observations, warnings and focus gates above/below.
+            root = page.locator('[data-testid="portfolio-briefing"]')
+            if root.get_attribute("class") != "space-y-5":
+                result["failures"].append("production-overview-spacing-changed")
+            page.get_by_role("button", name="1M", exact=True).wait_for()
+            result["production_ui"] = {"spacing": root.get_attribute("class"),
+                "chart_top": measurement["primaryTop"], "page_height": measurement["height"],
+                "fold_is_informational": True}
         if view == "performance":
             tabs = page.get_by_role("group", name="History chart views")
             if tabs.count():

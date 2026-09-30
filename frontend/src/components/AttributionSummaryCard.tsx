@@ -28,16 +28,11 @@ export function AttributionSummaryCard({ attribution, search = "", selectedCompa
     <p className="mt-1 text-xs text-slate-400">{selectedComparison ? "Selected snapshot comparison" : "Latest snapshot comparison"}{attribution.from_batch && attribution.to_batch
       ? ` · ${formatSnapshotDateIso(attribution.from_batch.as_of_date)} – ${formatSnapshotDateIso(attribution.to_batch.as_of_date)}` : ""}</p>
     {available ? <>
-      <p className="mt-3 text-xs text-slate-400">Snapshot value change</p>
-      <p className="tabular text-xl font-semibold">{signedGbp(attribution.raw_value_change_gbp)}</p>
-      <p className="mt-1 text-xs text-slate-400">Includes flows and market movement; not an investment return.</p>
-      <details className="mt-3"><summary className="cursor-pointer text-sm text-cyan-200">Attribution evidence</summary>
       <AttributionWaterfall attribution={attribution} />
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
         {movers("Top contributors", attribution.top_contributors)}
         {movers("Top detractors", attribution.top_detractors)}
       </div>
-      </details>
     </> : <p className="mt-3 text-sm text-amber-200">Attribution unavailable</p>}
     {attribution.unallocated_residual_gbp != null && Math.abs(attribution.unallocated_residual_gbp) >= 0.005 &&
       <p className="mt-2 text-xs text-amber-200">Unallocated residual adjustment: {signedGbp(attribution.unallocated_residual_gbp)}. Instrument estimates alone do not sum to the portfolio residual.</p>}

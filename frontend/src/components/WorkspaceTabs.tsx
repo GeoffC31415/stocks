@@ -11,14 +11,16 @@ export function WorkspaceTabs({
   tabs,
   label,
   param = "tab",
+  validHiddenTabs = [],
 }: {
   tabs: WorkspaceTab[];
   label: string;
   param?: string;
+  validHiddenTabs?: string[];
 }) {
   const [params, setParams] = useSearchParams();
   const raw = params.get(param);
-  const selected = tabs.some(tab => tab.key === raw) ? raw : tabs[0]?.key;
+  const selected = raw != null && (tabs.some(tab => tab.key === raw) || validHiddenTabs.includes(raw)) ? raw : tabs[0]?.key;
   useEffect(() => {
     if (raw != null && (raw !== selected || params.getAll(param).length > 1) && selected) {
       const next = new URLSearchParams(params); next.set(param, selected); setParams(next, {replace: true});
@@ -46,7 +48,7 @@ export function WorkspaceTabs({
             role="tab"
             id={`workspace-tab-${tab.key}`}
             aria-controls="workspace-panel"
-            tabIndex={active ? 0 : -1}
+            tabIndex={active || (validHiddenTabs.includes(selected ?? "") && tab === tabs[0]) ? 0 : -1}
             aria-selected={active}
             onClick={() => select(tab.key)}
             onFocus={(event) => event.currentTarget.scrollIntoView?.({ block: "nearest", inline: "nearest" })}

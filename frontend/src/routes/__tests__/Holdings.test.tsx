@@ -73,10 +73,12 @@ it('retries instrument failure instead of displaying an empty account',async()=>
  fireEvent.click(screen.getByRole('button',{name:'Retry holdings'}));
  expect(await screen.findByRole('button',{name:'View AAA in ISA'})).toBeInTheDocument();
 });
-it('uses full width when no deliberate selection is active',async()=>{
+it('preserves the production split table and empty detail placement',async()=>{
  show('/'); await screen.findByRole('button',{name:'View AAA in ISA'});
- expect(screen.getByTestId('holdings-layout')).not.toHaveClass('lg:grid-cols-5');
- expect(screen.queryByText(/Select an instrument/)).not.toBeInTheDocument();
+ expect(screen.getByRole('region',{name:'Holdings table'}).parentElement!.parentElement).toHaveClass('lg:col-span-3');
+ const empty=screen.getByText('Select a holding');
+ expect(empty.parentElement!.parentElement).toHaveClass('lg:col-span-2');
+ expect(empty.parentElement!.parentElement!.parentElement).toHaveClass('lg:grid-cols-5');
 });
 it('connects authoritative target drift and matching order navigation',async()=>{
  show('/?inst=1&period=1Y&from=2&to=4');

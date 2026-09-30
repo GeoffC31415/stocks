@@ -77,38 +77,34 @@ function renderPanel(ui: React.ReactNode, perfOverride?: PerformanceSummary) {
 }
 
 describe("PerformancePanel", () => {
-  it('uses the global performance period control rather than duplicating it in the compact briefing', async () => {
+  it('preserves the production compact period controls and description', async () => {
     renderPanel(<PerformancePanel compact />);
     await screen.findByText('Performance');
-    expect(screen.queryByRole('button', { name: '1M' })).not.toBeInTheDocument();
-    expect(screen.getByText(/Flow-adjusted snapshot returns/)).toHaveTextContent('2026-01-01');
+    expect(screen.getByRole('button', { name: '1M' })).toBeInTheDocument();
+    expect(screen.getByText(/Growth and risk for/)).toHaveTextContent('2026-01-01');
   });
-  it('keeps essential caveats and unavailable reasons visible in compact mode, with expandable methodology',async()=>{
+  it('keeps essential caveats and unavailable reasons visible in compact mode, with production methodology placement',async()=>{
     renderPanel(<PerformancePanel compact />, {...basePerf, metrics:{annualised_return_pct:{status:'unavailable',value:null,unit:'percent',method:'Dietz',start_date:null,end_date:null,observations:2,reasons:[{code:'short',message:'Custom annualisation unavailable.',action_href:null}]}}});
     await screen.findByText('Performance');
     expect(screen.getByText('Custom annualisation unavailable.')).toBeVisible();
     expect(screen.getByText(/Carried-forward account valuations/)).toBeVisible();
     expect(screen.getByText(/Trade-derived proxy flows/)).toBeVisible();
     expect(screen.getByText(/Covered valuation dates/)).toHaveTextContent('2026-01-01');
-    expect(screen.getByText('Methodology and assumptions').closest('details')).not.toHaveAttribute('open');
+    expect(screen.getByText(/Risk-free assumption: 0%/)).toBeVisible();
   });
-  it('offers exact dated drawdown observations without manufacturing daily samples',async()=>{
-    renderPanel(<PerformancePanel />);
-    await screen.findByText('Performance');
-    const table=screen.getByRole('table',{name:'Exact snapshot and drawdown observations'});
-    expect(table.querySelectorAll('tbody tr')).toHaveLength(2);
-    expect(table).toHaveTextContent('2026-01-01');expect(table).toHaveTextContent('2026-02-01');
-    expect(table).not.toHaveTextContent('2026-01-02');
-    expect(screen.getByRole('columnheader',{name:'Drawdown (%)'})).toBeInTheDocument();
-    expect(screen.getByRole('button',{name:'Inspect observation 2026-02-01'})).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button',{name:'Inspect observation 2026-02-01'}));
-    expect(screen.getByRole('status')).toHaveTextContent('2026-02-01');
+  it('keeps production metric tiles before the chart without adding an observation ledger',async()=>{
+    renderPanel(<PerformancePanel />); await screen.findByText('Performance');
+    const metric=screen.getByText('Snapshot investment return');
+    const chart=screen.getByRole('region',{name:'Snapshot performance chart'});
+    expect(Boolean(metric.compareDocumentPosition(chart)&Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(screen.queryByRole('table',{name:'Exact snapshot and drawdown observations'})).not.toBeInTheDocument();
   });
-  it('keeps sparse observations with missing drawdown explicitly unavailable rather than dropping or interpolating',async()=>{
-    renderPanel(<PerformancePanel />, {...basePerf,drawdown_curve:[basePerf.drawdown_curve[0]]});
-    await screen.findByText('Performance');const table=screen.getByRole('table',{name:'Exact snapshot and drawdown observations'});
-    expect(table.querySelectorAll('tbody tr')).toHaveLength(2);
-    expect(table.querySelectorAll('tbody tr')[1]).toHaveTextContent('Unavailable');
+  it('keeps compact chart in natural production document order',async()=>{
+    renderPanel(<PerformancePanel compact />); await screen.findByText('Performance');
+    const chart=screen.getByRole('region',{name:'Snapshot performance chart'});
+    expect(chart).not.toHaveClass('order-1');
+    expect(chart.parentElement).toHaveClass('p-5');
+    expect(chart.parentElement).not.toHaveClass('flex');
   });
   it("keys requests by shared period and account and hides old metrics while the next scope loads", async () => {
     const request = vi.spyOn(api, "getPerformance").mockResolvedValue(basePerf);

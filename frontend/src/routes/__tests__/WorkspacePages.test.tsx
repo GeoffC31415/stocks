@@ -17,5 +17,6 @@ it.each([[PortfolioWorkspace,'holdings','Holdings page'],[ActivityWorkspace,'ord
  const panel=screen.getByRole('tabpanel');expect(panel).toHaveAttribute('aria-labelledby',`workspace-tab-${key}`);
  expect(screen.getByTestId('url')).toHaveTextContent(`tab=${key}&account=ISA&period=1Y`);
 });
-it('labels holding returns distinctly from portfolio performance',()=>{render(<MemoryRouter><PortfolioWorkspace/></MemoryRouter>);expect(screen.getByRole('tab',{name:'Holding returns'})).toBeInTheDocument();});
-it('keeps the valid source inspection tab selected',()=>{render(<MemoryRouter initialEntries={['/?tab=source']}><ActivityWorkspace/></MemoryRouter>);expect(screen.getByRole('tab',{name:'Source record'})).toHaveAttribute('aria-selected','true');expect(screen.getByText('Source page')).toBeInTheDocument();});
+it('preserves production portfolio navigation labels',()=>{render(<MemoryRouter><PortfolioWorkspace/></MemoryRouter>);expect(screen.getAllByRole('tab').map(tab=>tab.textContent)).toEqual(['Holdings','Performance','Returns','Allocation','Income','Groups']);});
+it('keeps source inspection reachable without adding a production navigation tab',()=>{render(<MemoryRouter initialEntries={['/?tab=source']}><ActivityWorkspace/><Probe/></MemoryRouter>);expect(screen.queryByRole('tab',{name:'Source record'})).not.toBeInTheDocument();expect(screen.getByText('Source page')).toBeInTheDocument();expect(screen.getByTestId('url')).toHaveTextContent('tab=source');});
+it('preserves production activity navigation labels',()=>{render(<MemoryRouter><ActivityWorkspace/></MemoryRouter>);expect(screen.getAllByRole('tab').map(tab=>tab.textContent)).toEqual(['Orders','Snapshot changes','Import history']);});

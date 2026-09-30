@@ -43,13 +43,15 @@ describe("Overview states", () => {
     show();
     const balance = await screen.findByText("Portfolio balance: 0");
     const performance = screen.getByText("Performance workspace");
-    const metrics = screen.getByRole("region", { name: "Portfolio headline metrics" });
-    const changes = screen.getByRole("region", { name: "Latest snapshot changes" });
+    const metrics = balance.parentElement!;
+    const changes = screen.getByText(/What changed below compares/);
+    expect(screen.getByTestId("portfolio-briefing")).toHaveClass("space-y-5");
+    expect(metrics).toHaveClass("grid", "gap-3", "md:grid-cols-3");
     const precedes = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(precedes(balance, screen.getByText("Snapshot investment return"))).toBe(true);
     expect(precedes(screen.getByText("Net external flows"), performance)).toBe(true);
-    expect(precedes(performance, changes)).toBe(true);
-    expect(precedes(changes, screen.getByText("Allocation summary"))).toBe(true);
+    expect(precedes(changes, performance)).toBe(true);
+    expect(precedes(performance, screen.getByText("Allocation summary"))).toBe(true);
     // jsdom cannot evaluate Tailwind media queries: forbid responsive CSS reordering
     // here, and exercise the same semantic regions in the Chrome layout test.
     for (const element of [metrics, performance, changes]) {

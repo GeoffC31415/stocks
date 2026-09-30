@@ -49,7 +49,7 @@ FIXTURES.update({
  '/api/orders/income':dict(basis='DEMO synthetic stored reinvestment proxy',account_name='DEMO ISA',as_of='2026-09-29',current_start='2026-01-01',prior_start='2025-01-01',prior_end='2025-09-29',first_transaction_date='2026-08-01',latest_transaction_date='2026-08-01',completeness='unknown',current_recorded_gbp=0,prior_recorded_gbp=None,change_gbp=None,current_count=0,prior_count=0,warnings=['DEMO income coverage unknown.'],months=[],drivers=[]),
  '/api/portfolio/timeline/source/import/5':dict(source_type='import',source_id=5,title='DEMO synthetic snapshot source',occurred_at='2026-09-01T12:00:00',valuation_date='2026-09-01',account_names=['DEMO ISA'],instrument_id=None,amount_gbp=None,details={'fixture':'Synthetic only'},note='DEMO record, not a real import.'),
 })
-BANNER='<div style="padding:12px;background:#78350f;color:#fef3c7;font:600 14px system-ui">DEMO / SYNTHETIC DATA — isolated GET-only preview. No broker or database connection. <a style="color:#fef3c7" href="/demo/chart-first.html">Two layout variants</a> · human review pending</div>'
+BANNER='<div style="padding:12px;background:#78350f;color:#fef3c7;font:600 14px system-ui">DEMO / SYNTHETIC DATA — isolated GET-only preview. No broker or database connection. Production UI preservation candidate; not a deployment.</div>'
 class Handler(SimpleHTTPRequestHandler):
  def send_json(self,body,status=200):
   raw=json.dumps(body).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(raw)));self.end_headers();self.wfile.write(raw)

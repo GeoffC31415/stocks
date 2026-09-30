@@ -17,10 +17,9 @@ import { toGbp } from "../lib/formatters";
 export function GroupsSection({
   groups,
   instruments,
-  byGroup, groupSearch = "",
+  byGroup,
 }: {
   groups: Group[];
-  groupSearch?: string;
   instruments: Instrument[];
   byGroup: Record<number, Instrument[]>;
 }) {
@@ -344,7 +343,7 @@ export function GroupsSection({
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
-          {groups.filter(group=>group.name.toLowerCase().includes(groupSearch.trim().toLowerCase())).map((group) => (
+          {groups.map((group) => (
             <GroupEditor
               key={group.id}
               group={group}

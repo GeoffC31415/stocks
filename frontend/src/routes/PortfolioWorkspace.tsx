@@ -10,7 +10,7 @@ import { PerformanceWorkspace } from "./PerformanceWorkspace";
 const TABS = [
   { key: "holdings", label: "Holdings" },
   { key: "performance", label: "Performance" },
-  { key: "returns", label: "Holding returns" },
+  { key: "returns", label: "Returns" },
   { key: "allocation", label: "Allocation" },
   { key: "income", label: "Income" },
   { key: "groups", label: "Groups" },

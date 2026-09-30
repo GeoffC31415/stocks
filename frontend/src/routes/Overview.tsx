@@ -45,36 +45,31 @@ export function Overview() {
   const dateLabel = dates.length > 1 && dates[0] !== dates[dates.length - 1]
     ? `${formatOrderDate(dates[0])} – ${formatOrderDate(dates[dates.length - 1])}` : formatOrderDate(summary.as_of_date);
 
-  return <div className="flex flex-col gap-2 sm:gap-5" data-testid="portfolio-briefing">
+  return <div className="space-y-5" data-testid="portfolio-briefing">
     <header className="flex flex-wrap items-baseline justify-between gap-2">
       <h1 className="text-2xl font-semibold tracking-tight text-white">Portfolio overview</h1>
       <p className="text-xs text-slate-400">{account ?? "All accounts"} · Snapshots {dateLabel}</p>
     </header>
     {summary.scope?.warnings.map((warning) => <p key={warning} className="text-sm text-amber-200">{warning}</p>)}
-    <section aria-label="Portfolio headline metrics" className="space-y-2">
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] [&>article]:p-3 [&>article_h3]:text-xs [&>article>.tabular]:text-xl">
-        <div className="col-span-2 min-w-0 md:col-span-1 [&>section]:p-3 sm:[&>section]:p-5 [&_.mt-3]:mt-2 [&_.mt-4]:mt-2">
-          <HeroKpi label="Portfolio value" value={summary.total_value_gbp} caption="Latest account snapshots · includes cash" />
-        </div>
-        <MetricCard label="Snapshot investment return" value={returnValue != null ? `${returnValue.toFixed(2)}%` : unavailable}
-          tone={returnValue == null ? "neutral" : returnValue >= 0 ? "positive" : "negative"}
-          description={windowLabel} action={<MetricInfo iconOnly label="Snapshot investment return" topic="totalReturn" context={windowLabel} />} />
-        <MetricCard label="Net external flows" value={flow != null ? signedGbp(flow) : unavailable}
-          description="Performance window · not investment gain" />
-      </div>
-      <p className="text-xs text-slate-400">API deposits less withdrawals where synced; trade proxies for other accounts. Performance window, not investment gain.</p>
-    </section>
+    <div className="grid gap-3 md:grid-cols-3">
+      <HeroKpi label="Portfolio value" value={summary.total_value_gbp} caption="Latest account snapshots · includes cash" />
+      <MetricCard label="Snapshot investment return" value={returnValue != null ? `${returnValue.toFixed(2)}%` : unavailable}
+        tone={returnValue == null ? "neutral" : returnValue >= 0 ? "positive" : "negative"}
+        description={windowLabel} action={<MetricInfo iconOnly label="Snapshot investment return" topic="totalReturn" context={windowLabel} />} />
+      <MetricCard label="Net external flows" value={flow != null ? signedGbp(flow) : unavailable}
+        description="API deposits less withdrawals where synced; trade proxies for other accounts. Performance window, not investment gain." />
+    </div>
+    <p className="text-xs text-slate-400 md:hidden">What changed below compares the latest snapshots; it has its own dates, separate from performance.</p>
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
       <div className="min-w-0 space-y-3">
         <PerformancePanel accountName={account} compact />
         <Link className="inline-flex min-h-10 items-center text-sm text-cyan-200 underline" to={link("/portfolio?tab=performance")}>Full performance analysis</Link>
       </div>
-      <section aria-label="Latest snapshot changes" className="min-w-0 space-y-2">
-        <p className="text-xs text-slate-400">Snapshot changes compare the latest snapshots; they have their own dates, separate from performance.</p>
+      <div className="min-w-0">
         {attributionQ.isError ? <AnalysisStatus kind="error" title="Unable to load snapshot attribution." onRetry={() => void attributionQ.refetch()} />
           : attributionQ.isLoading ? <p role="status">Loading snapshot changes…</p>
           : <AttributionSummaryCard attribution={attributionQ.data ?? null} search={location.search} />}
-      </section>
+      </div>
     </div>
     <section className="surface-card p-4 sm:p-5" aria-labelledby="allocation-brief-title">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -89,7 +84,7 @@ export function Overview() {
         </li>)}
       </ol>
     </section>
-    <div><DataConfidencePanel compact /></div>
+    <DataConfidencePanel compact />
     <nav aria-label="Explore portfolio" className="flex flex-wrap gap-x-6 gap-y-3 text-sm text-cyan-200">
       <Link className="underline" to={link("/portfolio?tab=holdings")}>Explore holdings</Link>
       <Link className="underline" to={link("/portfolio?tab=returns")}>Lifetime holding returns</Link>

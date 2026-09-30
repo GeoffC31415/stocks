@@ -16,9 +16,6 @@ export function HoldingsTable({ instruments, selectedId, onSelect, scopeTotalVal
  const direction=(params.get('direction') ?? saved.direction)==='asc'?'asc':'desc';
  const classification=saved.classification===true;
  const filtered=filterHoldings(instruments,params);
- const filterKeys=['q','group','category_dimension','category','instrument_ids','allocation_category'];
- const chips=[params.get('q') ? `Search: ${params.get('q')}` : null, params.has('group') ? `Group: ${params.get('group')}` : null, params.has('category') ? `${params.get('category_dimension')}: ${params.get('category')}` : null, params.has('instrument_ids') ? `Instrument IDs: ${params.get('instrument_ids')}` : null, params.has('allocation_category') ? `Allocation: ${params.get('allocation_category')}` : null].filter(Boolean);
- const clearFilters=()=>{const next=new URLSearchParams(params);filterKeys.forEach(key=>next.delete(key));setParams(next,{replace:true});};
  const invalidSort=params.getAll('sort').length>1 || params.getAll('direction').length>1 || (params.has('sort')&&!holdingSorts.includes(rawSort as HoldingSort)) || (params.has('direction')&&!['asc','desc'].includes(params.get('direction')!));
  const rows=invalidSort?[]:sortHoldings(filtered.rows,sort,direction);
  const error=filtered.error ?? (invalidSort?'Invalid holdings sort. Reset view to continue.':null);
@@ -29,12 +26,7 @@ export function HoldingsTable({ instruments, selectedId, onSelect, scopeTotalVal
   <div className="flex flex-wrap gap-3 p-4">
    <input type="search" aria-label="Search holdings" placeholder="Search ticker, name or identifier" className="min-w-0 rounded bg-slate-900 p-2" value={params.get('q') ?? ''} onChange={e=>{const next=new URLSearchParams(params);next.set('q',e.target.value);setParams(next,{replace:true});}}/>
    <label><input type="checkbox" checked={classification} onChange={e=>save({...saved,version:1,classification:e.target.checked})}/> Classification columns</label>
-   <button type="button" onClick={()=>{save({version:1});const next=new URLSearchParams(params);next.delete('sort');next.delete('direction');setParams(next,{replace:true});}}>Reset columns and sort</button>
-  </div>
-  <div className="flex flex-wrap items-center gap-2 px-4 pb-3" aria-label="Active holdings filters">
-    {chips.map(chip=><span className="chip chip-muted" key={chip}>{chip}</span>)}
-    {chips.length>0 || filtered.error ? <button type="button" onClick={clearFilters}>Clear filters</button> : null}
-    <p className="text-sm text-slate-300">{rows.length} shown / {instruments.length} in account scope</p>
+   <button type="button" onClick={()=>{save({version:1});const next=new URLSearchParams(params);next.delete('sort');next.delete('direction');setParams(next,{replace:true});}}>Reset view</button>
   </div>
   {error&&<p role="alert" className="p-4">{error}</p>}
   {instruments.length>0 && (scopeTotalValue==null || !Number.isFinite(scopeTotalValue) || scopeTotalValue<=0) && <p className="px-4 pb-3 text-sm text-amber-200">Weights unavailable: account valuation is not available.</p>}

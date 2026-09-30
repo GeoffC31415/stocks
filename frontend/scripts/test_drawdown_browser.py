@@ -13,7 +13,9 @@ def assert_drawdown_hover(page):
     expect(plot).to_be_visible()
     dots = plot.locator('.recharts-area-dot')
     expect(dots).to_have_count(5)
-    dots.nth(2).scroll_into_view_if_needed()
+    # Scroll the stable region, not a Recharts dot replaced during responsive resize.
+    # Locator.hover retries detached dots while retaining exact date/value assertions.
+    plot.scroll_into_view_if_needed()
     dots.nth(2).hover(force=True)
     tooltip = plot.get_by_role('tooltip')
     expect(tooltip).to_contain_text('2026-06-01')
