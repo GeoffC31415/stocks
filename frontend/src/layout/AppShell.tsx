@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { AnalysisScopeContext, useAnalysisScopeUrl } from "../state/useAnalysisScope";
 import { useRouteFocus } from "../state/useRouteFocus";
+import { WorkspaceErrorBoundary } from "./WorkspaceErrorBoundary";
 
 const DRIP_STORAGE_KEY = "portfolio.dripThreshold";
 
@@ -67,7 +68,7 @@ export function AppShell() {
                       <button type="button" onClick={() => void accountsQ.refetch()}>Retry</button></>
                       : <p>Checking selected account…</p>}
                   </section>
-                ) : <Outlet />}
+                ) : <WorkspaceErrorBoundary><Outlet /></WorkspaceErrorBoundary>}
               </motion.div>
             </div>
           </main>

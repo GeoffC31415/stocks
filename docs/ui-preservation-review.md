@@ -4,7 +4,7 @@
 
 - Worktree: `/home/geoff/code/stocks-preserve-ui`.
 - Branch: `fix/preserve-production-ui-20260930`.
-- Tested implementation commit: **`5471368fd72f3173848f73b9c82ddb85a73163df`** (`fix(ui): preserve production layout and retain data safeguards`). This report is a following documentation-only commit; use `git rev-parse HEAD` to identify the branch's report commit. The implementation SHA above is the exact functional candidate.
+- Prior preservation implementation commit: **`5471368fd72f3173848f73b9c82ddb85a73163df`** (`fix(ui): preserve production layout and retain data safeguards`), followed by report commit `57a3a1c5a043e66ff1845feb4debf91a93ce430c`. Independent quality review rejected that candidate for Q1. **The Q1 correction and its evidence below are a subsequent functional commit containing this updated report; use `git rev-parse HEAD` for its exact SHA.** Earlier gate counts remain historical evidence, not counts for the corrected HEAD.
 - Parent integration base: `4aa9598`; production UI reference: `31590ff`.
 - Evidence root: `/home/geoff/.hermes/cache/scratch/stocks-preserve-ui-20260930` (scratch can be pruned; commands below regenerate it).
 - **No deployment, merge, push, sudo, production file/DB/credential/service changes, or edits to the dirty main checkout or other worktrees were made by this task.** All test data was explicitly synthetic and all rehearsal servers were ephemeral, loopback-only and cleaned up. Final process check found no owned rehearsal server.
@@ -42,7 +42,7 @@ Restored mobile **Dashboard**, original navigation typography and Portfolio **Re
 3. **Performance truthfulness**: sparse covered dates, carried-forward/proxy-flow caveat and each unavailable reason remain visible in the original disclosure block. Empty curves retain invalidity/scope warnings; invalid adjusted chains cannot display a raw fallback chart. Additional text increases height, not card density/order. Added drawdown tooltip reveals only recorded dates and exact finite values on hover; no manufactured daily observations or observation ledger.
 4. **Read/error states**: pending/failed Holdings, Groups prerequisite failures, unavailable/nonfinite weights and true empty/filtered-empty/invalid holdings states get truthful text/retry in their original panels; Diff gains truthful loading text. Normal loaded layout is unchanged.
 5. **History isolation**: original chart card and selectors remain; independently selected history queries now show their own pending/error/retry/no-recorded-orders text. On zero-order scopes the selectors remain reachable so failures in reconstruction cannot remove real snapshot history. No analytics chart is fabricated from missing orders.
-6. **Lazy-route transition**: a reserved 560px loading status exists inside the persistent shell while a route chunk loads. Loaded page presentation follows the production baseline.
+6. **Lazy-route transition/recovery**: a reserved 560px loading status exists inside the shell while a route chunk loads. Q1 correction adds a shell-contained error card with truthful workspace-load text and an explicit full-page **Reload workspace** action. Loaded page DOM/layout remains unchanged; see the new fault-injection evidence below.
 7. **Classification repair containment**: long names/identifiers and form controls may wrap/contain rather than overflow; this narrowly preserves access to the existing data repair surface.
 
 The amber synthetic preview banner is harness-only, never a production frontend change. It now advertises preservation, not the archived layout alternatives. Static `/demo/` artifacts remain historical and are not app routes or advertised choices.
@@ -77,6 +77,43 @@ Commands run from the worktree root unless stated otherwise. Interpreter is the 
 - First combined backend+root pytest process: 1,344 passed / 2 failed because backend imports initialized an in-memory global engine, while root isolation tests deliberately unset those environment variables and expected defaults to match the global. No backend workaround or security equality weakening was made. Running the two documented test roots in separate subprocesses yielded the green results above.
 - First preview interaction run hit a detached responsive Recharts dot during scroll. Harness now scrolls the stable region and lets locator hover retry; exact recorded-date/value assertions remain. Final complete matrix passed.
 - A combined zero-matrix + pytest command exceeded its 400s wrapper after the matrix printed a clean result. Root suite was rerun independently and passed 62 tests in 39.45s. No owned rehearsal process remained.
+
+## Q1 correction: shell-contained lazy-workspace recovery
+
+Independent quality report `/home/geoff/.local/share/stocks-analysis/ui-preserve-quality-review-20260930.md` rejected HEAD `57a3a1c5a043e66ff1845feb4debf91a93ce430c`: a late Activity chunk HTTP 503 after Dashboard rendered blanked `#root` at 390/1440. Suspense handles pending imports, not rejected imports. Its production `31590ff` eager-route controls survived. This was a real containment regression, not a geometry expectation to waive.
+
+The correction wraps only the route outlet in `WorkspaceErrorBoundary`, **inside** the existing AppShell/motion content. Header/sidebar/mobile navigation, analysis scope and account validation remain outside the boundary. The wrapper adds no DOM on successful rendering. Existing pathname/tab-keyed route remounting also remounts the boundary when navigating elsewhere: a failed Activity route cannot trap a working Portfolio route. Returning to Activity honestly shows the cached React.lazy rejection again. **Reload workspace calls `window.location.reload()`**, preserving pathname/query/hash and obtaining a fresh lazy instance. There is no automatic reload/retry, provider import/refresh mutation, error-message leakage, or claim that resetting the same rejected lazy instance reloads its chunk. Reload cannot guarantee recovery while the asset remains unavailable; the test permits it before clicking the actual recovery button.
+
+### New exact changed paths
+
+- `frontend/src/layout/AppShell.tsx` — outlet-only boundary integration; existing layout/classes/route key unchanged.
+- `frontend/src/layout/WorkspaceErrorBoundary.tsx` — truthful fallback and explicit page reload.
+- `frontend/src/layout/__tests__/AppShellRecovery.test.tsx` — real shell and rejected lazy child, scope/hash retention, other-route navigation and cached rejection containment (nonessential header/navigation/background and summary API are mocked).
+- `frontend/scripts/test_route_chunk_recovery_browser.py` — real built app, cold context per width, actual Activity chunk GET 503, shell/error/control/overflow checks, no automatic reload, new lazy Portfolio navigation, cached rejection on return, explicit recovery preserving account/period/tab/from/to/hash. Only local GETs are permitted; all contexts/browser/server are stopped in finally, including on RED assertion failure.
+- `docs/ui-preservation-review.md` — this correction/evidence/deferred-gate update.
+
+### RED → GREEN and corrected-candidate gates
+
+New evidence root `E=/home/geoff/.hermes/cache/scratch/stocks-route-recovery-20260930`; `PY=/home/geoff/code/stocks/.venv/bin/python`. Run from `/home/geoff/code/stocks-preserve-ui`.
+
+| Gate | Actual result |
+| --- | --- |
+| Unit RED, `npm --prefix frontend test -- --run src/layout/__tests__/AppShellRecovery.test.tsx` before production edits | **1 expected failure**, missing alert and empty body after rejected lazy child; uncaught synthetic chunk GET 503. Initial harness attempt failed on unavailable Node localStorage; corrected with isolated retained-value storage stub and reran to the semantic RED before implementation. |
+| Browser RED, `"$PY" frontend/scripts/test_route_chunk_recovery_browser.py --dist /home/geoff/.hermes/cache/scratch/stocks-ui-quality-independent-20260930/dist --out "$E/red-browser"` before production edits | **Expected nonzero failure** at the contained-alert assertion after one Activity chunk 503, cold 390px context; root blanked (only harness banner remains). Independent report separately proves the same failure at both widths. Saved `red-browser/route-chunk-recovery.json` includes blocked chunk/page error and stopped server. |
+| Unit GREEN, same targeted command | **1 passed**, no unhandled errors. |
+| `npm --prefix frontend test -- --run` | **69 files / 258 tests passed**, 47.73s; existing Node experimental localStorage warnings only. |
+| `npm --prefix frontend run typecheck` | `tsc --noEmit`, exit 0. |
+| `npm --prefix frontend run build -- --outDir "$E/dist" --emptyOutDir` | Exit 0, **2,954 modules**, 6.02s; entry 441.21 kB / 141.02 kB gzip. Overview/Portfolio/Activity/Tax/Data/Help/Security chunks remain lazy. |
+| `"$PY" frontend/scripts/test_route_chunk_recovery_browser.py --dist "$E/dist" --out "$E/green-browser"` | **Both 390×844 and 1440×900 passed**; exactly one blocked Activity chunk per cold context; header/nav/error/reload survive; document requests remain 1 until explicit reload, then 2; working Portfolio route without page reload; return contains cached rejection; reload opens Snapshot diff with URL exactly unchanged including `account=DEMO+ISA&period=1Y&tab=changes&from=2&to=5#source`; no forbidden requests/page errors. Scroll width equals viewport width. Owned server thread stopped. |
+| `"$PY" frontend/scripts/verify_ui_preservation.py --baseline /home/geoff/.hermes/cache/scratch/stocks-ui-quality-independent-20260930/baseline-dist --candidate "$E/dist" --out "$E/comparison"` | **10 comparisons / 0 differences**, same synthetic loaded UI, production `31590ff` baseline independently built by reviewer. Baseline regeneration command is below. |
+| `env -u PORTFOLIO_DATABASE_URL -u PORTFOLIO_DEPLOYMENT_MODE PYTHONPATH=backend STOCKS_TEST_DIST="$E/dist" "$PY" -m pytest tests frontend/scripts/test_preview_demo.py frontend/scripts/test_drawdown_browser.py frontend/scripts/test_browser_metrics.py -q --basetemp "$E/pytest-root"` | **62 passed**, 39.72s, no skip. Backend unchanged; historical 1,284 backend passes were not rerun for this frontend-only correction. |
+| Visual inspection | Actual contained-error viewport images at both widths were inspected: header, recovery button and navigation visible/readable; no observed clipping/overlap. Images are `green-browser/390-contained.png` and `1440-contained.png`; this is not all-route screenshot certification. |
+
+Browser GREEN initially reached the working Portfolio page but a harness assertion used an invented heading (“Portfolio workspace”). Corrected it to the production **Holdings** heading and the recovery heading to actual **Snapshot diff**, without product changes or weakened error/recovery assertions, then reran both complete sequences successfully. This is a harness correction, not an additional product failure.
+
+Durable commands regenerate all new evidence. Scratch artifacts can expire. For cold regression, never visit Activity before injecting its chunk fault; an already cached route is not a valid transport-failure test. Expected injected HTTP/React caught-error console output is not an unhandled `pageerror`; the browser test requires zero page errors and rejects any attempted nonlocal/non-GET request.
+
+**Parent independent re-review is still required: this implements Q1, does not grant quality approval, merge or release.** Q2 combined-process Settings/engine mismatch remains explicitly non-green (separate-process tests used; production equality guard untouched). Q3 full-shell arrow activation focuses the heading in both baseline and candidate, so isolated roving-tab tests do not certify uninterrupted full-shell tab focus. Q4 known CLS/former-density budgets remain non-passing as above. Real production auth, privileged isolation, broker completeness, native zoom and manual screen-reader/keyboard acceptance remain deferred. No backend/deploy files, main checkout, live DB/service/credentials, push/merge/release or sudo were touched; no long-lived server was started.
 
 ## Pending gates / blockers
 
