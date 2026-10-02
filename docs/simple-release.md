@@ -100,7 +100,7 @@ Current tool SHA256 pins:
 
 | File | SHA256 |
 |---|---|
-| stocks_release.py | `620cd9d3b4850210dba39c36a66e69a3d81ec6c969a03db941527bceafa94561` |
+| stocks_release.py | `916b178dd37d8ed9be49aace4f13a2c8080adf52b2ba7322a9d8b82687ed5bd6` |
 | runtime_probe.py | `8e2b3e683963bbe124687919cf92052dd5e757eb94e87736bf3e3d04c0c0cefa` |
 | install.sh | `3e70f2b82a22ffb3892216fbad0dac6ef2d1de2ed5088ef034180b68dec5256e` |
 
@@ -123,7 +123,7 @@ with os.fdopen(fd,"rb") as f:
 if hashlib.sha256(b).hexdigest()!="3e70f2b82a22ffb3892216fbad0dac6ef2d1de2ed5088ef034180b68dec5256e": raise SystemExit("installer pin")
 raise SystemExit(subprocess.run(["/bin/bash","-s","--",
 "/home/geoff/code/stocks-simple-release/deploy/simple_release",
-"620cd9d3b4850210dba39c36a66e69a3d81ec6c969a03db941527bceafa94561",
+"916b178dd37d8ed9be49aace4f13a2c8080adf52b2ba7322a9d8b82687ed5bd6",
 "8e2b3e683963bbe124687919cf92052dd5e757eb94e87736bf3e3d04c0c0cefa"],
 input=b,env={"PATH":"/usr/bin:/bin","LANG":"C"},check=False).returncode)
 '
@@ -269,11 +269,38 @@ timer policy/next-run and worker quiescence are read back; uncertainty attempts 
 and leaves attention, never a worker kill or catch-up approval.
 
 R3: backend/proxy start happens once, then readiness polls to a60s monotonic deadline with
-bounded observations. Wrong release/executable fails immediately; delayed HTTP readiness
-can succeed without restarting units. Exhaustion remains a real failure and compensation
+bounded observations. Type=simple may report active before exec/chdir finishes. Initial executable/directory
+mismatches are retried within the same startup deadline; they are NEVER accepted as
+ready. Persistent wrong identity fails at the deadline. Standalone verify remains strict;
+only the bounded startup loop retries. Delayed HTTP readiness can succeed without
+restarting units. Exhaustion remains a real failure and compensation
 uses the same bounded wait for the known-good release.
 
 Parent observed timer late-start/budget tests RED (2 failures), readiness RED (1 failure),
 and missing native socket/PID controls RED (4 failures), then GREEN after local fixes.
 Exact final suite/results are retained in the parent correction evidence; no privileged
 installation/rehearsal or production mutation performed during these corrections.
+
+## Native operation observation and narrow startup correction
+
+Pinned installation and native rehearsal passed on2October: both real service actors,
+negative host IPC/PID controls, actual root-owned0600 watchfiles failure, zero-process
+cleanup and healthy restoration were independently read back. First production operation
+941cceb55dc04f8db6699b6ad3b6770f returnedattention at start-web and restored the old pointer.
+The log reaches the first active backend property sample then fails before the proxy
+sample for both candidate and old restart; later exact old verification passed. This
+localises the refusal to initial executable/cwd identity observations, consistent with
+Type=simple's pre-exec start-job completion. The original record kept only Refused, not
+the exact identity reason; do not invent which of the two fields differed.
+
+Parent separately verified old runtime/current policy/actual old web while holding both
+locks, restored timer through the unchanged guarded method within its saved window, and
+recorded explicit operator-readback restoration. No database restore occurred.
+
+The narrow correction makes start_web retry those initial identity observations under
+its existing60s bound; strict final identity/HTTP checks are unchanged, persistent wrong
+identity still refuses and unit starts are not repeated. It also records only fixed
+public-safe Refused reasons. Four new readiness expectations were observed RED before
+the correction; final65 focused tests passed. Independent review and exact pinned
+controller update remain required before a new operation. Never rerun install.sh on an
+existing installation or replace a live controller during an operation.

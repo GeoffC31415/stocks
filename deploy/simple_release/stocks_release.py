@@ -300,7 +300,11 @@ class NativeHost:
                 self.verify_web(target, deadline=deadline)
                 return
             except Refused as error:
-                if str(error) not in ('web-not-stable', 'https-auth-boundary', 'host-command-failed'):
+                # Type=simple start returns before exec/chdir has necessarily finished.
+                # Never ACCEPT a mismatching process: wait for the exact identity,
+                # still bounded by the same startup deadline, or compensate.
+                if str(error) not in ('web-not-stable', 'https-auth-boundary', 'host-command-failed',
+                                      'web-release-mismatch', 'web-executable-mismatch'):
                     raise
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -561,6 +565,7 @@ class Controller:
                     op['status'] = 'deployed'
                 except Exception as error:
                     op['failure'] = type(error).__name__
+                    op['failure_reason'] = str(error) if isinstance(error, Refused) else type(error).__name__
                     op['failed_phase'] = op['phase']
                     op['failed_unit'] = getattr(self.host, 'unit', None)
                     if mutated:

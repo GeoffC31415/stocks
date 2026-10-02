@@ -405,6 +405,7 @@ def test_operation_result_names_phase_unit_and_private_log(tmp_path):
     host.unit = 'stocks.service'
     result = ctl.deploy(tmp_path / 'new', str(tmp_path / 'old'))
     assert result['failed_phase'] == 'start-web'
+    assert result['failure_reason'] == 'candidate-start'
     assert result['failed_unit'] == 'stocks.service'
     assert result['log'] == str(host.log)
 

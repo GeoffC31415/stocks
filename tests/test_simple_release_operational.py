@@ -54,7 +54,8 @@ def test_timer_restore_bounded_command_and_full_readback(tmp_path, monkeypatch, 
         assert calls[-1][0] == ['/usr/bin/systemctl', 'stop', 'stocks-sync.timer']
 
 
-def test_web_start_waits_for_readiness_without_restarting(tmp_path, monkeypatch):
+@pytest.mark.parametrize('transient_reason', ['https-auth-boundary', 'web-release-mismatch', 'web-executable-mismatch'])
+def test_web_start_waits_for_readiness_without_restarting(tmp_path, monkeypatch, transient_reason):
     host = sr.NativeHost(tmp_path / 'private.log')
     clock = [0.]
     calls = []
@@ -63,14 +64,15 @@ def test_web_start_waits_for_readiness_without_restarting(tmp_path, monkeypatch)
     monkeypatch.setattr(host, 'run', lambda argv, **kw: calls.append(argv) or '')
     def verify(target, **kwargs):
         if clock[0] < 4:
-            raise sr.Refused('https-auth-boundary')
+            raise sr.Refused(transient_reason)
     monkeypatch.setattr(host, 'verify_web', verify)
     host.start_web(tmp_path)
     assert 4 <= clock[0] <= 60
     assert calls == [['/usr/bin/systemctl', 'start', unit] for unit in sr.UNITS[:2]]
 
 
-@pytest.mark.parametrize('reason,bounded', [('https-auth-boundary', True), ('web-release-mismatch', False)])
+@pytest.mark.parametrize('reason,bounded', [('https-auth-boundary', True), ('web-release-mismatch', True),
+                                           ('web-executable-mismatch', True), ('unit-sandbox', False)])
 def test_readiness_eventually_refuses_without_restarting_units(tmp_path, monkeypatch, reason, bounded):
     host = sr.NativeHost(tmp_path / 'private.log')
     clock = [0.]
