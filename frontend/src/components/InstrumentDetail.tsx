@@ -5,6 +5,7 @@ import {
   AreaChart,
   CartesianGrid,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -13,6 +14,7 @@ import {
 import { Info } from "lucide-react";
 import type { Instrument, InstrumentHistoryPoint, Order } from "../lib/api";
 import { chartUtcMs, formatChartDayTick, formatChartTooltipDay } from "../lib/chartDates";
+import { instrumentBuyMarkerDates, instrumentSellMarkerDates } from "../lib/instrumentBuyMarkers";
 import { compactGbp } from "../lib/formatters";
 import { chartTheme } from "../lib/chartTheme";
 import { ChartTooltip } from "./ChartTooltip";
@@ -52,6 +54,8 @@ export function InstrumentDetail({
       })),
     [history],
   );
+  const buyMarkerDates = useMemo(() => instrumentBuyMarkerDates(orders), [orders]);
+  const sellMarkerDates = useMemo(() => instrumentSellMarkerDates(orders), [orders]);
 
 
   return (
@@ -96,67 +100,83 @@ export function InstrumentDetail({
         }}>{showTimeline ? "Hide" : "Show"} instrument timeline</button>
         {showTimeline && <TimelineEvents instrumentId={instrument.id} />}
       </>}
-      {historyLoading ? <p role="status">Loading history…</p> : historyError ? <div role="alert">History unavailable. <button onClick={onRetryHistory}>Retry history</button></div> : history.length === 0 ? <p>No history available.</p> : <div className="h-44 rounded-xl bg-white/[0.02] p-2">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={historyWithTime}>
-            <defs>
-              <linearGradient id="instVal" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.5} />
-                <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-            <XAxis
-              dataKey="chartTime"
-              type="number"
-              scale="time"
-              domain={["dataMin", "dataMax"]}
-              stroke="#64748b"
-              tick={{ fontSize: 12, fill: chartTheme.axis }}
-              tickFormatter={formatChartDayTick}
-              minTickGap={24}
-              tickLine={false}
-              axisLine={false}
-            />
-            <YAxis
-              stroke="#64748b"
-              tick={{ fontSize: 12, fill: chartTheme.axis }}
-              tickFormatter={compactGbp}
-              tickLine={false}
-              axisLine={false}
-            />
-            <Tooltip
-              content={<ChartTooltip formatLabel={(label) => typeof label === "number" ? formatChartTooltipDay(label) : String(label ?? "")} />}
-              cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
-            />
-            <Area
-              type="monotone"
-              dataKey="value_gbp"
-              stroke="#22d3ee"
-              strokeWidth={2}
-              fill="url(#instVal)"
-              name="Value"
-            />
-            <Area
-              type="monotone"
-              dataKey="book_cost_gbp"
-              stroke="#a78bfa"
-              strokeWidth={1.25}
-              fill="transparent"
-              strokeDasharray="3 3"
-              name="Book cost"
-            />
-            <Line
-              type="monotone"
-              dataKey="discretionary_cost_basis_gbp"
-              stroke="#fbbf24"
-              strokeWidth={1.25}
-              strokeDasharray="4 3"
-              dot={false}
-              name="Discretionary basis"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+      {historyLoading ? <p role="status">Loading history…</p> : historyError ? <div role="alert">History unavailable. <button onClick={onRetryHistory}>Retry history</button></div> : history.length === 0 ? <p>No history available.</p> : <div className={`rounded-xl bg-white/[0.02] p-2 ${buyMarkerDates.length || sellMarkerDates.length ? "h-48" : "h-44"}`}>
+        <div className={buyMarkerDates.length || sellMarkerDates.length ? "h-40" : "h-full"}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={historyWithTime}>
+              <defs>
+                <linearGradient id="instVal" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.5} />
+                  <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+              <XAxis
+                dataKey="chartTime"
+                type="number"
+                scale="time"
+                domain={["dataMin", "dataMax"]}
+                stroke="#64748b"
+                tick={{ fontSize: 12, fill: chartTheme.axis }}
+                tickFormatter={formatChartDayTick}
+                minTickGap={24}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                stroke="#64748b"
+                tick={{ fontSize: 12, fill: chartTheme.axis }}
+                tickFormatter={compactGbp}
+                tickLine={false}
+                axisLine={false}
+              />
+              <Tooltip
+                content={<ChartTooltip formatLabel={(label) => typeof label === "number" ? formatChartTooltipDay(label) : String(label ?? "")} />}
+                cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
+              />
+              <Area
+                type="monotone"
+                dataKey="value_gbp"
+                stroke="#22d3ee"
+                strokeWidth={2}
+                fill="url(#instVal)"
+                name="Value"
+              />
+              <Area
+                type="monotone"
+                dataKey="book_cost_gbp"
+                stroke="#a78bfa"
+                strokeWidth={1.25}
+                fill="transparent"
+                strokeDasharray="3 3"
+                name="Book cost"
+              />
+              <Line
+                type="monotone"
+                dataKey="discretionary_cost_basis_gbp"
+                stroke="#fbbf24"
+                strokeWidth={1.25}
+                strokeDasharray="4 3"
+                dot={false}
+                name="Discretionary basis"
+              />
+              {buyMarkerDates.map((date) => <ReferenceLine key={`buy-${date}`} x={date}
+                stroke="#34d399" strokeWidth={1.5} strokeDasharray="4 4" ifOverflow="discard" />)}
+              {sellMarkerDates.map((date) => <ReferenceLine key={`sell-${date}`} x={date}
+                stroke="#fb7185" strokeWidth={1.5} strokeDasharray="4 4" ifOverflow="discard" />)}
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+        {(buyMarkerDates.length > 0 || sellMarkerDates.length > 0) && <div className="flex h-6 flex-wrap items-center justify-center gap-x-4 text-[10px] text-slate-400">
+          {buyMarkerDates.length > 0 && <span className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="h-0 w-4 border-t border-dashed border-emerald-400" />
+            Buy dates (DRIP excluded)
+          </span>}
+          {sellMarkerDates.length > 0 && <span className="flex items-center gap-1.5">
+            <span aria-hidden="true" className="h-0 w-4 border-t border-dashed border-rose-400" />
+            Sell dates
+          </span>}
+        </div>}
       </div>}
 
       {hasOrders && (
