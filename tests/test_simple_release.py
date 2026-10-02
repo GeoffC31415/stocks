@@ -307,7 +307,7 @@ def test_native_starts_both_coupled_units_and_verifies_target(tmp_path, monkeypa
     host = sr.NativeHost(tmp_path / 'log')
     events = []
     monkeypatch.setattr(host, 'run', lambda argv, **kw: events.append(argv) or '')
-    monkeypatch.setattr(host, 'verify_web', lambda target: events.append(['verify',str(target)]))
+    monkeypatch.setattr(host, 'verify_web', lambda target, **kw: events.append(['verify',str(target)]))
     monkeypatch.setattr(sr.time, 'sleep', lambda seconds: None)
     host.start_web(tmp_path)
     assert events[:2] == [['/usr/bin/systemctl','start','stocks.service'], ['/usr/bin/systemctl','start','stocks-proxy.service']]

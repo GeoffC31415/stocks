@@ -1,11 +1,13 @@
 #!/usr/bin/python3 -I
 """Fixed nonroot fixture: real uvicorn, disposable SQLite, no broker execution."""
 import argparse
+import errno
 import grp
 import json
 import os
 import pwd
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -13,7 +15,30 @@ import urllib.request
 from pathlib import Path
 
 
-def run(release, scratch, actor, broken=False):
+def check_host_isolation(host_pid_namespace, ipc_canary):
+    # Namespace identity and procfs view must both exclude host processes.
+    status = dict(line.split(':', 1) for line in Path('/proc/self/status').read_text().splitlines() if ':' in line)
+    if (not host_pid_namespace or os.readlink('/proc/self/ns/pid') == host_pid_namespace
+            or len(status.get('NSpid', '').split()) != 1):
+        raise RuntimeError('host-pid-namespace')
+    if ipc_canary is None or ipc_canary.parent != Path('/run'):
+        raise RuntimeError('missing-host-ipc-canary')
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as channel:
+        channel.settimeout(1)
+        try:
+            channel.connect(str(ipc_canary))
+        except OSError as error:
+            if error.errno != errno.ENOENT:
+                raise RuntimeError('host-ipc-unknown') from error
+        else:
+            raise RuntimeError('host-ipc-reachable')
+    if any(Path(p).exists() for p in ('/run/dbus/system_bus_socket', '/run/systemd/private', '/run/stocks-agent-ops.sock')):
+        raise RuntimeError('host-ipc-visible')
+    return {'pid_namespace': os.readlink('/proc/self/ns/pid'),
+            'host_pid_namespace': host_pid_namespace, 'host_ipc_canary': 'unreachable'}
+
+
+def run(release, scratch, actor, broken=False, host_pid_namespace=None, ipc_canary=None):
     if os.getuid() == 0 or os.geteuid() == 0:
         raise RuntimeError('probe-must-not-run-as-root')
     if sys.version_info[:3] != (3, 14, 4):
@@ -21,6 +46,7 @@ def run(release, scratch, actor, broken=False):
     if scratch.is_symlink() or scratch.stat().st_uid != os.getuid():
         raise RuntimeError('scratch-owner')
     proof = 'rootless-only'
+    isolation = None
     if actor != 'rootless':
         user = pwd.getpwnam(actor)
         if os.getuid() != user.pw_uid or os.getgid() != user.pw_gid:
@@ -33,6 +59,7 @@ def run(release, scratch, actor, broken=False):
         interfaces = [line.split(':', 1)[0].strip() for line in Path('/proc/net/dev').read_text().splitlines() if ':' in line]
         if interfaces != ['lo']:
             raise RuntimeError('network-not-isolated')
+        isolation = check_host_isolation(host_pid_namespace, ipc_canary)
         proof = 'service-uid-private-network'
     env = {'PATH': '/usr/bin:/bin', 'HOME': str(scratch), 'TMPDIR': str(scratch),
            'PYTHONPATH': str(release / 'backend'), 'PYTHONNOUSERSITE': '1',
@@ -51,7 +78,8 @@ def run(release, scratch, actor, broken=False):
     code = ('import watchfiles,uvicorn; uvicorn.run(' + repr(module) +
             ',host="127.0.0.1",port=18765,workers=1,access_log=False)')
     result = {'status': 'failed', 'uid': os.getuid(), 'gid': os.getgid(),
-              'groups': os.getgroups(), 'identity_proof': proof, 'checks': [], 'python': '3.14.4'}
+              'groups': os.getgroups(), 'identity_proof': proof, 'host_isolation': isolation,
+              'checks': [], 'python': '3.14.4'}
     child = None
     try:
         with (scratch / 'uvicorn.log').open('xb') as log:
@@ -101,8 +129,10 @@ def main():
     parser.add_argument('--scratch', type=Path, required=True)
     parser.add_argument('--actor', choices=['stocks', 'stocks-sync', 'rootless'], required=True)
     parser.add_argument('--broken', action='store_true')
+    parser.add_argument('--host-pid-namespace')
+    parser.add_argument('--ipc-canary', type=Path)
     args = parser.parse_args()
-    return run(args.release, args.scratch, args.actor, args.broken)
+    return run(args.release, args.scratch, args.actor, args.broken, args.host_pid_namespace, args.ipc_canary)
 
 
 if __name__ == '__main__':

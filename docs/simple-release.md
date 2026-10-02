@@ -81,7 +81,7 @@ PYTHON_DOTENV_DISABLED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=backend \
 PORTFOLIO_DATABASE_URL=sqlite+aiosqlite:///:memory: \
 TMPDIR=/home/geoff/.hermes/cache/scratch \
 /home/geoff/code/stocks/.venv/bin/python -B -m pytest -c pytest.ini \
-  tests/test_simple_release.py tests/test_simple_release_probe.py -q
+  tests/test_simple_release.py tests/test_simple_release_probe.py tests/test_simple_release_operational.py -q
 ```
 
 These integration tests intentionally use this host's public old runtime and the above
@@ -93,15 +93,15 @@ The previously passing full application suite was not rerun for tooling-only cha
 Review the complete controller, probe, installer, tests and this runbook together. Focus
 on real UID/groups and path traversal, root-copy authority, failed-unit cleanup, clock/timer
 races, schema side effects and useful private diagnostics. Do not add a review swarm.
-Controller853 lines, probe109, installer64 at this snapshot; no imported old deployment
+The controller/probe include the small operational-review corrections below; no imported old deployment
 framework. Any correction changes the tool pins and needs the same review refreshed.
 
 Current tool SHA256 pins:
 
 | File | SHA256 |
 |---|---|
-| stocks_release.py | `0001d63f046e1d1570ce23366c7dac5bc6ffdaff49f53da4106c0c4fd9757a24` |
-| runtime_probe.py | `756a848dd7d7529f8a3b4d3107c56bb458b7e4082cee6709abb65ac179935ef3` |
+| stocks_release.py | `620cd9d3b4850210dba39c36a66e69a3d81ec6c969a03db941527bceafa94561` |
+| runtime_probe.py | `8e2b3e683963bbe124687919cf92052dd5e757eb94e87736bf3e3d04c0c0cefa` |
 | install.sh | `3e70f2b82a22ffb3892216fbad0dac6ef2d1de2ed5088ef034180b68dec5256e` |
 
 **Do not run the following until independent review and explicit administrator approval.**
@@ -123,8 +123,8 @@ with os.fdopen(fd,"rb") as f:
 if hashlib.sha256(b).hexdigest()!="3e70f2b82a22ffb3892216fbad0dac6ef2d1de2ed5088ef034180b68dec5256e": raise SystemExit("installer pin")
 raise SystemExit(subprocess.run(["/bin/bash","-s","--",
 "/home/geoff/code/stocks-simple-release/deploy/simple_release",
-"0001d63f046e1d1570ce23366c7dac5bc6ffdaff49f53da4106c0c4fd9757a24",
-"756a848dd7d7529f8a3b4d3107c56bb458b7e4082cee6709abb65ac179935ef3"],
+"620cd9d3b4850210dba39c36a66e69a3d81ec6c969a03db941527bceafa94561",
+"8e2b3e683963bbe124687919cf92052dd5e757eb94e87736bf3e3d04c0c0cefa"],
 input=b,env={"PATH":"/usr/bin:/bin","LANG":"C"},check=False).returncode)
 '
 ```
@@ -147,7 +147,11 @@ The fixed native transient units run as `stocks` and `stocks-sync`, with primary
 and `SupplementaryGroups=stocks-data`, no capabilities, NoNewPrivileges, private network,
 ProtectHome/ProtectSystem and explicit production config/state/backup masks. No production
 EnvironmentFile is used. The fixed probe independently checks identity/groups/capabilities
-and loopback-only network. Its child environment contains only synthetic local configuration.
+and loopback-only network. Its child environment contains only synthetic local configuration. PrivatePIDs/PrivateIPC
+and an empty read-only /run exclude host process and IPC authority. A fresh host pathname
+socket canary remains listening during each actual native probe; the probe must fail to
+connect with ENOENT and prove a different PID namespace plus a private procfs view
+before application code runs. This is tested with both reachable/shared negative controls.
 Real startup migrations run **only against disposable DBs** in owned fixture directories.
 
 A copied disposable runtime has watchfiles changed to0600 (never the approved runtime).
@@ -248,3 +252,28 @@ No force, marker deletion, re-adopt-to-bypass, private DB edit or legacy rollbac
 3. Fresh bounded activation approval; original process exit and independent live readback.
 4. Owner authenticated portfolio/passkey acceptance. Before18:00 availability is useful;
    do not assume continuous operator attendance after18:00 or start an investigation then.
+
+## Operational review corrections (review refresh pending)
+
+R1: native rehearsal now has PrivatePIDs=yes, PrivateIPC=yes and
+TemporaryFileSystem=/run:ro. The actual nonroot native probe verifies PID namespace/procfs
+isolation and a negative live-host pathname-socket canary, without connecting to the real
+system bus. Disposable rootless negative controls independently prove that the same check
+rejects a visible host socket or shared PID namespace. No rootless claim substitutes for
+the actual installed service-identity gate.
+
+R2: timer restoration rechecks its boot/wall/monotonic window AFTER blocking observations
+and immediately before start, reserving20s for bounded start/readbacks within the already
+conservative saved deadline. Start, timer readback and worker readback use5s bounds. Full
+timer policy/next-run and worker quiescence are read back; uncertainty attempts timer stop
+and leaves attention, never a worker kill or catch-up approval.
+
+R3: backend/proxy start happens once, then readiness polls to a60s monotonic deadline with
+bounded observations. Wrong release/executable fails immediately; delayed HTTP readiness
+can succeed without restarting units. Exhaustion remains a real failure and compensation
+uses the same bounded wait for the known-good release.
+
+Parent observed timer late-start/budget tests RED (2 failures), readiness RED (1 failure),
+and missing native socket/PID controls RED (4 failures), then GREEN after local fixes.
+Exact final suite/results are retained in the parent correction evidence; no privileged
+installation/rehearsal or production mutation performed during these corrections.

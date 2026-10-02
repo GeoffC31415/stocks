@@ -10,6 +10,7 @@ import os
 import pwd
 import re
 import shlex
+import socket
 import stat
 import subprocess
 import time
@@ -21,14 +22,18 @@ TIMER_KEYS = ('ActiveState', 'UnitFileState', 'Persistent', 'NextElapseUSecRealt
               'RandomizedDelayUSec', 'TimersCalendar')
 
 
-def schedule_window(props, now):
+def next_timer_run(props):
     if (props.get('ActiveState') != 'active' or props.get('UnitFileState') != 'enabled'
             or props.get('Persistent') != 'yes' or props.get('RandomizedDelayUSec') != '2min'):
         raise Refused('schedule-policy')
     match = re.fullmatch(r'\{ OnCalendar=\*-\*-\* 18:30:00 Europe/London ; next_elapse=@(\d+) \}', props.get('TimersCalendar', ''))
     if not match or not re.fullmatch(r'@\d+', props.get('NextElapseUSecRealtime', '')):
         raise Refused('schedule-format')
-    earliest = min(int(match[1]), int(props['NextElapseUSecRealtime'][1:]) - 120)
+    return min(int(match[1]), int(props['NextElapseUSecRealtime'][1:]) - 120)
+
+
+def schedule_window(props, now):
+    earliest = next_timer_run(props)
     deadline = earliest - 60
     if now + 300 >= deadline:
         raise Refused('schedule-window')
@@ -162,12 +167,22 @@ class NativeHost:
         unit = 'stocks-release-probe-' + nonce + '.service'
         command = rehearsal_command(release, scratch, actor, nonce)
         failed = False
-        try:
-            self.run(command, timeout=115)
-        except Refused:
-            failed = True
-        finally:
-            self.run(['/usr/bin/journalctl', '--no-pager', '--unit', unit, '--lines=150'], allow_failure=True)
+        # The host listener remains live throughout the actual native probe.
+        # A private /run must make it unreachable, even to the production UID.
+        canary_path = Path('/run') / ('stocks-release-canary-' + nonce + '.sock')
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as canary:
+            canary.bind(str(canary_path))
+            try:
+                canary_path.chmod(0o666)
+                canary.listen(1)
+                try:
+                    self.run(command, timeout=115)
+                except Refused:
+                    failed = True
+                finally:
+                    self.run(['/usr/bin/journalctl', '--no-pager', '--unit', unit, '--lines=150'], allow_failure=True)
+            finally:
+                canary_path.unlink()  # only this freshly created /run nonce socket
         props = self.show(unit, (*PROCESS_KEYS, 'Result', 'ExecMainStatus'))
         if broken:
             if not failed or props['ActiveState'] != 'failed' or props['Result'] != 'exit-code' or props['ExecMainStatus'] != '1':
@@ -243,10 +258,15 @@ class NativeHost:
         return {'path':str(target), 'inventory':sha(encoded(rows)),
                 'compat':sha(encoded([compatibility(rows), lock_contract(target)]))}
 
-    def verify_web(self, target):
+    def verify_web(self, target, deadline=None):
+        def budget():
+            remaining = 8 if deadline is None else deadline - time.monotonic()
+            if remaining <= 0:
+                raise Refused('web-readiness-timeout')
+            return min(5, remaining)
         identities = []
         for unit in UNITS[:2]:
-            p = self.show(unit, ('ActiveState','MainPID','ControlPID','NRestarts'))
+            p = self.show(unit, ('ActiveState','MainPID','ControlPID','NRestarts'), timeout=budget())
             if p['ActiveState'] != 'active' or p['NRestarts'] != '0' or p['ControlPID'] != '0' or int(p['MainPID']) <= 0:
                 raise Refused('web-not-stable')
             proc = Path('/proc') / p['MainPID']
@@ -260,25 +280,36 @@ class NativeHost:
                 raise Refused('web-executable-mismatch')
             identities.append(p)
         # This is ONLY an anonymous authentication boundary, not owner health.
-        code = self.run(['/usr/bin/curl', '--silent', '--show-error', '--max-time','8',
+        probe_budget = budget()
+        code = self.run(['/usr/bin/curl', '--silent', '--show-error', '--max-time',str(probe_budget),
                          '--noproxy','*','--resolve','solarpi.hopto.org:5000:127.0.0.1',
                          '--output','/dev/null','--write-out','%{http_code}',
-                         'https://solarpi.hopto.org:5000/api/health'])
+                         'https://solarpi.hopto.org:5000/api/health'], timeout=probe_budget)
         if code.strip() != '401':
             raise Refused('https-auth-boundary')
         for unit, expected in zip(UNITS[:2], identities):
-            if self.show(unit, ('ActiveState','MainPID','ControlPID','NRestarts')) != expected:
+            if self.show(unit, ('ActiveState','MainPID','ControlPID','NRestarts'), timeout=budget()) != expected:
                 raise Refused('web-identity-changed')
 
     def start_web(self, target):
         for unit in UNITS[:2]:
             self.run(['/usr/bin/systemctl','start',unit])
-        time.sleep(3)
-        self.verify_web(target)
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                self.verify_web(target, deadline=deadline)
+                return
+            except Refused as error:
+                if str(error) not in ('web-not-stable', 'https-auth-boundary', 'host-command-failed'):
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise Refused('web-readiness-timeout') from error
+                time.sleep(min(0.5, remaining))
 
-    def show(self, unit, keys):
+    def show(self, unit, keys, timeout=55):
         text = self.run(['/usr/bin/systemctl', 'show', '--timestamp=unix', unit,
-                         *['--property=' + k for k in keys]])
+                         *['--property=' + k for k in keys]], timeout=timeout)
         props = dict(line.split('=', 1) for line in text.splitlines() if '=' in line)
         if any(k not in props for k in keys):
             raise Refused('missing-unit-property')
@@ -298,8 +329,8 @@ class NativeHost:
             raise Refused('cgroup-unknown')
         return any(p.read_text().strip() for p in files)
 
-    def quiescent(self, unit):
-        p = self.show(unit, PROCESS_KEYS)
+    def quiescent(self, unit, timeout=None):
+        p = self.show(unit, PROCESS_KEYS, **({'timeout': timeout} if timeout is not None else {}))
         if not stopped(p, bool(self.populated(unit, p))):
             raise Refused('not-stopped')
         return p
@@ -333,16 +364,32 @@ class NativeHost:
             self.stop_unit(unit)
 
     def restore_timer(self, saved):
-        wall, mono = time.time(), time.monotonic()
-        if (Path('/proc/sys/kernel/random/boot_id').read_text().strip() != saved['boot']
-                or wall >= saved['deadline'] or wall < saved['started_wall']
-                or abs((wall - saved['started_wall']) - (mono - saved['started_mono'])) > 5):
+        def safe(reserve=0):
+            wall, mono = time.time(), time.monotonic()
+            return (Path('/proc/sys/kernel/random/boot_id').read_text().strip() == saved['boot']
+                    and saved['started_wall'] <= wall and wall + reserve < saved['deadline']
+                    and mono >= saved['started_mono']
+                    and abs((wall - saved['started_wall']) - (mono - saved['started_mono'])) <= 5)
+        if not safe():
             return False
         self.quiescent('stocks-sync.service')
         if self.show('stocks-sync.timer', ('UnitFileState',))['UnitFileState'] != saved['enabled']:
             return False
-        self.run(['/usr/bin/systemctl', 'start', 'stocks-sync.timer'])
-        return self.show('stocks-sync.timer', ('ActiveState',))['ActiveState'] == 'active'
+        # Recheck AFTER blocking observations, reserving start + readback budget.
+        # The saved deadline itself is at least 60s before the earliest due run.
+        if not safe(20):
+            return False
+        try:
+            self.run(['/usr/bin/systemctl', 'start', 'stocks-sync.timer'], timeout=5)
+            props = self.show('stocks-sync.timer', TIMER_KEYS, timeout=5)
+            self.quiescent('stocks-sync.service', timeout=5)
+            if not safe() or next_timer_run(props) <= saved['deadline']:
+                raise Refused('timer-restore-readback')
+            return True
+        except Exception:
+            # No worker kill or forced catch-up; record attention if not confirmed.
+            self.run(['/usr/bin/systemctl', 'stop', 'stocks-sync.timer'], timeout=5)
+            return False
 
 
 
@@ -548,6 +595,7 @@ def rehearsal_command(release, scratch, actor, nonce, broken=False):
     properties = [f'User={actor}', f'Group={actor}', 'SupplementaryGroups=stocks-data',
         'Type=oneshot', 'RemainAfterExit=yes', 'Restart=no', 'TimeoutStartSec=100', 'TimeoutStopSec=10',
         'KillMode=control-group', 'PrivateNetwork=yes', 'PrivateTmp=yes', 'PrivateDevices=yes',
+        'PrivatePIDs=yes', 'PrivateIPC=yes', 'TemporaryFileSystem=/run:ro',
         'ProtectHome=yes', 'ProtectSystem=strict', 'NoNewPrivileges=yes',
         'CapabilityBoundingSet=', 'AmbientCapabilities=', 'RestrictSUIDSGID=yes',
         'ProtectKernelTunables=yes', 'ProtectKernelModules=yes', 'ProtectKernelLogs=yes',
@@ -560,7 +608,9 @@ def rehearsal_command(release, scratch, actor, nonce, broken=False):
         command.extend(['--property', prop])
     command += ['/usr/bin/env', '-i', 'PATH=/usr/bin:/bin', 'PYTHONDONTWRITEBYTECODE=1',
                 '/usr/bin/python3', '-I', '-B', str(TOOL / 'runtime_probe.py'),
-                '--release', str(release), '--scratch', str(scratch), '--actor', actor]
+                '--release', str(release), '--scratch', str(scratch), '--actor', actor,
+                '--host-pid-namespace', os.readlink('/proc/self/ns/pid'),
+                '--ipc-canary', '/run/stocks-release-canary-' + nonce + '.sock']
     if broken:
         command.append('--broken')
     return command
