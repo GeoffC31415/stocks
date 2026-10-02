@@ -1,9 +1,24 @@
-# Stocks simple release — candidate for one operational review
+# Stocks simple release — installed and verified live
 
-**PREPARED, NOT DEPLOYED.** No administrator installation, real service-account
-systemd rehearsal, production mutation or authenticated owner acceptance has been
-performed by this implementation worker. Those gates belong to the parent/operator.
-The restored old site and legacy incident records must remain untouched during review.
+**LIVE, verified 2 October2026 at12:26BST.** Stable controller installed; real
+stocks/stocks-sync native rehearsal, failed-start cleanup and healthy restoration passed.
+Managed deployment `stocks-release-operation-20261002-r3b.service` exited0; operation
+`a13a2249bb6c4d09b421ff56c0ae45b5` records deployed/timer_restoredtrue. Exact live bundle
+files/modes and backend/proxy/schedule were independently read back. Owner confirmed that sign-in and the portfolio look correct, closing the requested owner-session acceptance. Current pickup: `docs/stocks-pickup.md`.
+
+The installation/adoption commands below document the completed one-time setup: do NOT
+rerun them on this installation. Future deploy/rollback commands must use fresh release
+data and observed operation/current values, not the historical examples verbatim.
+
+## Historical candidate/review checkpoints
+
+The following sections preserve the preparation process and commands; statements about
+pending installation/rehearsal are superseded by the verified outcome above.
+
+**Original candidate scope:** no administrator installation, real service-account
+systemd rehearsal, production mutation or authenticated owner acceptance had been
+performed by its implementation worker; the parent later executed the approved gates.
+Legacy incident records remain untouched.
 
 ## What this version does
 
