@@ -1,9 +1,18 @@
-# Current documentation
+# Documentation
 
-Only current operational runbooks are retained here. Historical plans, verification reports, design reviews and handoffs were archived outside the repositories on the Surface:
+These guides describe current source contracts, not the currently deployed revision.
+Master is the sole pre-deployment source; a local commit, pushed revision or prepared
+bundle is not proof of activation. Read back the actual release before making live claims.
 
-`/home/geoff/archives/stocks-docs/20261004-111022/`
+- [Product semantics and navigation](../README.md)
+- [Deployment and recovery](simple-release.md): sole home-script entrypoint and refusal handling.
+- [Hosting and backups](public-hosting.md): isolation, TLS and private persistence.
+- [Passkeys](passkeys.md): owner use, sessions, API and local recovery.
+- [Sync and development](sync-reliability-operator-notes.md): worker routes, status and isolated checks.
+- [Ingest safety](../backend/docs/sync-integrity-operator.md): paired imports, trusted HL ownership and reviewed closures.
+- [Market data](market-data.md): cache/FX/coverage limits.
+- [Security identity](security-identity.md): exact reviewed aggregation registry.
 
-The archive has a SHA-256 manifest and preserves worktree-specific versions, including uncommitted documentation. Do not treat archived plans or old handoffs as current deployment instructions. Verify the running release and service configuration before operational changes.
-
-The deployed application code was verified against `fc19be9`; subsequent documentation-only cleanup does not change that running code. Current release instructions are in [simple-release.md](simple-release.md), sync guidance in [sync-reliability-operator-notes.md](sync-reliability-operator-notes.md), and ingest safety guidance in [../backend/docs/sync-integrity-operator.md](../backend/docs/sync-integrity-operator.md).
+Historical plans, migration commands, test timings and release evidence belong in
+Git history/private archives, not in current operating instructions. Archived
+handoffs cannot authorize activation, database changes or schedule catch-up.

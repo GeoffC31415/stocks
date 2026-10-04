@@ -15,8 +15,10 @@ was read in a real browser. Its instrument information reports:
 - The exchange explains that GBX trade values are displayed in major currency GBP.
 
 The existing provider mapping `EQQQ.L` is accepted only with one of those exact
-source identifiers and GBP/GBX/GBp source value currency. The registry key includes
+source identifiers (including exact listing identifier `EQQQ`) and GBP/GBX/GBp source value currency. The registry key includes
 ISIN, exchange, listing symbol and the unchanged source currency. A different
 ISIN, unknown identifier, accumulating share class, currency or listing cannot
 merge merely because its editable ticker says EQQQ.L. No other listing has been
 approved by this change. This is not look-through or provider-history readiness.
+
+Current implementation: [security identity service](../backend/app/services/security_identity_service.py).

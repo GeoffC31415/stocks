@@ -1,8 +1,10 @@
-# Layout recommendation — human selection pending
+# Static synthetic layout artifacts
 
-Both files are standalone, labelled DEMO layouts using synthetic content only. No external fonts, scripts or broker requests.
+[chart-first.html](chart-first.html) and [ledger-first.html](ledger-first.html) are
+standalone labelled DEMO pages with synthetic content and no broker requests or
+external fonts/scripts. Vite copies this public directory into builds unchanged.
 
-- **chart-first.html (recommended):** Three concise scope-specific summaries, a wide observation chart, and compact latest snapshot attribution. Makes the portfolio story legible without confusing snapshot comparison dates with performance coverage. Evidence and methodology expand on demand. Trade-off: fewer holdings above the fold.
-- **ledger-first.html:** The same information led by the holdings ledger. Best for routine position inspection; weaker for understanding portfolio performance and its caveats.
-
-Recommendation is agent-selected, **not user-approved**. User design selection and production release remain pending. Open `/demo/chart-first.html` and `/demo/ledger-first.html` on the isolated preview. Build serves these unchanged as static artifacts.
+They are historical design alternatives, **not the selected production UI or a
+pending release recommendation**. Chart-first leads with observations; ledger-first
+leads with holdings. Their presence does not authorize redesign. Do not treat demo
+financial figures as portfolio data or use these layouts as current acceptance gates.

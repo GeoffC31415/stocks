@@ -45,7 +45,7 @@ The shared period applies to Performance. Holdings, allocation and groups use la
 
 ### Security identity, concentration and targets
 
-Security aggregation is conservative. The reviewed registry currently approves only EQQQ with exact ISIN `IE0032077012` or SEDOL `B0GL4T3`, listing `EQQQ` on `XLON`, provider mapping `EQQQ.L`, and supported source value currency `GBP`/`GBX`/`GBp`. The unchanged source currency remains part of the key. Similar names or editable tickers cannot merge unsupported identifiers, listings, currencies or share classes. Broker records are not rewritten. See [reviewed identity evidence](docs/security-identity.md).
+Security aggregation is conservative. The reviewed registry currently approves only EQQQ with exact source identifier `EQQQ`, ISIN `IE0032077012` or SEDOL `B0GL4T3`, listing `EQQQ` on `XLON`, provider mapping `EQQQ.L`, and supported source value currency `GBP`/`GBX`/`GBp`. The unchanged source currency remains part of the key. Similar names or editable tickers cannot merge unsupported identifiers, listings, currencies or share classes. Broker records are not rewritten. See [reviewed identity evidence](docs/security-identity.md).
 
 HHI measures displayed weight concentration, **not diversification or fund overlap**. Product-level classifications are not constituent look-through. Two apparently separate funds can own the same underlying companies.
 
@@ -67,86 +67,62 @@ Start at Data confidence; identify affected accounts, dates and source records. 
 
 ## Trading 212 read-only sync
 
-Use **Data → Import → Sync Trading 212** for one complete read-only refresh: current portfolio snapshot, completed fills/order history, and deposits/withdrawals. The API key needs portfolio, historical-order and historical-transaction (`history:transactions`) read permissions; do not grant order-placement permissions.
+Use **Data → Import → Sync Trading 212** for a complete observation: positions,
+verified account-summary cash, completed fills/order history, and deposits/withdrawals.
+The key needs read-only portfolio, account-summary, historical-order and
+historical-transaction (`history:transactions`) permissions, never order placement.
+Missing account-summary permission **rejects the observation**; there is no
+positions-only successful fallback. Trading 212 buys are ordinary buys, not inferred DRIPs.
 
-```dotenv
-PORTFOLIO_TRADING212_API_KEY=...
-PORTFOLIO_TRADING212_API_SECRET=...
-PORTFOLIO_TRADING212_ACCOUNT_NAME=Trading 212
-```
+In public/service mode the button requests the dedicated worker through
+`/api/sync/trading212/request` and polls that same endpoint. Web credential status
+is not worker credential availability. Credentials belong to the worker's private
+configuration, not the public web environment. Local development retains direct
+provider routes; use only deliberately provisioned test credentials and a disposable
+DB. See [sync guidance](docs/sync-reliability-operator-notes.md) and
+[ingest safeguards](backend/docs/sync-integrity-operator.md).
 
-Restart the backend after changing `.env`, then use **Data → Import** to run the combined sync. The `.env` file is ignored by Git. A key without account-summary permission still imports positions, but deliberately omits cash because the API cannot verify it. Trading 212 purchases are imported as ordinary buys rather than inferred DRIPs.
-
-If you click **Sync Trading 212** multiple times in one day, the API is queried again. An unchanged snapshot and unchanged order history are reported as `unchanged`; new cash events are imported by provider reference, while already-seen cash events report zero new rows. A changed same-day portfolio snapshot is retained as a same-day correction according to the existing snapshot rules. The operation is read-only at the broker and safe to repeat, although it still consumes the provider's rate limits.
+An unchanged observation is reported as unchanged; rechecks still consume rate
+limits. Changed observations are retained even on the same day. Cash events deduplicate
+by account/provider reference. The combined operation fetches all sections before
+writes and commits snapshot, orders and cash atomically, rolling back on failure or
+cancellation. Automatic sync refuses disappearing securities, even with force.
 
 ### Cash deposits and withdrawals
 
-The combined sync imports the full transaction history as part of the same operation. This read-only broker request writes only the local cash ledger and its coverage marker, not new snapshots or trades. It refreshes Dashboard **Net external flows**, flow-adjusted performance/returns and snapshot attribution. Re-syncing is idempotent by account and provider reference.
+Full paginated transaction history imports deposits positively and withdrawals
+negatively; fees and cash/lending interest are not external funding. Ambiguous
+transfers, unsupported currencies (only GBP), malformed records and conflicting
+references reject the sync. Missing transaction permission changes no ledger rows.
+A separately requested local cash-history refresh writes the ledger/coverage marker,
+not snapshots or trades; the combined button imports all sections together.
 
-The importer uses `GET /api/v0/equity/history/transactions` (6 requests/minute, maximum 50 items/page, bounded pagination), importing `DEPOSIT` positively and `WITHDRAW` negatively. Fees and cash/lending interest are not external funding. Ambiguous `TRANSFER` events, unsupported currencies (only GBP is currently supported), malformed records and conflicting historical references reject the whole sync rather than inventing flows. Missing `history:transactions` permission reports an error without changing the ledger.
+A successful empty history proves zero reported funding and suppresses buy/sell
+proxies for that account. Unavailable history does not. Coverage means all pages
+returned by the API, not an independent audit. Cash history must be fetched after
+the closing snapshot cutoff, including its time for same-day API snapshots.
+Opening-date flows are assumed already valued and excluded. Closing cutoff is the
+API observation time or end of day for dated file snapshots; later movements are
+excluded. Daily Dietz weighting and opening-day timing remain approximations.
 
-A successful empty history is distinct from an unavailable history: it records verified zero funding and suppresses buy/sell proxies for that account. Accounts without synced cash history keep their existing proxies. Cash history must be fetched after the closing snapshot cutoff, including its time for same-day API snapshots; otherwise the cash-adjusted result is unavailable until you sync again. Full-history coverage means all pages returned by this beta API, not an independent audit of the broker's records.
+## Development and operations
 
-Flows on the opening snapshot date are assumed already in that valuation and excluded, retaining the app's daily opening-boundary convention. The closing cutoff is the recorded import observation time for API snapshots, or end of day for dated file snapshots. Later cash movements are excluded. Opening-day timing and daily Dietz weighting remain approximations. Spending a deposit on holdings does not create another external flow. Security-level attribution uses trades as internal allocations; account funding and unallocated residuals are not a causal price decomposition.
+Backend: FastAPI, Pydantic, async SQLAlchemy and SQLite. Frontend: React,
+TypeScript, Vite and TanStack Query. Dependencies: `requirements.txt` and
+`frontend/package.json`; production runtime lock: `requirements-production.txt`.
 
-Existing installations need Alembic revision `7e4b8c2a901d` (two additive tables). Make a verified SQLite backup before applying it. **Development servers run with `--reload`: edits can reload the live process and run migrations automatically. Inspect the running process before editing a live checkout; use an isolated checkout for changes needing a release gate.**
+Normal application startup can create/migrate the database. Never start it against
+live data for verification, edit a running reload checkout, or overwrite the served
+frontend build. Imports, repairs and provider refreshes are writes, not read-only checks.
 
-## Secure hosting from the Surface
+- [Development checks and isolated previews](docs/sync-reliability-operator-notes.md#development-checks-and-isolated-previews)
+- [Deployment and recovery boundary](docs/simple-release.md)
+- [Public hosting and backups](docs/public-hosting.md)
+- [Passkey usage and local recovery](docs/passkeys.md)
+- [Market-data limitations](docs/market-data.md)
+- [Documentation index](docs/README.md)
 
-See [public hosting and recovery](docs/public-hosting.md) for the single-user HTTPS
-setup, private credentials, Caddy/systemd templates, database backups, deployment
-checks and rollback. Public mode is explicit and fail-closed; local mode is
-loopback-only. **Do not forward a development server port to the internet.**
-Preparing this repository does not install services, configure router forwarding,
-copy private portfolio data, or provision a public TLS certificate. Existing Grafana
-services on `solarpi.hopto.org:3000` and `:4000` must remain unchanged.
-
-## Development and safe verification
-
-Backend: FastAPI, Pydantic, async SQLAlchemy and SQLite. Frontend: React, TypeScript, Vite, TanStack Query, Tailwind and React Router. Dependencies are declared in `requirements.txt` and `frontend/package.json`.
-
-Normal backend startup can run schema creation and inline migrations. Production serves `frontend/dist`. **Do not start the normal application against a live database for verification, and do not overwrite the live frontend build.** Imports, match repairs and provider refreshes are writes requiring appropriate approval. This guide authorises no deployment, backfill or live refresh.
-
-With existing dependencies, run from the repository root:
-
-```bash
-npm --prefix frontend test -- --run Help
-npm --prefix frontend run typecheck
-# Full frontend regression suite when integrating:
-npm --prefix frontend test -- --run
-# Isolated output only; never use the normal frontend/dist for rehearsal:
-npm --prefix frontend run build -- --outDir /tmp/stocks-experience-dist
-```
-
-For browser integration, first obtain a **verified private SQLite backup**, outside the repository, made with SQLite's backup API (a raw copy of a WAL-mode file is not sufficient). Confirm its integrity and preservation evidence; never substitute an invented backup filename or skip that prerequisite. Set the following paths to the actual verified backup and a private, non-repository evidence directory:
-
-```bash
-# PRIVATE_VERIFIED_BACKUP and PRIVATE_UI_EVIDENCE must be explicitly set first.
-.venv/bin/python scripts/verify_analysis_ui.py \
-  --database "${PRIVATE_VERIFIED_BACKUP:?Set the verified private backup path}" \
-  --dist /tmp/stocks-experience-dist \
-  --output "${PRIVATE_UI_EVIDENCE:?Set a private evidence directory}"
-```
-
-The rehearsal script makes an integrity-checked copy, serves audited GET routes with read-only SQLite and lifespan disabled, blocks mutations, and records whether its copy changed. It uses existing Playwright/Chrome; do not install packages or launch production services as an implicit fallback. Screenshots/reports contain private portfolio information and must stay outside Git. Browser evidence is not automatic visual acceptance: contrast, chart clarity and screenshots still need review. Record failures and missing evidence honestly.
-
-## Structure and persistence
-
-- `backend/app/routers/`, `services/`, `schemas.py`, `models.py`: API, analytics, imports and persistence.
-- `frontend/src/routes/`, `components/`, `lib/`, `state/`: workspaces, analysis UI, typed clients and shared scope.
-- `backend/tests/`, frontend `__tests__/`: service and component regressions.
-- `scripts/verify_analysis_ui.py`: isolated read-only UI rehearsal.
-- `portfolio.db`: private working database, ignored by Git. Import files and browser evidence are private too.
-
-Snapshot hashes deduplicate imports; order fingerprints deduplicate source rows. Instruments retain account-specific identity and dated holding snapshots. Group memberships, classifications and matching aliases are persisted metadata, not proof of security identity or complete histories.
-
-## Gated extensions and release boundary
-
-D01–D04 remain data- and approval-gated, not declared ready by this documentation:
-
-- **D01:** validated market/FX history, instrument identities, coverage and comparable benchmarks; sample provider responses do not establish full-portfolio readiness or permission for persistent backfill.
-- **D02:** current-composition risk and historical loss analysis depend on D01 and explicit horizon/coverage requirements.
-- **D03:** reproducible scenario fans require D01–D02 plus separate acceptance of model assumptions.
-- **D04:** fund look-through requires validated constituent data and coverage, not ticker matching or product classifications.
-
-See the implementation plan (historical document archived outside this repository; see documentation archive note), verification evidence (historical document archived outside this repository; see documentation archive note), and [market-data limitations](docs/market-data.md). Tests establish implementation behaviour, not provider readiness or release approval. Deployment is a separate, explicitly authorised operation with rollback planning.
+Portfolio databases, source exports, credentials, browser profiles, auth stores and
+screenshots are private and stay outside Git. Snapshot hashes and order fingerprints
+deduplicate source data; aliases and classifications do not establish security identity.
+Tests establish source behaviour, not provider completeness or production readiness.

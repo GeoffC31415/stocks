@@ -3,7 +3,8 @@
 
 Production commands require root, an exact expected release, and explicit
 confirmation. Filesystem helpers are separately exercised on disposable trees.
-See docs/broker-isolation.md before activation or recovery.
+Legacy one-time migration; do not use for current deployments or recovery.
+Historical runbook is in Git history. Current operations: docs/simple-release.md.
 """
 from __future__ import annotations
 
@@ -958,10 +959,10 @@ def main(argv=None) -> int:
                 print("Saved timer enabled/active state restored; a persistent catch-up broker run may start.")
         return 0
     except MigrationError as exc:
-        print(f"STOP: {exc} See docs/broker-isolation.md; do not rerun blindly.", file=sys.stderr)
+        print(f"STOP: {exc} See docs/simple-release.md; do not rerun blindly.", file=sys.stderr)
     except (OSError, ValueError, KeyError, sqlite3.Error):
         # No exception repr/traceback: errors may include credentials or filenames.
-        print("STOP: Migration/recovery failed. Preserve all evidence and inspect privately using docs/broker-isolation.md.", file=sys.stderr)
+        print("STOP: Migration/recovery failed. Preserve all evidence and inspect privately using docs/simple-release.md.", file=sys.stderr)
     return 1
 
 
