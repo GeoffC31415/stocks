@@ -39,37 +39,6 @@ export function ImportPanel() {
     queryFn: api.getSyncStatus,
   });
 
-  const [serviceRequest, setServiceRequest] = useState<ServiceSync | null>(null);
-  const servicePending = serviceRequest?.state === "accepted" || serviceRequest?.state === "running";
-  const requestSync = useMutation({
-    mutationFn: api.requestSync,
-    onSuccess: setServiceRequest,
-  });
-  const servicePoll = useQuery({
-    queryKey: ["requestedSync", serviceRequest?.request_id],
-    queryFn: api.getRequestedSyncStatus,
-    enabled: servicePending && !!serviceRequest?.request_id,
-    refetchInterval: servicePending ? 2000 : false,
-    retry: false,
-  });
-  useEffect(() => {
-    if (!servicePending) return;
-    const status = servicePoll.data;
-    if (servicePoll.isError || (status && status.request_id !== serviceRequest?.request_id)) {
-      setServiceRequest(current => current && ({ ...current, state: "unknown" }));
-    } else if (status && status.state !== "accepted" && status.state !== "running") {
-      setServiceRequest(status);
-      if (status.state === "completed" || (status.state === "failed" && status.last_run?.finished_at)) {
-        queryClient.invalidateQueries();
-      }
-    }
-  }, [servicePending, servicePoll.data, servicePoll.isError, serviceRequest?.request_id, queryClient]);
-  useEffect(() => {
-    if (!servicePending) return;
-    const timer = setTimeout(() => setServiceRequest(current => current && ({ ...current, state: "unknown" })), 20 * 60 * 1000);
-    return () => clearTimeout(timer);
-  }, [servicePending, serviceRequest?.request_id]);
-
   const [trading212Request, setTrading212Request] = useState<ServiceSync | null>(null);
   const trading212ServicePending = trading212Request?.state === "accepted" || trading212Request?.state === "running";
   const requestTrading212Sync = useMutation({
@@ -106,11 +75,6 @@ export function ImportPanel() {
     return () => clearTimeout(timer);
   }, [trading212ServicePending, trading212Request?.request_id]);
 
-  const syncAll = useMutation({
-    mutationFn: () => api.syncAll(true),
-    onSuccess: () => queryClient.invalidateQueries(),
-    onError: () => queryClient.invalidateQueries({ queryKey: ["syncStatus"] }),
-  });
 
   const syncTrading212 = useMutation({
     mutationFn: () => api.syncTrading212(forceImport),
@@ -344,34 +308,6 @@ export function ImportPanel() {
             {syncStatus.last_run?.steps.map((s) => `${s.name} ${s.status.replace("_", " ")}`).join(" · ")}
           </p>
         )}
-        {(syncStatus?.manual_sync_enabled || syncStatus?.service_trigger_enabled) && (
-        <button type="button" className="btn-primary flex w-full items-center justify-center gap-2"
-          onClick={() => syncStatus?.service_trigger_enabled ? requestSync.mutate() : syncAll.mutate()}
-          disabled={syncAll.isPending || syncStatus?.running || requestSync.isPending || servicePending || syncTrading212.isPending || requestTrading212Sync.isPending || trading212ServicePending}>
-          <Download size={16} />
-          {syncAll.isPending || syncStatus?.running || requestSync.isPending || servicePending ? "Syncing all accounts…" : "Sync all accounts"}
-        </button>
-        )}
-        {servicePending && <p role="status" className="mt-2 text-xs text-slate-400">Request accepted; waiting for the service to finish.</p>}
-        {serviceRequest?.state === "completed" && <div role="status" className="mt-2"><SyncEvidence report={serviceRequest.last_run} /></div>}
-        {serviceRequest && ["failed", "unknown", "busy", "disabled", "inactive"].includes(serviceRequest.state) && <p role="alert" className="mt-2 text-xs text-neg">
-          {serviceRequest.state === "failed" ? "Sync failed or needs attention. Check the service logs." : "Sync status is unknown or unavailable. Check again later; the service may still be running."}
-        </p>}
-        {requestSync.isError && <p role="alert" className="mt-2 text-xs text-neg">Could not confirm the sync request. Check again later.</p>}
-        {syncAll.isSuccess && (
-          <ul role="status" className="mt-2 space-y-0.5 text-xs">
-            {syncAll.data.steps.map((step) => (
-              <li key={step.name} className={
-                step.status === "failed" || step.status === "needs_attention" ? "text-neg"
-                  : "text-slate-400"}>
-                {step.name}: {step.status.replace("_", " ")}{step.detail ? ` — ${step.detail}` : ""}
-              </li>
-            ))}
-          </ul>
-        )}
-        {syncAll.isError && <p role="alert" className="mt-2 text-xs text-neg">
-          {(syncAll.error as Error).message}
-        </p>}
       </section>
       {(syncStatus?.manual_sync_enabled || syncStatus?.service_trigger_enabled) && <section aria-labelledby="trading212-sync-heading" className="mt-5 border-t border-white/[0.06] pt-4">
         <h3 id="trading212-sync-heading" className="text-sm font-medium text-slate-200">Trading 212</h3>
@@ -381,7 +317,7 @@ export function ImportPanel() {
         </p>
         <button type="button" className="btn-primary flex w-full items-center justify-center gap-2"
           onClick={() => syncStatus?.service_trigger_enabled ? requestTrading212Sync.mutate() : syncTrading212.mutate()}
-          disabled={(!syncStatus?.service_trigger_enabled && !trading212Status?.configured) || syncTrading212.isPending || requestTrading212Sync.isPending || trading212ServicePending || syncAll.isPending || syncStatus?.running || requestSync.isPending || servicePending}>
+          disabled={(!syncStatus?.service_trigger_enabled && !trading212Status?.configured) || syncTrading212.isPending || requestTrading212Sync.isPending || trading212ServicePending || syncStatus?.running}>
           <Download size={16} />
           {syncTrading212.isPending || requestTrading212Sync.isPending || trading212ServicePending ? "Syncing Trading 212…" : "Sync Trading 212"}
         </button>

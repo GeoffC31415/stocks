@@ -52,6 +52,13 @@ describe("ImportPanel Trading 212 sync", () => {
     });
   });
 
+  it.each([false, true])("offers only Trading 212 sync (public service: %s)", async (publicService) => {
+    vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: !publicService, service_trigger_enabled: publicService, accounts: [], stale_after_days: 7, last_run: null, running: false });
+    show();
+    expect(await screen.findByRole("button", { name: "Sync Trading 212" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Sync all accounts/ })).not.toBeInTheDocument();
+  });
+
   it("syncs external cash flows separately and refreshes Dashboard data", async () => {
     const sync = vi.spyOn(api, "syncTrading212").mockResolvedValue({
       account_name: "Trading 212", snapshot: "imported", snapshot_rows: 2,
@@ -67,52 +74,6 @@ describe("ImportPanel Trading 212 sync", () => {
     expect(await screen.findByText(/cash: 4 new \/ 4 total/)).toBeInTheDocument();
     expect(invalidate).toHaveBeenCalled();
   });
-  it("public service request waits for the new run before invalidating", async () => {
-    vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: false, service_trigger_enabled: true, accounts: [], stale_after_days: 7, last_run: null, running: false });
-    const request = vi.spyOn(api, "requestSync").mockResolvedValue({ state: "accepted", request_id: "new-run" });
-    let finish!: (value: Awaited<ReturnType<typeof api.getRequestedSyncStatus>>) => void;
-    vi.spyOn(api, "getRequestedSyncStatus").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
-    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
-    show();
-    fireEvent.click(await screen.findByRole("button", { name: "Sync all accounts" }));
-    await waitFor(() => expect(request).toHaveBeenCalledOnce());
-    await waitFor(() => expect(api.getRequestedSyncStatus).toHaveBeenCalledOnce());
-    expect(screen.getByRole("button", { name: /Syncing all accounts/ })).toBeDisabled();
-    expect(invalidate).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Sync Trading 212" })).toBeDisabled();
-    expect(screen.queryByText(/credentials to .env/)).not.toBeInTheDocument();
-    finish({ state: "completed", request_id: "new-run", last_run: { started_at: "2026-09-23T12:00:00Z", finished_at: "2026-09-23T12:01:00Z", ok: true, steps: [], files: [], outcome: "partial" } });
-    expect(await screen.findByText("Refresh outcome: partial")).not.toHaveClass("text-pos");
-    await waitFor(() => expect(invalidate).toHaveBeenCalledOnce());
-  });
-
-  it.each(["failed", "unknown"] as const)("shows %s service outcomes", async (state) => {
-    vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: false, service_trigger_enabled: true, accounts: [], stale_after_days: 7, last_run: null, running: false });
-    vi.spyOn(api, "requestSync").mockResolvedValue({ state: "accepted", request_id: "new-run" });
-    vi.spyOn(api, "getRequestedSyncStatus").mockResolvedValue({ state, request_id: "new-run", last_run: null });
-    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
-    show();
-    fireEvent.click(await screen.findByRole("button", { name: "Sync all accounts" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(state === "failed" ? "Sync failed" : "unknown");
-    expect(invalidate).not.toHaveBeenCalled();
-  });
-
-  it("bounds pending even when a poll never returns", async () => {
-    vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: false, service_trigger_enabled: true, accounts: [], stale_after_days: 7, last_run: null, running: false });
-    vi.spyOn(api, "requestSync").mockResolvedValue({ state: "accepted", request_id: "new-run" });
-    vi.spyOn(api, "getRequestedSyncStatus").mockImplementation(() => new Promise(() => {}));
-    show();
-    const button = await screen.findByRole("button", { name: "Sync all accounts" });
-    vi.useFakeTimers();
-    try {
-      await act(async () => { fireEvent.click(button); await vi.advanceTimersByTimeAsync(50); });
-      expect(screen.getByRole("button", { name: /Syncing all accounts/ })).toBeDisabled();
-      await act(async () => { await vi.advanceTimersByTimeAsync(20 * 60 * 1000 + 50); });
-      expect(screen.getByRole("alert")).toHaveTextContent("unknown");
-      expect(screen.getByRole("button", { name: "Sync all accounts" })).toBeEnabled();
-    } finally { vi.useRealTimers(); }
-  });
-
   it("public Trading 212 sync waits for its isolated service report without calling broker endpoints", async () => {
     vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: false, service_trigger_enabled: true, accounts: [], stale_after_days: 7, last_run: null, running: false });
     vi.mocked(api.getTrading212Status).mockResolvedValue({ configured: false, account_name: "Trading 212" });
@@ -130,7 +91,7 @@ describe("ImportPanel Trading 212 sync", () => {
     await waitFor(() => expect(api.getRequestedTrading212SyncStatus).toHaveBeenCalledOnce());
     expect(request.mock.calls).toEqual([[]]);
     expect(screen.getByRole("button", { name: "Syncing Trading 212…" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Sync all accounts" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Sync all accounts" })).not.toBeInTheDocument();
     expect(invalidate).not.toHaveBeenCalled();
     expect(direct).not.toHaveBeenCalled();
     expect(all).not.toHaveBeenCalled();
@@ -141,7 +102,7 @@ describe("ImportPanel Trading 212 sync", () => {
     expect(await screen.findByText("Refresh outcome: partial")).toBeInTheDocument();
     await waitFor(() => expect(invalidate).toHaveBeenCalledOnce());
     expect(screen.getByRole("button", { name: "Sync Trading 212" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Sync all accounts" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Sync all accounts" })).not.toBeInTheDocument();
   });
 
   it("reports a busy Trading 212 service without claiming acceptance or completion", async () => {
@@ -183,7 +144,7 @@ describe("ImportPanel Trading 212 sync", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sync Trading 212" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Syncing Trading 212…" })).toBeDisabled());
     expect(screen.queryByText("Refresh outcome: complete")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sync all accounts" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Sync all accounts" })).not.toBeInTheDocument();
     reject(new Error("Request disconnected"));
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not confirm the Trading 212 sync request");
     expect(screen.queryByText("Refresh outcome: complete")).not.toBeInTheDocument();
@@ -236,13 +197,13 @@ describe("ImportPanel Trading 212 sync", () => {
     try {
       await act(async () => { fireEvent.click(button); await vi.advanceTimersByTimeAsync(50); });
       expect(screen.getByRole("button", { name: "Syncing Trading 212…" })).toBeDisabled();
-      expect(screen.getByRole("button", { name: "Sync all accounts" })).toBeDisabled();
+      expect(screen.queryByRole("button", { name: "Sync all accounts" })).not.toBeInTheDocument();
       await act(async () => { await vi.advanceTimersByTimeAsync(19 * 60 * 1000); });
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       await act(async () => { await vi.advanceTimersByTimeAsync(60 * 1000 + 50); });
       expect(screen.getByRole("alert")).toHaveTextContent("unknown");
       expect(screen.getByRole("button", { name: "Sync Trading 212" })).toBeEnabled();
-      expect(screen.getByRole("button", { name: "Sync all accounts" })).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "Sync all accounts" })).not.toBeInTheDocument();
       await act(async () => {
         finish({ state: "completed", request_id: "t212-run", last_run: { started_at: "now", finished_at: "now", ok: true, steps: [], files: [], outcome: "complete" } });
         await vi.advanceTimersByTimeAsync(50);
@@ -252,14 +213,6 @@ describe("ImportPanel Trading 212 sync", () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it("keeps both buttons disabled while the all-account request itself is unconfirmed", async () => {
-    vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: false, service_trigger_enabled: true, accounts: [], stale_after_days: 7, last_run: null, running: false });
-    vi.spyOn(api, "requestSync").mockImplementation(() => new Promise(() => {}));
-    show();
-    fireEvent.click(await screen.findByRole("button", { name: "Sync all accounts" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Syncing all accounts…" })).toBeDisabled());
-    expect(screen.getByRole("button", { name: "Sync Trading 212" })).toBeDisabled();
-  });
 
   it("hides Trading 212 when neither local nor service sync is enabled", async () => {
     vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: false, service_trigger_enabled: false, accounts: [], stale_after_days: 7, last_run: null, running: false });
@@ -268,21 +221,12 @@ describe("ImportPanel Trading 212 sync", () => {
     expect(screen.queryByRole("button", { name: "Sync Trading 212" })).not.toBeInTheDocument();
   });
 
-  it.each([false, true])("disables both buttons when another backend sync is running (public=%s)", async publicMode => {
+  it.each([false, true])("disables Trading 212 when another backend sync is running (public=%s)", async publicMode => {
     vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: !publicMode, service_trigger_enabled: publicMode, accounts: [], stale_after_days: 7, last_run: null, running: true });
     show();
     expect(await screen.findByRole("button", { name: "Sync Trading 212" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Syncing all accounts…" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Syncing all accounts…" })).not.toBeInTheDocument();
   });
 
-  it("keeps local sync immediate", async () => {
-    const sync = vi.spyOn(api, "syncAll").mockResolvedValue({ started_at: "now", finished_at: "now", ok: true, steps: [{ name: "Barclays", status: "ok", detail: null }], files: [] });
-    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
-    show();
-    fireEvent.click(await screen.findByRole("button", { name: "Sync all accounts" }));
-    await waitFor(() => expect(sync).toHaveBeenCalledWith(true));
-    expect(await screen.findByText("Barclays: ok")).toBeInTheDocument();
-    expect(invalidate).toHaveBeenCalled();
-  });
 
 });
