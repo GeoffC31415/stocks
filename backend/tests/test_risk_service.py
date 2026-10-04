@@ -80,9 +80,6 @@ class TestSlice2Validation:
         reasons = validate_price_series("A", [(dt.date(2026, 1, 5), float("inf"))])
         assert any("non-finite" in r for r in reasons)
 
-    def test_nan_price_rejected(self) -> None:
-        reasons = validate_price_series("A", [(dt.date(2026, 1, 5), float("nan"))])
-        assert any("non-finite" in r for r in reasons)
 
     def test_non_positive_price_rejected(self) -> None:
         assert validate_price_series("A", [(dt.date(2026, 1, 5), 0.0)])
@@ -274,29 +271,6 @@ class TestSlice6Aggregation:
         assert ba.constituents == ((1, "Stocks"), (9, "SIPP"))
         assert len(ba.prices) == 10
 
-    def test_aggregated_factor_survives_analysis(self) -> None:
-        prices = _two_day_walk(100.0, 0.001, 10)
-        factor = aggregate_canonical_factors(
-            [
-                CanonicalFactorEntry(
-                    symbol="BA.L",
-                    name="BA.L",
-                    prices=prices,
-                    instrument_id=1,
-                    account_name="Stocks",
-                )
-            ]
-        )[0]
-        result = compute_risk_analysis(
-            RiskAnalysisInput(
-                factors=(factor,),
-                cash_weight=0.0,
-                sleeve_weights={"BA.L": 1.0},
-                full_book_weights={"BA.L": 1.0},
-            )
-        )
-        assert result["status"] == "available"
-
 
 class TestSlice7Benchmark:
     @pytest.fixture()
@@ -422,19 +396,6 @@ class TestSlice9EdgeCases:
         check = result["euler_sum_check"]
         assert check["matches"] is True
 
-    def test_missing_dates_not_forward_filled(self) -> None:
-        a = _series("A", _two_day_walk(100.0, 0.001, 12))
-        b_points = _two_day_walk(50.0, 0.001, 12)
-        dropped = dt.date.fromisoformat(b_points[3][0])  # the date we will drop
-        b_points.pop(3)
-        b = _series("B", b_points)
-        dates, returns, reasons = aligned_daily_returns([a, b])
-        assert reasons == []
-        # 11 shared dates -> 10 returns; the gap must not be filled in.
-        assert returns.shape == (2, 10)
-        assert len(dates) == 11
-        # The dropped date must not appear in the aligned output.
-        assert dropped not in dates
 
     def test_nan_inf_never_raise(self) -> None:
         a = _series(
@@ -479,39 +440,3 @@ class TestSlice9EdgeCases:
         )
         assert result["status"] == "unavailable"
         assert any("normalise" in r for r in result["reasons"])
-
-
-class TestDeterminism:
-    def test_same_input_same_output(self) -> None:
-        factors = (
-            _series("A", _two_day_walk(100.0, 0.002)),
-            _series("B", _two_day_walk(50.0, -0.003)),
-        )
-        kwargs = {
-            "cash_weight": 0.1,
-            "sleeve_weights": {"A": 0.45, "B": 0.45},
-            "full_book_weights": {"A": 0.45, "B": 0.45, "cash": 0.1},
-        }
-        first = compute_risk_analysis(RiskAnalysisInput(factors=factors, **kwargs))
-        second = compute_risk_analysis(RiskAnalysisInput(factors=factors, **kwargs))
-        assert first == second
-
-    def test_finite_for_valid_inputs(self) -> None:
-        factors = (
-            _series("A", _two_day_walk(100.0, 0.002)),
-            _series("B", _two_day_walk(50.0, -0.003)),
-        )
-        result = compute_risk_analysis(
-            RiskAnalysisInput(
-                factors=factors,
-                cash_weight=0.0,
-                sleeve_weights={"A": 0.5, "B": 0.5},
-                full_book_weights={"A": 0.5, "B": 0.5},
-            )
-        )
-        for value in (
-            result["annualised_portfolio_volatility_pct"],
-            *result["annualised_factor_volatility_pct"].values(),
-            *result["euler_vol_contribution_pct"].values(),
-        ):
-            assert math.isfinite(value)

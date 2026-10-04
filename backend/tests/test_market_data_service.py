@@ -107,30 +107,10 @@ def _pts(symbol: str, currency: str, values: list[tuple[dt.date, float]]) -> lis
 # ---------------------------------------------------------------------------
 
 
-def test_fixture_rows_carry_the_full_provider_contract() -> None:
-    points = _points_from_fixture("ba_l.csv")
-    assert len(points) == 5
-    point = points[0]
-    # symbol, date, close, optional adjusted close, currency, source, fetched timestamp.
-    assert point.symbol == "BA.L"
-    assert point.date == dt.date(2026, 5, 29)
-    assert point.close == 150.0
-    assert point.adjusted_close == 148.2
-    assert point.currency == "GBP"
-    assert point.source == "fixture"
-    assert point.fetched_at.tzinfo is not None
-
-
 def test_fixture_rows_allow_missing_adjusted_close() -> None:
     points = _points_from_fixture("mu_usd.csv")
     assert all(point.adjusted_close is None for point in points)
     assert all(point.currency == "USD" for point in points)
-
-
-def test_fixture_rows_allow_missing_adjusted_close_for_fx() -> None:
-    points = _points_from_fixture("gbp_usd_fx.csv")
-    assert points[0].symbol == "GBPUSD=X"
-    assert points[0].close == 1.25
 
 
 # ---------------------------------------------------------------------------

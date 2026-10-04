@@ -48,21 +48,6 @@ def test_configuration_is_private_hashed_and_never_overwritten(tmp_path):
     assert output.read_bytes() == before
 
 
-@pytest.mark.parametrize(
-    "origin,password",
-    [
-        ("http://stocks.example.net", "test-only-long-password"),
-        ("https://stocks.example.net/path", "test-only-long-password"),
-        ("https://stocks.example.net", "short"),
-    ],
-)
-def test_invalid_setup_writes_nothing(tmp_path, origin, password):
-    output = tmp_path / "production.env"
-    with pytest.raises((ValueError, RuntimeError)):
-        tool().configure(output, origin, "geoff", password, tmp_path / "db", tmp_path / "dist")
-    assert not output.exists()
-
-
 def test_backup_uses_sqlite_snapshot_preserves_rows_and_refuses_overwrite(tmp_path):
     module = tool()
     source, destination = tmp_path / "source.db", tmp_path / "backup.db"

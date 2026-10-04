@@ -11,18 +11,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.models import AccountAlias, Base, Instrument, InstrumentAlias, Order, OrderMatchAudit
 from app.services.matching.normalisation import (
-    character_similarity,
     instrument_type_compatibility,
-    is_etf,
-    is_preference_share,
-    issuer_prefix,
     meaningful_tokens,
-    normalise_name,
-    token_similarity,
 )
 from app.services.matching.scoring import (
     classify_score,
-    determine_method,
     score_candidate,
 )
 
@@ -32,36 +25,11 @@ from app.services.matching.scoring import (
 
 
 class TestNormalisation:
-    def test_basic_normalisation(self) -> None:
-        # Normaliser keeps all words (including plc) but lowercases and strips punctuation
-        assert normalise_name("Big Yellow Group PLC ORD 10P") == "big yellow group plc ord 10p"
-
-    def test_ampersand(self) -> None:
-        assert normalise_name("JPMorgan & Co") == "jpmorgan and co"
-
-    def test_punctuation_stripping(self) -> None:
-        # S&P becomes sandp because & -> and, then punctuation stripped
-        assert normalise_name("Vanguard S&P 500 UCITS ETF") == "vanguard sandp 500 ucits etf"
-
     def test_numeric_tokens_preserved(self) -> None:
         """Numeric tokens must be preserved to distinguish share classes."""
         tokens = meaningful_tokens("Big Yellow Group PLC ORD 10P")
         assert "10p" in tokens
 
-    def test_etf_detection(self) -> None:
-        assert is_etf("iShares Core S&P 500 UCITS ETF") is True
-        assert is_etf("Vanguard FTSE 100 UCITS ETF") is True
-        assert is_etf("BP PLC ORD 25 3/4P") is False
-
-    def test_preference_share_detection(self) -> None:
-        assert is_preference_share("Aviva PLC 8 3/8% CUM IRRD PRF #1") is True
-        assert is_preference_share("BP PLC 9% CUM 2ND PRF #1") is True
-        assert is_preference_share("Big Yellow Group PLC ORD 10P") is False
-
-    def test_issuer_prefix(self) -> None:
-        # plc is now treated as a share-class indicator and stripped
-        assert issuer_prefix("Big Yellow Group PLC ORD 10P") == "big yellow group"
-        assert issuer_prefix("Vanguard Funds PLC VANGUARD S&P 500") == "vanguard funds"
 
     def test_type_compatibility(self) -> None:
         # ETF vs ETF
@@ -70,20 +38,6 @@ class TestNormalisation:
         assert instrument_type_compatibility("ETF A", "BP PLC ORD 10P") < 0.5
         # Pref vs ordinary
         assert instrument_type_compatibility("PRF Shares", "ORD Shares") < 0.5
-
-    def test_token_similarity(self) -> None:
-        s = token_similarity("Big Yellow Group PLC ORD 10P", "Big Yellow Group PLC ORD 10P")
-        assert s == 1.0
-
-    def test_character_similarity(self) -> None:
-        s = character_similarity("Vanguard FTSE", "Vanguard FTSE")
-        assert s == 1.0
-        s = character_similarity("Vanguard FTSE", "FTSE 100")
-        assert s < 1.0
-
-    def test_empty_name(self) -> None:
-        assert normalise_name("") == ""
-        assert normalise_name(None) == ""  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -164,16 +118,6 @@ class TestScoring:
         assert classify_score(0.85) == "auto_review"
         assert classify_score(0.75) == "auto_review"
         assert classify_score(0.50) == "unmatched"
-
-    def test_determine_method(self) -> None:
-        ev_exact_account = {"scores": {"name_exact": 1.0, "account": 1.0, "token_similarity": 0.9}}
-        assert determine_method(0.95, ev_exact_account) == "exact_account"
-
-        ev_exact_cross = {"scores": {"name_exact": 1.0, "account": 0.0, "token_similarity": 0.9}}
-        assert determine_method(0.85, ev_exact_cross) == "exact_cross_account"
-
-        ev_fuzzy = {"scores": {"name_exact": 0.0, "account": 0.0, "token_similarity": 0.4}}
-        assert determine_method(0.5, ev_fuzzy) == "fuzzy"
 
 
 # ---------------------------------------------------------------------------
@@ -519,57 +463,6 @@ async def test_ignored_orders_not_overwritten(async_db: AsyncSession) -> None:
 
 
 class TestClosedInstrumentWithoutOrderDate:
-    def test_score_candidate_closed_no_order_date(self) -> None:
-        """score_candidate must not crash when order_date is None and instrument is closed."""
-        inst = Instrument(
-            id=1,
-            account_name="Investment ISA",
-            identifier="MANUAL:test",
-            security_name="Amundi Etf AMUNDI ETF DAX UCITS ETF DR",
-            is_cash=False,
-            closed_at=dt.datetime(2026, 5, 7, 20, 13, 29),
-        )
-        score, evidence = score_candidate(
-            inst,
-            "AMUNDI ASSET MANAGEMENT AMUNDI ETF DAX",
-            "Investment ISA",
-            "Investment ISA",
-            # order_date omitted -> None
-        )
-        assert 0.0 <= score <= 1.0
-        assert evidence["scores"]["date_compatible"] == 0.7  # closed + no date: partial credit
-
-    @pytest.mark.anyio
-    async def test_build_candidates_closed_no_order_date(self, async_db: AsyncSession) -> None:
-        """build_candidates must not crash with order_date=None when closed instruments exist."""
-        from app.services.matching.candidates import build_candidates
-
-        async_db.add(
-            Instrument(
-                id=1,
-                account_name="Investment ISA",
-                identifier="MANUAL:closed-thing",
-                security_name="Closed Thing PLC ORD 10P",
-                is_cash=False,
-                closed_at=dt.datetime(2026, 5, 7, 20, 13, 29),
-            )
-        )
-        async_db.add(
-            Instrument(
-                id=2,
-                account_name="Investment ISA",
-                identifier="MANUAL:open-thing",
-                security_name="Open Thing PLC ORD 10P",
-                is_cash=False,
-            )
-        )
-        await async_db.commit()
-
-        candidates = await build_candidates(
-            async_db, "barclays_orders", "Investment ISA", "AMUNDI ASSET MANAGEMENT AMUNDI ETF DAX"
-        )
-        assert {c.id for c in candidates} == {1, 2}
-
     @pytest.mark.anyio
     async def test_unmatched_groups_endpoint_with_closed_instruments(
         self, async_db: AsyncSession

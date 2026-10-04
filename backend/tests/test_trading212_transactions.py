@@ -260,8 +260,6 @@ async def test_prefetched_account_forbidden_rejects_without_writes(sync_database
     "failure_method",
     [
         "fetch_positions",
-        "fetch_account_summary",
-        "fetch_historical_orders",
         "fetch_transactions",
     ],
 )

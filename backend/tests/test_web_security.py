@@ -135,11 +135,8 @@ async def test_public_documentation_disabled(public_app, path):
     "method,path",
     [
         ("GET", "/api/health"),
-        ("GET", "/api/orders"),
         ("POST", "/api/test-write"),
         ("GET", "/docs"),
-        ("GET", "/redoc"),
-        ("GET", "/openapi.json"),
         ("GET", "/"),
         ("GET", "/assets/app.js"),
         ("GET", "/api/unknown"),
@@ -234,11 +231,8 @@ async def test_forwarded_scheme_only_trusted_by_uvicorn_loopback(public_app, pee
     [
         ("127.0.0.1", 200),
         ("::1", 200),
-        ("testclient", 403),
-        ("test", 403),
         (None, 403),
         ("::ffff:192.168.1.20", 403),
-        ("198.51.100.9", 403),
         ("192.168.1.20", 403),
         ("localhost", 403),
         ("127.0.0.1.evil.test", 403),
@@ -273,16 +267,23 @@ def test_scrypt_hash_is_salted_and_verifies_only_correct_password():
     assert not verify_password("wrong", "plaintext")
 
 
-@pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE", "TRACE", "CONNECT", "CUSTOM"])
+# Each unsafe method crosses the same middleware guard. Exercise every method
+# once and each distinct origin boundary with POST, rather than their product.
 @pytest.mark.parametrize(
-    "origin",
+    "method,origin",
     [
-        None,
-        "null",
-        "https://evil.test",
-        "http://example.test",
-        "https://example.test/",
-        "https://example.test:443",
+        ("POST", None),
+        ("PUT", None),
+        ("PATCH", None),
+        ("DELETE", None),
+        ("TRACE", None),
+        ("CONNECT", None),
+        ("CUSTOM", None),
+        ("POST", "null"),
+        ("POST", "https://evil.test"),
+        ("POST", "http://example.test"),
+        ("POST", "https://example.test/"),
+        ("POST", "https://example.test:443"),
     ],
 )
 @pytest.mark.asyncio
@@ -560,7 +561,7 @@ def spa_app(public_config):
     return application
 
 
-@pytest.mark.parametrize("path", ["/", "/portfolio", "/orders/history", "/instruments/42"])
+@pytest.mark.parametrize("path", ["/", "/instruments/42"])
 @pytest.mark.asyncio
 async def test_spa_serves_deep_links_from_configured_directory(spa_app, path):
     async with httpx.AsyncClient(

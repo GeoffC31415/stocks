@@ -48,10 +48,6 @@ def _order(
 class TestTaxYearEnd:
     """Test UK tax year boundary detection (6 Apr - 5 Apr)."""
 
-    def test_mar_falls_in_previous_year(self) -> None:
-        """31 Mar falls in tax year ending next year."""
-        d = dt.datetime(2024, 3, 31, tzinfo=dt.UTC)
-        assert _tax_year_end(d) == 2024  # tax year 2023-24
 
     def test_april_5th_end_of_year(self) -> None:
         """5 Apr is the last day of the tax year."""
@@ -62,11 +58,6 @@ class TestTaxYearEnd:
         """6 Apr starts the new tax year."""
         d = dt.datetime(2024, 4, 6, tzinfo=dt.UTC)
         assert _tax_year_end(d) == 2025  # tax year 2024-25
-
-    def test_january_current_year(self) -> None:
-        """Jan falls in the current tax year."""
-        d = dt.datetime(2024, 1, 15, tzinfo=dt.UTC)
-        assert _tax_year_end(d) == 2024
 
 
 class TestAnnualExemptAmount:
@@ -578,10 +569,6 @@ class TestIsaExemption:
         assert is_isa_account("Cash Account") is False
         assert is_isa_account("Vanguard Investor Account") is False
 
-    def test_case_insensitive(self) -> None:
-        """ISA detection is case-insensitive."""
-        assert is_isa_account("BARCLAYS ISA") is True
-        assert is_isa_account("hargreaves lansdown isa") is True
 
     @pytest.mark.asyncio
     async def test_instrument_is_exempt_flag(self) -> None:

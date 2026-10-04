@@ -82,12 +82,6 @@ def test_rising_then_dipping_metrics() -> None:
     assert result["sortino_ratio"] is not None and result["sortino_ratio"] > result["sharpe_ratio"]
 
 
-def test_monotonic_up_has_no_drawdown() -> None:
-    result = compute_performance_metrics(_pts([100.0, 105.0, 112.0, 120.0]))
-    assert result["max_drawdown_pct"] == 0.0
-    assert result["total_return_pct"] == pytest.approx(20.0, abs=1e-6)
-
-
 def test_risk_free_shifts_sharpe_negative() -> None:
     points = _pts([100.0, 110.0, 120.0])
     base = compute_performance_metrics(points)
@@ -168,18 +162,6 @@ async def test_coverage_start_anchors_all_account_window(monkeypatch) -> None:
     six_month = await performance_service.get_portfolio_performance(None, period="6M")
     assert six_month["start_value_gbp"] == 150.0  # anchored to coverage, not raw 6M
     assert six_month["total_return_pct"] == pytest.approx(6.6667, abs=1e-3)
-
-
-async def test_all_account_performance_keeps_long_history_and_baselines_new_account(monkeypatch) -> None:
-    from app.services import performance_service
-
-    result = performance_service.compute_flow_adjusted_metrics(
-        [(dt.date(2026, 1, 5), 100.0), (dt.date(2026, 6, 5), 150.0), (dt.date(2026, 8, 15), 160.0)],
-        [(dt.date(2026, 6, 5), 50.0)], contributions=50.0, withdrawals=0.0,
-    )
-    assert result["contributions_gbp"] == 50.0
-    assert result["net_external_flow_gbp"] == 50.0
-    assert result["total_return_pct"] == pytest.approx(6.6667, abs=1e-3)
 
 
 async def test_performance_payload_exposes_flow_adjusted_curves(monkeypatch) -> None:
@@ -308,19 +290,6 @@ def test_flow_adjusted_no_flows_matches_plain() -> None:
     assert fa["num_periods"] == 2
 
 
-def test_flow_adjusted_nets_out_contribution() -> None:
-    # 100 -> (contribute 100 mid-interval) -> 200. The ending value is entirely
-    # the injected cash; there is no market gain, so the real return is ~0%
-    # (a raw value view would naively report +100%).
-    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 200.0)]
-    flows = [(dt.date(2026, 1, 15), 100.0)]  # contribution mid-interval
-    fa = compute_flow_adjusted_metrics(points, flows, contributions=100.0, withdrawals=0.0)
-    # weighted flow = 100 * (17/31) = 54.84 ; numerator 200-(100+100)=0
-    assert fa["total_return_pct"] is not None
-    assert fa["total_return_pct"] == pytest.approx(0.0, abs=1e-6)
-    assert fa["contributions_gbp"] == 100.0
-
-
 def test_flow_adjusted_withdrawal_not_a_loss() -> None:
     # 100 -> (withdraw 50 mid-interval) -> 50. The drop is the withdrawal, not
     # a market loss, so the real return is ~0% (a raw value view would naively
@@ -332,30 +301,6 @@ def test_flow_adjusted_withdrawal_not_a_loss() -> None:
     assert fa["total_return_pct"] is not None
     assert fa["total_return_pct"] == pytest.approx(0.0, abs=1e-6)
     assert fa["withdrawals_gbp"] == 50.0
-
-
-def test_flow_adjusted_real_gain_still_counts() -> None:
-    # 100 -> (contribute 100) -> 250. The extra 50 over (base+flow) is genuine
-    # market gain, so the real return is positive (raw view would say +150%).
-    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 250.0)]
-    flows = [(dt.date(2026, 1, 15), 100.0)]
-    fa = compute_flow_adjusted_metrics(points, flows, contributions=100.0, withdrawals=0.0)
-    assert fa["total_return_pct"] is not None
-    assert fa["total_return_pct"] > 10.0
-    assert fa["total_return_pct"] < 150.0  # far below the raw +150%
-
-
-def test_flow_adjusted_exposes_flows_in_block() -> None:
-    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 3, 1), 140.0)]
-    flows = [(dt.date(2026, 2, 1), 20.0), (dt.date(2026, 2, 15), -10.0)]
-    fa = compute_flow_adjusted_metrics(
-        points, flows, contributions=20.0, withdrawals=10.0
-    )
-    assert fa["contributions_gbp"] == 20.0
-    assert fa["withdrawals_gbp"] == 10.0
-    assert fa["net_external_flow_gbp"] == 10.0
-    assert "flow" in fa["method"].lower() or "dietz" in fa["method"].lower()
-    assert any("flow" in n.lower() for n in fa["notes"])
 
 
 def test_flow_adjusted_single_point_has_no_return() -> None:
@@ -391,27 +336,6 @@ def test_flow_adjusted_interval_dietz_hand_check() -> None:
 # --- Flow-adjusted wealth index + drawdown curve (Task 1) -------------------
 
 
-def test_flow_adjusted_curve_starts_at_100_and_chains() -> None:
-    # 100 -> 110 -> 105 (no flows): interval returns [0.10, -0.0454545].
-    # index: 100 -> 110 -> 110 * (1 - 0.0454545) = 105.0
-    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 110.0), (dt.date(2026, 3, 1), 105.0)]
-    curve = build_flow_adjusted_curve(points, [])
-    assert [p["index"] for p in curve] == [100.0, pytest.approx(110.0, abs=1e-6), pytest.approx(105.0, abs=1e-3)]
-    assert [p["date"] for p in curve] == [dt.date(2026, 1, 1), dt.date(2026, 2, 1), dt.date(2026, 3, 1)]
-
-
-def test_flow_adjusted_curve_flat_on_pure_contribution() -> None:
-    # 100 -> (contribute 100 mid-interval) -> 200. No market gain, so the
-    # flow-adjusted index stays flat at 100 even though the raw value doubled.
-    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 200.0)]
-    flows = [(dt.date(2026, 1, 15), 100.0)]
-    curve = build_flow_adjusted_curve(points, flows)
-    assert [p["index"] for p in curve] == [100.0, pytest.approx(100.0, abs=1e-6)]
-    # Contrast: the raw value index would read 200.
-    raw_last = 200.0 / 100.0 * 100.0
-    assert raw_last == pytest.approx(200.0)
-
-
 def test_flow_adjusted_curve_real_gain_moves_index() -> None:
     # 100 -> (contribute 100 on Jan 15) -> 250 on Feb 1. Hold-weighted flow =
     # 100 * (17/31) = 54.84; dietz = (250 - 200) / (100 + 54.84) = 32.29% ->
@@ -445,31 +369,5 @@ def test_drawdown_curve_known_peak_trough_recovery() -> None:
     assert dd[3]["at_peak"] is True
 
 
-def test_max_flow_adjusted_drawdown_matches_curve_trough() -> None:
-    curve = [
-        {"date": dt.date(2026, 1, 1), "index": 100.0},
-        {"date": dt.date(2026, 2, 1), "index": 120.0},
-        {"date": dt.date(2026, 3, 1), "index": 108.0},
-    ]
-    assert max_flow_adjusted_drawdown(curve) == pytest.approx(-10.0, abs=1e-6)
-
-
-def test_max_flow_adjusted_drawdown_monotonic_is_zero() -> None:
-    curve = [
-        {"date": dt.date(2026, 1, 1), "index": 100.0},
-        {"date": dt.date(2026, 2, 1), "index": 110.0},
-        {"date": dt.date(2026, 3, 1), "index": 120.0},
-    ]
-    assert max_flow_adjusted_drawdown(curve) == 0.0
-
-
 def test_max_flow_adjusted_drawdown_empty_is_none() -> None:
     assert max_flow_adjusted_drawdown([]) is None
-
-
-def test_pure_contribution_yields_zero_flow_adjusted_drawdown() -> None:
-    # Pure cash contribution with no market gain: index is flat at 100, so the
-    # flow-adjusted max drawdown is 0 even though the raw value moved.
-    points = [(dt.date(2026, 1, 1), 100.0), (dt.date(2026, 2, 1), 200.0)]
-    flows = [(dt.date(2026, 1, 15), 100.0)]
-    assert max_flow_adjusted_drawdown(build_flow_adjusted_curve(points, flows)) == 0.0

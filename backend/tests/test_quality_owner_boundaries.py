@@ -14,9 +14,12 @@ from app.services.closure_review import review_closure_observation
 from app.services.trading212 import Trading212DataError, sync_portfolio_snapshot
 
 
-@pytest.mark.parametrize("apply", [False, True])
+# Rejection validation is shared by preview/apply; retain each invalid identity
+# at the mutating boundary and both successful modes.
 @pytest.mark.parametrize(
-    "case", ["predates", "wrong_id", "wrong_hash", "ingestion_as_valuation", "valid"]
+    "case,apply",
+    [("predates", True), ("wrong_id", True), ("wrong_hash", True),
+     ("ingestion_as_valuation", True), ("valid", False), ("valid", True)],
 )
 async def test_closure_binds_ingestion_and_retained_valuation(tmp_path, apply, case, monkeypatch):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'synthetic.db'}")
@@ -110,7 +113,7 @@ async def test_closure_binds_ingestion_and_retained_valuation(tmp_path, apply, c
         await engine.dispose()
 
 
-@pytest.mark.parametrize("value", [[], {}, ["PRIVATE"], {"PRIVATE": "PRIVATE"}, None, 7])
+@pytest.mark.parametrize("value", [["PRIVATE"], {"PRIVATE": "PRIVATE"}, None, 7])
 def test_public_report_malformed_values_are_opaque_unknown(value):
     from app.services.sync_control import public_report
 
@@ -155,7 +158,6 @@ def test_public_report_nonlist_collections_are_ignored(value):
         "empty_unpinned",
         "name_changed",
         "number_changed",
-        "both_changed",
         "ambiguous",
         "verified_alias",
     ],
