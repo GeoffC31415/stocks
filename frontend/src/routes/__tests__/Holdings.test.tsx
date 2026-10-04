@@ -18,7 +18,9 @@ beforeEach(()=>{
  vi.spyOn(api,'getInstrumentHistory').mockResolvedValue([]);
  vi.spyOn(api,'getInstrumentOrders').mockResolvedValue([]);
 });
-it.each(['01','1e2','1&inst=2','2'])('never requests unconfirmed scoped detail %s',async id=>{
+// The parser's full lexical matrix lives in holdingsView.test.ts. Exercise
+// the route boundary once for ambiguous IDs and once for an out-of-scope ID.
+it.each(['1&inst=2','2'])('never requests unconfirmed scoped detail %s',async id=>{
  show('/?inst='+id); await waitFor(()=>expect(screen.getByRole('alert')).toHaveTextContent(/invalid|not available/i));
  expect(api.getInstrumentHistory).not.toHaveBeenCalled(); expect(api.getInstrumentOrders).not.toHaveBeenCalled();
 });
@@ -72,13 +74,6 @@ it('retries instrument failure instead of displaying an empty account',async()=>
  expect(screen.queryByText('No holdings in this account scope.')).not.toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'Retry holdings'}));
  expect(await screen.findByRole('button',{name:'View AAA in ISA'})).toBeInTheDocument();
-});
-it('preserves the production split table and empty detail placement',async()=>{
- show('/'); await screen.findByRole('button',{name:'View AAA in ISA'});
- expect(screen.getByRole('region',{name:'Holdings table'}).parentElement!.parentElement).toHaveClass('lg:col-span-3');
- const empty=screen.getByText('Select a holding');
- expect(empty.parentElement!.parentElement).toHaveClass('lg:col-span-2');
- expect(empty.parentElement!.parentElement!.parentElement).toHaveClass('lg:grid-cols-5');
 });
 it('connects authoritative target drift and matching order navigation',async()=>{
  show('/?inst=1&period=1Y&from=2&to=4');

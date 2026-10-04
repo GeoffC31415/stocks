@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { expect,it } from 'vitest';
 import { holdingsLink,ordersLink } from '../investigationLinks';
 it('preserves encoded account, period and comparison while replacing stale focus',()=>{const url=holdingsLink('?period=1Y&from=2&to=8&inst=99&q=stale',{account:'ISA & savings',instrumentIds:[1,3],category:{dimension:'currency',label:'USD'}});const p=new URL(url,'http://test').searchParams;expect(p.get('account')).toBe('ISA & savings');expect(p.get('period')).toBe('1Y');expect(p.get('from')).toBe('2');expect(p.get('inst')).toBeNull();expect(p.get('q')).toBeNull();expect(p.get('instrument_ids')).toBe('1,3');expect(p.get('allocation_category')).toBe('USD');});

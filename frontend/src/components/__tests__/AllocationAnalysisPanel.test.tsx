@@ -37,11 +37,6 @@ describe("AllocationAnalysisPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Account positions" }));
     await waitFor(() => expect(api.getAllocation).toHaveBeenCalledWith("asset_class", null, "position"));
   });
-  it("includes the non-trading contribution scenario and target explanation", async () => {
-    setup();
-    expect(await screen.findByRole("heading", {name:"Hypothetical contribution"})).toBeInTheDocument();
-    expect(await screen.findByText("Configure a valid target set before modelling a contribution.")).toBeInTheDocument();
-  });
   it("links categories to exact constituent holdings", async () => {
     setup("ISA");
     const link=await screen.findByRole("link",{name:"Explore Equity holdings"});

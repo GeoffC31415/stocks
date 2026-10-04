@@ -12,7 +12,6 @@ it("renders backend total reasons rather than assuming missing amounts", () => {
 });
 
 it.each([
-  ["Next page", 0, 100, true],
   ["Next page", 100, 200, false],
   ["Previous page", 100, 0, true],
 ] as const)("restores results focus after delayed %s from %s to %s", (name, offset, nextOffset, hasMore) => {

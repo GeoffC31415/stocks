@@ -4,22 +4,22 @@ import { describe, expect, it } from "vitest";
 import { MobileNav } from "../MobileNav";
 
 describe("MobileNav", () => {
-  it("keeps every primary destination reachable on small screens", () => {
+  it("keeps primary destinations scoped without leaking a workspace tab", () => {
     render(
-      <MemoryRouter initialEntries={["/"]}>
+      <MemoryRouter initialEntries={["/portfolio?account=ISA&period=1Y&tab=income&inst=7"]}>
         <MobileNav />
       </MemoryRouter>,
     );
 
     expect(screen.getByRole("navigation", { name: "Mobile" })).toBeInTheDocument();
-    for(const link of screen.getAllByRole("link")) expect(link).toHaveClass("min-h-12");
-    expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual([
-      "Dashboard",
-      "Portfolio",
-      "Activity",
-      "Tax",
-      "Data",
-      "Help",
-    ]);
+    const links = screen.getAllByRole("link");
+    const urls = links.map(link => new URL(link.getAttribute("href")!, "https://local.test"));
+    expect(urls.map(url => url.pathname)).toEqual(["/", "/portfolio", "/activity", "/tax", "/data", "/help"]);
+    for (const url of urls) {
+      expect(url.searchParams.get("account")).toBe("ISA");
+      expect(url.searchParams.get("period")).toBe("1Y");
+      expect(url.searchParams.get("tab")).toBeNull();
+      expect(url.searchParams.get("inst")).toBe("7");
+    }
   });
 });

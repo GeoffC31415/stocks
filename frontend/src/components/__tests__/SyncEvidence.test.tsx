@@ -15,7 +15,9 @@ it('renders serialized real public-report evidence without confusing a failed at
  expect(screen.getByText('Action: retry')).toBeInTheDocument();
  expect(screen.getByText(/retained verified observation/)).toBeInTheDocument();
 });
-it.each(['complete','partial','failed','no_op','disabled'] as const)('recognizes authoritative %s outcome without inferring green success', outcome => {
+// Partial/no-op appear in serialized-report and confidence integration tests.
+// Success/failure endpoints guard against inferring success from legacy ok:true.
+it.each(['complete','failed'] as const)('recognizes authoritative %s outcome without inferring green success', outcome => {
  render(<SyncEvidence report={{outcome,ok:true}} />);
  expect(screen.getByText(`Refresh outcome: ${outcome}`)).not.toHaveClass('text-pos');
 });

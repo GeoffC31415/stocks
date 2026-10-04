@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { joinPerformanceSeries, performanceIndexDomain, performanceIndexTicks, sparseDateTicks } from "../performanceChart";
 import { chartUtcMs } from "../chartDates";

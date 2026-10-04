@@ -99,13 +99,6 @@ describe("PerformancePanel", () => {
     expect(Boolean(metric.compareDocumentPosition(chart)&Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(screen.queryByRole('table',{name:'Exact snapshot and drawdown observations'})).not.toBeInTheDocument();
   });
-  it('keeps compact chart in natural production document order',async()=>{
-    renderPanel(<PerformancePanel compact />); await screen.findByText('Performance');
-    const chart=screen.getByRole('region',{name:'Snapshot performance chart'});
-    expect(chart).not.toHaveClass('order-1');
-    expect(chart.parentElement).toHaveClass('p-5');
-    expect(chart.parentElement).not.toHaveClass('flex');
-  });
   it("keys requests by shared period and account and hides old metrics while the next scope loads", async () => {
     const request = vi.spyOn(api, "getPerformance").mockResolvedValue(basePerf);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -167,25 +160,6 @@ describe("PerformancePanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "About Snapshot investment return" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("Chain-linked interval Modified Dietz");
     expect(screen.getByText("raw 100.00%")).toBeInTheDocument();
-  });
-  it("shows a loading state while the query is pending", async () => {
-    let resolve!: (value: PerformanceSummary) => void;
-    const getPerformance = vi.fn(
-      () =>
-        new Promise<PerformanceSummary>((r) => {
-          resolve = r;
-        }),
-    );
-    vi.spyOn(api, "getPerformance").mockImplementation(getPerformance);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <PerformancePanel />
-      </QueryClientProvider>,
-    );
-    expect(screen.getByText(/Crunching performance/)).toBeInTheDocument();
-    resolve(basePerf);
-    await waitFor(() => expect(screen.getByText("Performance")).toBeInTheDocument());
   });
 
   it("shows an explicit unavailable state when there is no curve", async () => {

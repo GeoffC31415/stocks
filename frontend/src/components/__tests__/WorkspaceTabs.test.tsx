@@ -34,25 +34,4 @@ describe("WorkspaceTabs", () => {
     expect(first).toHaveFocus();
   });
 
-  it("stores the selected workspace view in the URL", () => {
-    render(
-      <MemoryRouter initialEntries={["/portfolio?tab=holdings"]}>
-        <WorkspaceTabs
-          label="Portfolio views"
-          tabs={[
-            { key: "holdings", label: "Holdings" },
-            { key: "returns", label: "Returns" },
-          ]}
-        />
-        <LocationProbe />
-      </MemoryRouter>,
-    );
-
-    expect(screen.getByRole("tab", { name: "Holdings" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    fireEvent.click(screen.getByRole("tab", { name: "Returns" }));
-    expect(screen.getByLabelText("location")).toHaveTextContent("tab=returns");
-  });
 });

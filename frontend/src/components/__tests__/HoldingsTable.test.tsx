@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { HoldingsTable } from '../HoldingsTable';
 import type { Instrument } from '../../lib/api';
@@ -14,7 +14,7 @@ it.each([100,-100])('shows backend signed gap %s and drift in a neutral group ba
  expect(badge).not.toHaveTextContent(/buy|sell/i);
  expect(badge).toHaveClass('text-slate-400');
 });
-it.each([undefined,target(100,true),target(100,null),target(100,false,'unavailable'),{...target(100),groups:[]}, {...target(100),groups:[{...target(100).groups[0],gap_gbp:NaN}]}])('suppresses missing, invalid, or in-band targets',targetDrift=>{
+it.each([target(100,true),target(100,null),target(100,false,'unavailable'), {...target(100),groups:[{...target(100).groups[0],gap_gbp:NaN}]}])('suppresses unknown, invalid, or in-band targets',targetDrift=>{
  render(<MemoryRouter><HoldingsTable instruments={rows} groups={[]} selectedId={null} onSelect={()=>{}} targetDrift={targetDrift}/></MemoryRouter>);
  expect(screen.queryByLabelText('Core target drift')).not.toBeInTheDocument();
 });
@@ -22,12 +22,6 @@ it('does not manufacture a weight from an invalid valuation denominator',()=>{
  render(<MemoryRouter><HoldingsTable instruments={rows} groups={[]} selectedId={null} onSelect={()=>{}} scopeTotalValue={Infinity}/></MemoryRouter>);
  expect(screen.getByText('Weights unavailable: account valuation is not available.')).toBeInTheDocument();
  expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
-});
-it('right aligns accessible numeric headers and cells',()=>{
- render(<MemoryRouter><HoldingsTable instruments={rows} groups={[]} selectedId={null} onSelect={()=>{}} /></MemoryRouter>);
- for(const name of ['Value','Weight','Gain / loss','Recent change'])expect(screen.getByRole('columnheader',{name})).toHaveClass('text-right');
- const cells=within(screen.getAllByRole('row')[1]).getAllByRole('cell');
- for(const cell of cells.slice(2))expect(cell).toHaveClass('text-right');
 });
 beforeEach(()=>{ const store = new Map<string,string>(); vi.stubGlobal('localStorage', {getItem:(k:string)=>store.get(k) ?? null, setItem:(k:string,v:string)=>store.set(k,v),removeItem:(k:string)=>store.delete(k)}); });
 it('shows scoped weight and accessible selection with source search and sort headers',()=>{

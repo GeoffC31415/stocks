@@ -61,12 +61,6 @@ const attribution: SnapshotAttribution = {
 };
 
 describe("AttributionSummaryCard", () => {
-  it('keeps production attribution evidence expanded in its original placement',()=>{
-    render(<AttributionSummaryCard attribution={attribution} />);
-    expect(screen.getByRole('table')).toBeVisible();
-    expect(screen.queryByText('Attribution evidence')).not.toBeInTheDocument();
-    expect(screen.queryByText('Snapshot value change')).not.toBeInTheDocument();
-  });
   it("summarises boundaries, flows, DRIP, market movement and movers", () => {
     render(<AttributionSummaryCard attribution={attribution} />);
 
@@ -74,6 +68,7 @@ describe("AttributionSummaryCard", () => {
     expect(screen.getByRole("row", { name: "Opening value £1,000" })).toBeInTheDocument();
     expect(screen.getByRole("row", { name: "Closing value £1,300" })).toBeInTheDocument();
     expect(screen.getAllByRole("table")).toHaveLength(1);
+    expect(screen.getByRole("table")).toBeVisible();
     expect(screen.getByText("DRIP proxy")).toBeInTheDocument();
     expect(screen.getByText("+£20")).toBeInTheDocument();
     expect(screen.getByText("Estimated market movement")).toBeInTheDocument();

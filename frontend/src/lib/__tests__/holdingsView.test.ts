@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { holdingDisplayName, filterHoldings, parseInstrumentId, sortHoldings } from '../holdingsView';
 import type { Instrument } from '../api';

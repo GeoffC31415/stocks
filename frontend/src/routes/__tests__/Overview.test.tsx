@@ -67,6 +67,7 @@ describe("Overview states", () => {
     expect(screen.getByText(/API deposits less withdrawals where synced; trade proxies for other accounts/)).toBeInTheDocument();
     expect(api.getOrderAnalytics).not.toHaveBeenCalled();
     expect(api.getCashflowTimeseries).not.toHaveBeenCalled();
+    expect(api.getPortfolioReturns).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Full performance analysis" })).toHaveAttribute("href", "/portfolio?tab=performance");
     expect(screen.queryByText("Performance leaders")).not.toBeInTheDocument();
   });
@@ -100,13 +101,6 @@ describe("Overview states", () => {
     vi.mocked(api.getSummary).mockResolvedValue(zero);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("Portfolio balance: 0")).toBeInTheDocument();
-  });
-  it("treats a dated zero balance as valid, not an empty portfolio", async () => {
-    vi.spyOn(api, "getSummary").mockResolvedValue(zero);
-    show();
-    expect(await screen.findByText("Portfolio balance: 0")).toBeInTheDocument();
-    expect(screen.queryByText("Welcome to your portfolio")).not.toBeInTheDocument();
-    expect(api.getPortfolioReturns).not.toHaveBeenCalled();
   });
   it("offers import only for a successful empty summary", async () => {
     vi.spyOn(api, "getSummary").mockResolvedValue({ ...zero, as_of_date: null, import_batch_id: null });

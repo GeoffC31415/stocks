@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, expect, it } from "vitest";
 import type { Order } from "../api";
 import { instrumentBuyMarkerDates, instrumentSellMarkerDates } from "../instrumentBuyMarkers";
