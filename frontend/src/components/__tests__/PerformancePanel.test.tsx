@@ -204,6 +204,64 @@ describe("PerformancePanel", () => {
     expect(container).toBeTruthy();
   });
 
+  it("switches the main chart between the index view and absolute GBP", async () => {
+    renderPanel(<PerformancePanel />);
+    await waitFor(() => expect(screen.getByText("Performance")).toBeInTheDocument());
+
+    // Default view is index-based with the 100 = start framing.
+    expect(screen.getByRole("button", { name: "Index (100 = start)" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Flow-adjusted (index, 100 = window start)")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Absolute (£)" }));
+    expect(screen.getByRole("button", { name: "Absolute (£)" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Flow-adjusted (£, flows excluded)")).toBeInTheDocument();
+    expect(screen.queryByText("Flow-adjusted (index, 100 = window start)")).not.toBeInTheDocument();
+
+    // The raw overlay also re-expresses itself in GBP.
+    fireEvent.click(screen.getByLabelText(/Show raw account value/i));
+    expect(screen.getByText("Raw account value (£, optional)")).toBeInTheDocument();
+  });
+
+  it("hides benchmark price indices from the £ view with an explanation", async () => {
+    renderPanel(<PerformancePanel />, {
+      ...basePerf,
+      benchmarks: [
+        { date: "2026-01-01", symbol: "ftse-100", value: 110 },
+        { date: "2026-02-01", symbol: "ftse-100", value: 112 },
+      ],
+    });
+    await waitFor(() => expect(screen.getByText("Performance")).toBeInTheDocument());
+
+    expect(screen.getByText("FTSE-100 +12.0%")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Absolute (£)" }));
+    expect(screen.queryByText("FTSE-100 +12.0%")).not.toBeInTheDocument();
+    expect(screen.getByText("Benchmarks are price indices, shown only in the index view.")).toBeInTheDocument();
+  });
+
+  it("omits the scale switch when there is no positive start value to anchor GBP", async () => {
+    for (const start of [null, 0, -50]) {
+      const view = renderPanel(<PerformancePanel />, { ...basePerf, start_value_gbp: start });
+      await waitFor(() => expect(screen.getByText("Performance")).toBeInTheDocument());
+      expect(screen.queryByRole("button", { name: "Absolute (£)" })).not.toBeInTheDocument();
+      expect(screen.getByText("Flow-adjusted (index, 100 = window start)")).toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it("omits the scale switch while the flow-adjusted chain is unavailable even with a valid start value", async () => {
+    renderPanel(<PerformancePanel />, {
+      ...basePerf,
+      start_value_gbp: 100,
+      flow_adjusted_curve: [],
+      drawdown_curve: [],
+      flow_adjusted: { ...basePerf.flow_adjusted!, total_return_pct: null, flow_adjusted_curve: [], drawdown_curve: [] },
+    });
+    await waitFor(() => expect(screen.getByText("Performance")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Absolute (£)" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Index (100 = start)" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Snapshot performance chart" })).not.toBeInTheDocument();
+  });
+
   it("shows an error state without crashing", async () => {
     vi.spyOn(api, "getPerformance").mockRejectedValue(new Error("boom"));
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

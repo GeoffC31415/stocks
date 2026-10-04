@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Area,
@@ -23,14 +23,14 @@ import { AnalysisStatus } from "./AnalysisStatus";
 import { SectionHeader } from "./SectionHeader";
 import { ChartTooltip } from "./ChartTooltip";
 import { categoryColor, chartTheme } from "../lib/chartTheme";
-import { signedGbp } from "../lib/formatters";
+import { compactGbp, signedGbp, toGbp } from "../lib/formatters";
 import { MetricInfo } from "./MetricInfo";
 import { groupTimelineEvents, type TimelineEvent } from "../lib/timelineApi";
 import { TimelineMarkerLabel } from "./TimelineMarkerLabel";
 import type { MetricTopic } from "../lib/metricGlossary";
 import { performanceMetric, type PerformanceMetricKey } from "../lib/analysisState";
 import type { MetricReason } from "../lib/api";
-import { benchmarkKey as benchKey, joinPerformanceSeries, performanceIndexDomain, performanceIndexTicks, sparseDateTicks } from "../lib/performanceChart";
+import { absoluteGbpDomain, absoluteGbpTicks, benchmarkKey as benchKey, joinPerformanceSeries, performanceIndexDomain, performanceIndexTicks, rebaseRowsToGbp, sparseDateTicks, type PerformanceDisplayRow } from "../lib/performanceChart";
 
 import { PERIODS, useAnalysisScope } from "../state/useAnalysisScope";
 const PERIOD_SEGMENTS = PERIODS.map((key) => ({ key, label: key === "ALL" ? "All" : key }));
@@ -87,6 +87,9 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
   // Raw account value is an optional overlay, off by default, so the primary
   // line (flow-adjusted) cannot be mistaken for investment return.
   const [showRaw, setShowRaw] = useState(false);
+  // Y axis scale: "index" keeps the historical 100 = window start view;
+  // "absolute" re-expresses the same series in GBP.
+  const [yScale, setYScale] = useState<"index" | "absolute">("index");
   const [chartWidth, setChartWidth] = useState(320);
 
   const perfQ = useQuery({
@@ -102,7 +105,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
   const hasFlow = flow != null && ((flow.contributions_gbp ?? 0) > 0 || (flow.withdrawals_gbp ?? 0) > 0);
 
   const chartData = useMemo(() => {
-    if (!perf) return { rows: [] as Array<Record<string, number | null>>, benchSymbols: [] as string[] };
+    if (!perf) return { rows: [] as PerformanceDisplayRow[], benchSymbols: [] as string[] };
     const benchmarks = chainAvailable ? perf.benchmarks ?? [] : [];
     return {
       rows: joinPerformanceSeries({ flow: chainAvailable ? perf.flow_adjusted_curve : [],
@@ -133,14 +136,29 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
 
   const ticks = sparseDateTicks(chartData.rows.map((row) => row.chartTime as number), chartWidth - 100);
   const drawdownTicks = sparseDateTicks(drawdownData.map((row) => row.chartTime as number), chartWidth - 100);
-  const indexDomain = performanceIndexDomain(chartData.rows.flatMap((row) => [
+  // Absolute GBP view is only possible when the window has a positive start
+  // value to anchor the chain-linked index; otherwise stay in index mode.
+  const startGbp = perf?.start_value_gbp;
+  const absoluteAvailable = startGbp != null && Number.isFinite(startGbp) && startGbp > 0;
+  const scale: "index" | "absolute" = yScale === "absolute" && absoluteAvailable ? "absolute" : "index";
+  // Keep the stored preference honest when the current scope cannot anchor GBP.
+  useEffect(() => { if (!absoluteAvailable) setYScale("index"); }, [absoluteAvailable]);
+  // Dashed baseline: the index start at 100, or the window start value in the £ view.
+  const referenceY = scale === "absolute" && startGbp != null ? startGbp : 100;
+
+  // In the absolute view the index series is re-expressed in GBP. Benchmark
+  // price indices have no GBP equivalent, so they are hidden in that view.
+  const displayRows = useMemo<PerformanceDisplayRow[]>(() => {
+    if (scale !== "absolute") return chartData.rows;
+    return rebaseRowsToGbp(chartData.rows, startGbp, chartData.benchSymbols);
+  }, [chartData, scale, startGbp]);
+
+  const activeValues = displayRows.flatMap((row) => [
     row.flowAdjusted, ...(showRaw ? [row.rawValue] : []),
-    ...chartData.benchSymbols.map((symbol) => row[benchKey(symbol)]),
-  ]));
-  const indexTicks = performanceIndexTicks(chartData.rows.flatMap((row) => [
-    row.flowAdjusted, ...(showRaw ? [row.rawValue] : []),
-    ...chartData.benchSymbols.map((symbol) => row[benchKey(symbol)]),
-  ]));
+    ...(scale === "index" ? chartData.benchSymbols.map((symbol) => row[benchKey(symbol)]) : []),
+  ]);
+  const yDomain = scale === "index" ? performanceIndexDomain(activeValues) : absoluteGbpDomain(activeValues);
+  const yTicks = scale === "index" ? performanceIndexTicks(activeValues) : absoluteGbpTicks(activeValues);
 
   const benchmarkReturns = useMemo(() => {
     if (!perf || !chainAvailable) return [] as Array<{ symbol: string; returnPct: number }>;
@@ -316,7 +334,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         />
       </div>}
 
-      {!compact && <div className="mt-4 flex items-center gap-2">
+      {!compact && <div className="mt-4 flex flex-wrap items-center gap-2">
         <label className="flex cursor-pointer items-center gap-2 text-[11px] text-slate-400">
           <input
             type="checkbox"
@@ -327,11 +345,16 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
           />
           Show raw account value (dashed)
         </label>
+        {absoluteAvailable && chainAvailable && <SegmentedControl layoutId="perf-y-scale" size="sm" value={scale}
+          onChange={setYScale} segments={[
+            { key: "index", label: "Index (100 = start)" },
+            { key: "absolute", label: "Absolute (£)" },
+          ]} />}
       </div>}
 
       {chainAvailable && <div id="performance-chart" role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
         <ResponsiveContainer width="100%" height="100%" onResize={(width) => setChartWidth(width)}>
-          <AreaChart data={chartData.rows} margin={{ top: onEventDateSelect && markers.length ? 56 : 5, right: 5, bottom: 5, left: 5 }}>
+          <AreaChart data={displayRows} margin={{ top: onEventDateSelect && markers.length ? 56 : 5, right: 5, bottom: 5, left: 5 }}>
             <defs>
               <linearGradient id="perfVal" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.45} />
@@ -355,19 +378,19 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
             <YAxis
               stroke="#64748b"
               tick={{ fontSize: 12, fill: chartTheme.axis }}
-              tickFormatter={(v) => indexFmt.format(Number(v))}
-              domain={indexDomain}
-              ticks={indexTicks}
+              tickFormatter={(v) => (scale === "index" ? indexFmt.format(Number(v)) : compactGbp(v))}
+              domain={yDomain}
+              ticks={yTicks}
               tickLine={false}
               axisLine={false}
-              width={48}
+              width={scale === "index" ? 48 : 64}
             />
             <Tooltip
               content={<ChartTooltip formatLabel={(label) => typeof label === "number" ? formatChartTooltipDay(label) : String(label ?? "")}
-                formatValue={(value) => value != null ? indexFmt.format(value) : "—"} />}
+                formatValue={(value) => value != null ? (scale === "index" ? indexFmt.format(value) : toGbp(value)) : "—"} />}
               cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
             />
-            <ReferenceLine y={100} stroke="#94a3b8" strokeDasharray="3 3" />
+            <ReferenceLine y={referenceY} stroke="#94a3b8" strokeDasharray="3 3" />
             {chainAvailable && <Area
               type="linear"
               dot={{ r: 3 }}
@@ -376,7 +399,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
               stroke="#22d3ee"
               strokeWidth={2.5}
               fill="url(#perfVal)"
-              name="Flow-adjusted (index, 100 = start)"
+              name={scale === "index" ? "Flow-adjusted (index, 100 = start)" : "Flow-adjusted (£, flows excluded)"}
               connectNulls
             />}
             {showRaw ? (
@@ -389,10 +412,10 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
                 strokeDasharray="4 3"
                 dot={{ r: 2 }}
                 connectNulls={false}
-                name="Raw account value (index)"
+                name={scale === "index" ? "Raw account value (index)" : "Raw account value (£)"}
               />
             ) : null}
-            {chartData.benchSymbols.map((symbol) => (
+            {scale === "index" && chartData.benchSymbols.map((symbol) => (
               <Line
                 key={symbol}
                 type="linear"
@@ -474,20 +497,23 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
 
       <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
         {chainAvailable && <span className="flex items-center gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-cyan-400" /> Flow-adjusted (index, 100 = window start)
+          <span className="h-2 w-2 rounded-full bg-cyan-400" /> Flow-adjusted ({scale === "index" ? "index, 100 = window start" : "£, flows excluded"})
         </span>}
         {showRaw ? (
           <span className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-slate-400" /> Raw account value (index, optional)
+            <span className="h-2 w-2 rounded-full bg-slate-400" /> Raw account value ({scale === "index" ? "index" : "£"}, optional)
           </span>
         ) : null}
-        {benchmarkReturns.map((b) => (
+        {scale === "index" ? benchmarkReturns.map((b) => (
           <span key={b.symbol} className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full" style={{ background: categoryColor("benchmark", b.symbol) }} />
             {b.symbol.toUpperCase()} {b.returnPct >= 0 ? "+" : ""}
             {(b.returnPct * 100).toFixed(1)}%
           </span>
-        ))}
+        )) : null}
+        {scale === "absolute" && benchmarkReturns.length > 0 && (
+          <span className="text-slate-600">Benchmarks are price indices, shown only in the index view.</span>
+        )}
         <span className="text-slate-600">
           Snapshot observations, not a measured daily path. Cash added or withdrawn is netted out.
           {!compact && " Toggle the dashed raw value to see the unadjusted account curve."}
