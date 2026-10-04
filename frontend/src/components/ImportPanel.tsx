@@ -279,36 +279,6 @@ export function ImportPanel() {
 
         </div>
       )}
-      {syncStatus && <SyncEvidence report={syncStatus.last_run ?? syncStatus} />}
-      <section aria-labelledby="sync-all-heading" className="mt-5 border-t border-white/[0.06] pt-4">
-        <h3 id="sync-all-heading" className="text-sm font-medium text-slate-200">Sync all accounts</h3>
-        <p className="my-2 text-xs text-slate-400">
-          Downloads the latest Hargreaves Lansdown and Barclays exports, imports them by content,
-          then refreshes Trading 212. Read-only: it never deals or moves money, and repeating a
-          sync does not duplicate records.
-        </p>
-        {syncStatus && syncStatus.accounts.length > 0 && (
-          <ul className="mb-2 space-y-1 text-xs" aria-label="Account freshness">
-            {syncStatus.accounts.map((a) => (
-              <li key={a.account_name} className="flex justify-between gap-2">
-                <span className="truncate text-slate-300">{a.account_name}</span>
-                <span className={a.stale ? "text-amber-400" : "text-slate-400"}>
-                  {a.last_snapshot_date ?? "never"}
-                  {a.age_days != null && ` (${a.age_days === 0 ? "today" : `${a.age_days}d ago`})`}
-                  {a.stale && " · stale"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {syncStatus && !syncStatus.manual_sync_enabled && (
-          <p className="text-xs text-slate-400">
-            Syncs automatically on weekdays at 18:30.
-            {syncStatus.last_run && ` Last run ${new Date(syncStatus.last_run.started_at).toLocaleString("en-GB")}: `}
-            {syncStatus.last_run?.steps.map((s) => `${s.name} ${s.status.replace("_", " ")}`).join(" · ")}
-          </p>
-        )}
-      </section>
       {(syncStatus?.manual_sync_enabled || syncStatus?.service_trigger_enabled) && <section aria-labelledby="trading212-sync-heading" className="mt-5 border-t border-white/[0.06] pt-4">
         <h3 id="trading212-sync-heading" className="text-sm font-medium text-slate-200">Trading 212</h3>
         <p className="my-2 text-xs text-slate-400">

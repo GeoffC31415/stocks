@@ -57,6 +57,9 @@ describe("ImportPanel Trading 212 sync", () => {
     show();
     expect(await screen.findByRole("button", { name: "Sync Trading 212" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /Sync all accounts/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Sync all accounts" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Downloads the latest Hargreaves/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Syncs automatically on weekdays/)).not.toBeInTheDocument();
   });
 
   it("syncs external cash flows separately and refreshes Dashboard data", async () => {
@@ -217,7 +220,7 @@ describe("ImportPanel Trading 212 sync", () => {
   it("hides Trading 212 when neither local nor service sync is enabled", async () => {
     vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: false, service_trigger_enabled: false, accounts: [], stale_after_days: 7, last_run: null, running: false });
     show();
-    await screen.findByText(/Syncs automatically/);
+    await waitFor(() => expect(api.getSyncStatus).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "Sync Trading 212" })).not.toBeInTheDocument();
   });
 
