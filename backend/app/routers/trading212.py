@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt  # noqa: TC003 - Pydantic runtime annotation.
 import logging
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -122,17 +123,40 @@ def get_trading212_client() -> Trading212Client:
     return Trading212Client(api_key=api_key, api_secret=api_secret)
 
 
-def _provider_error(exc: Exception) -> HTTPException:
+def _provider_error(exc: Exception, *, operation: str | None = None) -> HTTPException:
+    # Fixed, revalidated tokens only. Never format exception text, causes,
+    # request URLs, provider bodies or tracebacks into agent-readable logs.
+    from app.services.trading212 import trading212_diagnostic
+
+    code, endpoint, phase, http_status = trading212_diagnostic(exc)
+    if operation in {"positions", "orders", "transactions"} and endpoint == "sync":
+        endpoint = operation
+        phase = "fetch" if isinstance(exc, httpx.HTTPError) else "import"
+    # Migration fileConfig may disable pre-existing application loggers.
+    # Restore only this safe diagnostic sink, never HTTP/provider loggers.
+    logger.disabled = False
+    logger.error(
+        "Trading 212 sync failed code=%s endpoint=%s phase=%s http_status=%s",
+        code,
+        endpoint,
+        phase,
+        http_status if http_status is not None else "unavailable",
+    )
+    if code == "account_summary_forbidden":
+        return HTTPException(
+            status_code=400,
+            detail="Trading 212 requires the read-only account permission to verify cash. "
+            "No portfolio changes were imported.",
+        )
     if isinstance(exc, httpx.HTTPStatusError):
         return HTTPException(
             status_code=502,
-            detail=f"Trading 212 returned HTTP {exc.response.status_code}.",
+            detail=f"Trading 212 returned HTTP {http_status or 'error'}.",
         )
     if isinstance(exc, httpx.HTTPError):
         return HTTPException(status_code=502, detail="Trading 212 could not be reached.")
     if isinstance(exc, Trading212DataError):
-        return HTTPException(status_code=400, detail=str(exc))
-    logger.exception("Unexpected Trading 212 sync failure", exc_info=exc)
+        return HTTPException(status_code=400, detail=f"Trading 212 validation failed ({code}).")
     return HTTPException(status_code=500, detail="Trading 212 sync failed.")
 
 
@@ -149,12 +173,13 @@ async def sync_trading212_cash_flows(
         )
     except Exception as exc:
         await session.rollback()
+        error = _provider_error(exc, operation="transactions")
         if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 403:
             raise HTTPException(
                 status_code=502,
                 detail="Trading 212 cash history requires the read-only history:transactions permission.",
             ) from exc
-        raise _provider_error(exc) from exc
+        raise error from exc
     return CashFlowSyncResult.model_validate(result)
 
 
@@ -180,29 +205,38 @@ async def run_trading212_sync(
 
     Raises the underlying provider/data error; callers map it to HTTP or a report.
     """
+    endpoint, phase = "sync", "setup"
     try:
         # Complete all broker I/O before opening a transaction or taking a writer lock.
+        endpoint, phase = "positions", "fetch"
         positions = await client.fetch_positions()
         account_summary: Mapping[str, Any] | httpx.HTTPStatusError
+        endpoint = "account_summary"
         try:
             account_summary = await client.fetch_account_summary()
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code != 403:
                 raise
             account_summary = exc
+        endpoint = "orders"
+        historical_orders = await client.fetch_historical_orders()
+        endpoint = "transactions"
+        transactions = await client.fetch_transactions()
         fetched = _FetchedTrading212Data(
             positions=positions,
             account_summary=account_summary,
-            historical_orders=await client.fetch_historical_orders(),
-            transactions=await client.fetch_transactions(),
+            historical_orders=historical_orders,
+            transactions=transactions,
         )
         # Legacy matching helpers commit internally. Join the caller's transaction
         # without allowing those commits to reach the database connection.
+        endpoint, phase = "sync", "setup"
         async with AsyncSession(
             bind=await session.connection(),
             join_transaction_mode="rollback_only",
             expire_on_commit=False,
         ) as import_session:
+            endpoint, phase = "positions", "import"
             try:
                 _batch, summary = await sync_portfolio_snapshot(
                     import_session,
@@ -220,6 +254,7 @@ async def run_trading212_sync(
                 retained = await import_session.get(ImportBatch, exc.batch_id)
                 valuation_at = retained.as_of_date if retained else None
                 snapshot, snapshot_rows = "unchanged", None
+            endpoint = "orders"
             try:
                 order_batch, _inserted = await sync_order_history(
                     import_session,
@@ -231,14 +266,22 @@ async def run_trading212_sync(
                 orders, order_rows = "imported", order_batch.row_count
             except DuplicateOrderImportError:
                 orders, order_rows = "unchanged", None
+            endpoint = "transactions"
             cash = await sync_cash_history(
                 import_session, fetched, account_name=settings.trading212_account_name, commit=False
             )
+            endpoint, phase = "sync", "commit"
             await import_session.flush()
         await session.commit()
-    except BaseException:
+    except BaseException as exc:
         # Joined-session close is not an owner rollback, including cancellation.
+        # Diagnostic enrichment must never prevent rollback or replace the error.
         await session.rollback()
+        if isinstance(exc, Exception):
+            with suppress(Exception):
+                # Bypass arbitrary exception setters. Source-owned context only;
+                # never derive diagnostics from request URLs or provider bodies.
+                vars(exc).update(t212_endpoint=endpoint, t212_phase=phase)
         raise
     return Trading212SyncResult(
         account_name=settings.trading212_account_name,
@@ -294,7 +337,7 @@ async def sync_trading212_portfolio(
             },
         ) from exc
     except Exception as exc:
-        raise _provider_error(exc) from exc
+        raise _provider_error(exc, operation="positions") from exc
     return ImportResult(batch=ImportBatchOut.model_validate(batch), summary=summary)
 
 
@@ -323,7 +366,7 @@ async def sync_trading212_orders(
             detail=f"This Trading 212 order history is unchanged (batch {exc.batch_id}).",
         ) from exc
     except Exception as exc:
-        raise _provider_error(exc) from exc
+        raise _provider_error(exc, operation="orders") from exc
     return OrderImportBatchOut(
         id=batch.id,
         created_at=batch.created_at,

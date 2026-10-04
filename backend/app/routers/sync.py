@@ -91,6 +91,32 @@ async def requested_sync_status(request: Request) -> dict[str, Any]:
     )
 
 
+@router.post("/trading212/request", status_code=202)
+async def request_trading212_sync(request: Request) -> dict[str, Any]:
+    config = getattr(getattr(request.scope.get("app"), "state", None), "web_config", settings)
+    if config.deployment_mode != "public" or not config.sync_service_trigger_enabled:
+        raise HTTPException(status_code=403, detail="Service sync is disabled.")
+    if request.headers.getlist("origin") != [config.public_origin]:
+        raise HTTPException(status_code=403, detail="Cross-origin request forbidden")
+    if request.query_params or await request.body():
+        raise HTTPException(status_code=400, detail="This endpoint accepts no parameters.")
+    return await asyncio.to_thread(
+        request_service_sync, config.resolved_sync_control_dir() / "trading212",
+        status_dir=config.resolved_sync_status_dir() / "trading212", trading212=True,
+    )
+
+
+@router.get("/trading212/request")
+async def requested_trading212_status(request: Request) -> dict[str, Any]:
+    config = getattr(getattr(request.scope.get("app"), "state", None), "web_config", settings)
+    if config.deployment_mode != "public" or not config.sync_service_trigger_enabled:
+        return {"state": "disabled", "request_id": None, "last_run": None}
+    return await asyncio.to_thread(
+        service_sync_status, config.resolved_sync_control_dir() / "trading212",
+        status_dir=config.resolved_sync_status_dir() / "trading212", trading212=True,
+    )
+
+
 @router.post("/all")
 async def sync_all(
     fetch: bool = Query(default=True, description="Log in to brokers and download exports"),

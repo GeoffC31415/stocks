@@ -92,6 +92,34 @@ describe("ImportPanel Trading 212 sync", () => {
     expect(screen.queryByRole("button", { name: "Sync all accounts" })).not.toBeInTheDocument();
   });
 
+  it("requests the isolated worker without web broker credentials and polls to completion", async () => {
+    vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: false, service_trigger_enabled: true, accounts: [], stale_after_days: 7, last_run: null, running: false });
+    vi.mocked(api.getTrading212Status).mockResolvedValue({ configured: false, account_name: "Trading 212" });
+    const direct = vi.spyOn(api, "syncTrading212");
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, options) => {
+      expect(String(url)).toBe("/api/sync/trading212/request");
+      return new Response(JSON.stringify(options?.method === "POST"
+        ? { state: "accepted", request_id: "synthetic-request" }
+        : { state: "completed", request_id: "synthetic-request", last_run: null }), { status: 200 });
+    });
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    show();
+    const button = await screen.findByRole("button", { name: "Sync Trading 212" });
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(screen.queryByText(/credentials to .env/)).not.toBeInTheDocument();
+    fireEvent.click(button);
+    await waitFor(() => expect(fetch.mock.calls.filter(([, options]) => options?.method === "POST")).toHaveLength(1));
+    await waitFor(() => expect(fetch.mock.calls.some(([, options]) => options?.method !== "POST")).toBe(true));
+    expect(fetch.mock.calls[0][1]?.method).toBe("POST");
+    expect(fetch.mock.calls[0][1]?.body).toBeUndefined();
+    await waitFor(() => expect(button).toBeEnabled());
+    expect(direct).not.toHaveBeenCalled();
+    expect(vi.mocked(api.requestSync)).not.toHaveBeenCalled();
+    expect(vi.mocked(api.syncAll)).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Import Barclays XLS snapshot" })).toBeInTheDocument();
+  });
+
   it("keeps the Barclays XLS import as a manual upload", async () => {
     const file = new File(["portfolio"], "portfolio.xls");
     const importXls = vi.spyOn(api, "importXls").mockResolvedValue({

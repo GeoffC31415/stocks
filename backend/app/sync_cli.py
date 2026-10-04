@@ -61,6 +61,9 @@ async def _run(args: argparse.Namespace) -> int:
 
 async def _run_locked(args: argparse.Namespace) -> int:
     await init_db()
+    # Alembic fileConfig disables pre-existing application loggers. Restore only
+    # the fixed sync journal logger, not verbose HTTP/provider/payload logging.
+    logging.getLogger("app.services.sync_runner").disabled = False
     extra = [Path.home() / "Downloads"] if args.include_downloads else []
     async with SessionLocal() as session:
         report = await _run_sync_all_locked(

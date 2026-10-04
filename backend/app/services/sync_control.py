@@ -88,9 +88,10 @@ def validated_invocation_id(value: str | None) -> str | None:
     return value if value and re.fullmatch(r"[0-9a-f]{32}", value) else None
 
 
-def service_snapshot() -> tuple[str, str | None]:
+def service_snapshot(*, trading212: bool = False) -> tuple[str, str | None]:
     try:
-        result = subprocess.run(SHOW_ARGV, timeout=5, check=True, capture_output=True, text=True)
+        argv = [*SHOW_ARGV[:3], "stocks-t212-sync.service", *SHOW_ARGV[4:]] if trading212 else SHOW_ARGV
+        result = subprocess.run(argv, timeout=5, check=True, capture_output=True, text=True)
         props = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
         if props.get("LoadState") != "loaded":
             return "unknown", None
@@ -237,8 +238,8 @@ def _correlated(marker: dict[str, Any], report: dict[str, Any] | None) -> bool:
     )
 
 
-def service_sync_status(inbox: Path, *, status_dir: Path | None = None) -> dict[str, Any]:
-    state = service_state()
+def service_sync_status(inbox: Path, *, status_dir: Path | None = None, trading212: bool = False) -> dict[str, Any]:
+    state = service_snapshot(trading212=True)[0] if trading212 else service_state()
     marker = read_json(inbox / "sync-request.json")
     report = read_json((status_dir or inbox) / "last-sync.json")
     result = {
@@ -267,10 +268,10 @@ def service_sync_status(inbox: Path, *, status_dir: Path | None = None) -> dict[
     return result
 
 
-def request_service_sync(inbox: Path, *, status_dir: Path | None = None) -> dict[str, Any]:
+def request_service_sync(inbox: Path, *, status_dir: Path | None = None, trading212: bool = False) -> dict[str, Any]:
     try:
         with file_lock(inbox / "sync-request.lock"):
-            state, invocation_id = service_snapshot()
+            state, invocation_id = service_snapshot(trading212=True) if trading212 else service_snapshot()
             if state == "unknown":
                 return {"state": "unknown", "request_id": None}
             path = inbox / "sync-request.json"
@@ -320,7 +321,8 @@ def request_service_sync(inbox: Path, *, status_dir: Path | None = None) -> dict
             if state != "running":
                 try:
                     subprocess.run(
-                        START_ARGV, timeout=5, check=True, capture_output=True, text=True
+                        [*START_ARGV[:-1], "stocks-t212-sync.service"] if trading212 else START_ARGV,
+                        timeout=5, check=True, capture_output=True, text=True
                     )
                 except (OSError, subprocess.SubprocessError):
                     marker["state"] = "unknown"

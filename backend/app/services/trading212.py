@@ -23,8 +23,90 @@ if TYPE_CHECKING:
     from app.models import ImportBatch, OrderImportBatch
 
 
+# Only these source-owned tokens may enter the sync journal. Exception messages,
+# provider bodies and request URLs are never diagnostic inputs.
+DIAGNOSTIC_CODES = frozenset(
+    {
+        "account_summary_forbidden",
+        "cash_history_conflict",
+        "cash_history_source_conflict",
+        "cash_pagination_limit",
+        "cash_pagination_repeated",
+        "cash_reference_conflict",
+        "closure_allowlist_mismatch",
+        "future_cash_transaction",
+        "invalid_account_summary",
+        "invalid_cash_history_response",
+        "invalid_cash_pagination",
+        "invalid_cash_transaction",
+        "invalid_cash_transaction_date",
+        "invalid_cash_values",
+        "invalid_closure_allowlist",
+        "invalid_data",
+        "invalid_json_response",
+        "invalid_order_fill",
+        "invalid_order_history_response",
+        "invalid_order_pagination",
+        "invalid_position_identity",
+        "invalid_position_numbers",
+        "invalid_positions_response",
+        "invalid_retry_after",
+        "non_gbp_currency",
+        "order_pagination_limit",
+        "positions_disappeared",
+        "request_failed",
+        "retry_after_budget_exceeded",
+        "retry_budget_exceeded",
+        "runtime_budget_exhausted",
+        "sync_timeout",
+        "unsupported_cash_transaction_type",
+        "http_permission_denied",
+        "http_rate_limited",
+        "http_error",
+        "transport_error",
+        "unexpected_error",
+    }
+)
+DIAGNOSTIC_ENDPOINTS = frozenset({"positions", "account_summary", "orders", "transactions", "sync"})
+DIAGNOSTIC_PHASES = frozenset({"fetch", "import", "commit", "setup", "deadline", "unknown"})
+
+
 class Trading212DataError(ValueError):
     """Raised when a read-only provider response cannot be imported safely."""
+
+    def __init__(self, message: str, *, code: str = "invalid_data") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def trading212_diagnostic(exc: Exception) -> tuple[str, str, str, int | None]:
+    """Revalidate metadata at the logging boundary, including mutated exceptions."""
+
+    def token(value: Any, allowed: frozenset[str], fallback: str) -> str:
+        return value if type(value) is str and value in allowed else fallback
+
+    metadata = vars(exc)
+    code = "unexpected_error"
+    status = None
+    if isinstance(exc, Trading212DataError):
+        code = token(metadata.get("code"), DIAGNOSTIC_CODES, "invalid_data")
+    elif isinstance(exc, httpx.HTTPStatusError):
+        value = exc.response.status_code
+        status = value if type(value) is int and 100 <= value <= 599 else None
+        code = (
+            "http_permission_denied"
+            if status in {401, 403}
+            else ("http_rate_limited" if status == 429 else "http_error")
+        )
+    elif isinstance(exc, httpx.HTTPError):
+        code = "transport_error"
+    endpoint = token(metadata.get("t212_endpoint"), DIAGNOSTIC_ENDPOINTS, "sync")
+    phase = token(metadata.get("t212_phase"), DIAGNOSTIC_PHASES, "unknown")
+    # This code is raised only when replaying the denied summary into snapshot
+    # validation; retain its endpoint/status rather than labeling it positions.
+    if code == "account_summary_forbidden":
+        return code, "account_summary", phase, 403
+    return code, endpoint, phase, status
 
 
 class Trading212CurrencyError(Trading212DataError):
@@ -68,44 +150,62 @@ class Trading212Client:
     def _validate_orders_path(self, path: str, *, continuation: bool) -> None:
         parsed = urlsplit(path)
         if parsed.scheme or parsed.netloc or parsed.path != self._ORDERS_PATH or parsed.fragment:
-            raise Trading212DataError("Trading 212 returned an invalid pagination path.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid pagination path.", code="invalid_order_pagination"
+            )
         query = parse_qs(parsed.query, keep_blank_values=True)
         expected_keys = {"cursor", "limit"} if continuation else {"limit"}
         if set(query) != expected_keys or any(len(values) != 1 for values in query.values()):
-            raise Trading212DataError("Trading 212 returned an invalid pagination path.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid pagination path.", code="invalid_order_pagination"
+            )
         limit = query.get("limit", ["50"])[0]
         cursor = query.get("cursor", [None])[0]
         if not limit.isdigit() or limit != str(int(limit)):
-            raise Trading212DataError("Trading 212 returned an invalid pagination path.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid pagination path.", code="invalid_order_pagination"
+            )
         if not 1 <= int(limit) <= 50:
-            raise Trading212DataError("Trading 212 returned an invalid pagination path.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid pagination path.", code="invalid_order_pagination"
+            )
         if cursor is not None and (
             not cursor.isdigit()
             or cursor != str(int(cursor))
             or not 0 <= int(cursor) <= 1_000_000_000_000_000_000
         ):
-            raise Trading212DataError("Trading 212 returned an invalid pagination path.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid pagination path.", code="invalid_order_pagination"
+            )
         expected_query = f"cursor={cursor}&limit={limit}" if continuation else f"limit={limit}"
         if parsed.query != expected_query:
-            raise Trading212DataError("Trading 212 returned an invalid pagination path.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid pagination path.", code="invalid_order_pagination"
+            )
 
     def _remaining(self) -> float:
         if self._deadline is None:
             self._deadline = self._clock() + self._runtime_budget
         remaining = self._deadline - self._clock()
         if remaining <= 0:
-            raise Trading212DataError("Trading 212 runtime budget exhausted.")
+            raise Trading212DataError(
+                "Trading 212 runtime budget exhausted.", code="runtime_budget_exhausted"
+            )
         return remaining
 
     async def _pause(self, seconds: float) -> None:
         remaining = self._remaining()
         if seconds >= remaining:
-            raise Trading212DataError("Trading 212 retry/pagination exceeds runtime budget.")
+            raise Trading212DataError(
+                "Trading 212 retry/pagination exceeds runtime budget.", code="retry_budget_exceeded"
+            )
         try:
             async with asyncio.timeout(remaining):
                 await self._sleep(seconds)
         except TimeoutError:
-            raise Trading212DataError("Trading 212 runtime budget exhausted.") from None
+            raise Trading212DataError(
+                "Trading 212 runtime budget exhausted.", code="runtime_budget_exhausted"
+            ) from None
         self._remaining()
 
     def _retry_delay(self, response: httpx.Response, attempt: int) -> float:
@@ -115,7 +215,10 @@ class Trading212Client:
         if retry_after.isascii() and retry_after.isdecimal():
             # Bound conversion before parsing attacker-controlled enormous integers.
             if len(retry_after) > 6:
-                raise Trading212DataError("Trading 212 Retry-After exceeds runtime budget.")
+                raise Trading212DataError(
+                    "Trading 212 Retry-After exceeds runtime budget.",
+                    code="retry_after_budget_exceeded",
+                )
             return float(retry_after)
         try:
             when = parsedate_to_datetime(retry_after)
@@ -123,7 +226,9 @@ class Trading212Client:
                 raise ValueError
             return max(0.0, (when - dt.datetime.now(dt.UTC)).total_seconds())
         except (TypeError, ValueError, OverflowError):
-            raise Trading212DataError("Trading 212 returned invalid Retry-After.") from None
+            raise Trading212DataError(
+                "Trading 212 returned invalid Retry-After.", code="invalid_retry_after"
+            ) from None
 
     async def _get(self, path: str) -> Any:
         async with httpx.AsyncClient(
@@ -141,7 +246,8 @@ class Trading212Client:
                 except (TimeoutError, httpx.TransportError) as exc:
                     if self._remaining() <= 0 or attempt == 2:
                         raise Trading212DataError(
-                            "Trading 212 request failed within runtime budget."
+                            "Trading 212 request failed within runtime budget.",
+                            code="request_failed",
                         ) from exc
                     await self._pause(self._page_delay * (2**attempt))
                     continue
@@ -150,19 +256,29 @@ class Trading212Client:
                     await self._pause(self._retry_delay(response, attempt))
                     continue
                 response.raise_for_status()
-                return response.json()
-        raise Trading212DataError("Trading 212 request failed.")
+                try:
+                    return response.json()
+                except ValueError:
+                    raise Trading212DataError(
+                        "Trading 212 returned invalid JSON.", code="invalid_json_response"
+                    ) from None
+        raise Trading212DataError("Trading 212 request failed.", code="request_failed")
 
     async def fetch_account_summary(self) -> Mapping[str, Any]:
         result = await self._get("/api/v0/equity/account/summary")
         if not isinstance(result, Mapping):
-            raise Trading212DataError("Trading 212 returned an invalid account summary.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid account summary.", code="invalid_account_summary"
+            )
         return result
 
     async def fetch_positions(self) -> list[Mapping[str, Any]]:
         result = await self._get("/api/v0/equity/positions")
         if not isinstance(result, list) or any(not isinstance(item, Mapping) for item in result):
-            raise Trading212DataError("Trading 212 returned an invalid positions response.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid positions response.",
+                code="invalid_positions_response",
+            )
         return result
 
     async def fetch_historical_orders(self) -> list[Mapping[str, Any]]:
@@ -171,27 +287,49 @@ class Trading212Client:
         items: list[Mapping[str, Any]] = []
         while path:
             if len(seen_paths) >= self._MAX_ORDER_PAGES:
-                raise Trading212DataError("Trading 212 order pagination exceeded the safety limit.")
+                raise Trading212DataError(
+                    "Trading 212 order pagination exceeded the safety limit.",
+                    code="order_pagination_limit",
+                )
             self._validate_orders_path(path, continuation=bool(seen_paths))
             if path in seen_paths:
-                raise Trading212DataError("Trading 212 returned an invalid pagination path.")
+                raise Trading212DataError(
+                    "Trading 212 returned an invalid pagination path.",
+                    code="invalid_order_pagination",
+                )
             seen_paths.add(path)
             result = await self._get(path)
-            if (not isinstance(result, Mapping) or not isinstance(result.get("items"), list)
-                    or "nextPagePath" not in result or len(result["items"]) > 50):
-                raise Trading212DataError("Trading 212 returned an invalid order-history response.")
+            if (
+                not isinstance(result, Mapping)
+                or not isinstance(result.get("items"), list)
+                or "nextPagePath" not in result
+                or len(result["items"]) > 50
+            ):
+                raise Trading212DataError(
+                    "Trading 212 returned an invalid order-history response.",
+                    code="invalid_order_history_response",
+                )
             page_items = result["items"]
             if any(not isinstance(item, Mapping) for item in page_items):
-                raise Trading212DataError("Trading 212 returned an invalid order-history response.")
+                raise Trading212DataError(
+                    "Trading 212 returned an invalid order-history response.",
+                    code="invalid_order_history_response",
+                )
             items.extend(page_items)
             next_path = result.get("nextPagePath")
             if next_path in (None, ""):
                 break
             if not isinstance(next_path, str):
-                raise Trading212DataError("Trading 212 returned an invalid pagination path.")
+                raise Trading212DataError(
+                    "Trading 212 returned an invalid pagination path.",
+                    code="invalid_order_pagination",
+                )
             self._validate_orders_path(next_path, continuation=True)
             if next_path in seen_paths:
-                raise Trading212DataError("Trading 212 returned an invalid pagination path.")
+                raise Trading212DataError(
+                    "Trading 212 returned an invalid pagination path.",
+                    code="invalid_order_pagination",
+                )
             await self._pause(self._page_delay)
             path = next_path
         return items
@@ -211,7 +349,10 @@ class Trading212Client:
             or set(query) != ({"cursor", "limit"} if continuation else {"limit"})
             or any(len(v) != 1 for v in query.values())
         ):
-            raise Trading212DataError("Trading 212 returned an invalid cash pagination path.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid cash pagination path.",
+                code="invalid_cash_pagination",
+            )
         limit = query["limit"][0]
         cursor = query.get("cursor", ["initial"])[0]
         # Transaction cursors are opaque strings, unlike numeric order cursors.
@@ -221,7 +362,10 @@ class Trading212Client:
             or len(cursor) > 512
             or any(not (c.isascii() and (c.isalnum() or c in "_-")) for c in cursor)
         ):
-            raise Trading212DataError("Trading 212 returned an invalid cash pagination path.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid cash pagination path.",
+                code="invalid_cash_pagination",
+            )
 
     async def fetch_transactions(self) -> list[Mapping[str, Any]]:
         path = f"{self._TRANSACTIONS_PATH}?limit=50"
@@ -230,7 +374,10 @@ class Trading212Client:
         while True:
             self._validate_transactions_path(path, continuation=bool(seen))
             if path in seen or len(seen) >= self._MAX_TRANSACTION_PAGES:
-                raise Trading212DataError("Trading 212 cash pagination exceeded the safety limit.")
+                raise Trading212DataError(
+                    "Trading 212 cash pagination exceeded the safety limit.",
+                    code="cash_pagination_limit",
+                )
             seen.add(path)
             result = await self._get(path)
             if (
@@ -240,16 +387,24 @@ class Trading212Client:
                 or any(not isinstance(item, Mapping) for item in result["items"])
                 or "nextPagePath" not in result
             ):
-                raise Trading212DataError("Trading 212 returned invalid cash transaction history.")
+                raise Trading212DataError(
+                    "Trading 212 returned invalid cash transaction history.",
+                    code="invalid_cash_history_response",
+                )
             items.extend(result["items"])
             next_path = result["nextPagePath"]
             if next_path in (None, ""):
                 return items
             if not isinstance(next_path, str):
-                raise Trading212DataError("Trading 212 returned an invalid cash pagination path.")
+                raise Trading212DataError(
+                    "Trading 212 returned an invalid cash pagination path.",
+                    code="invalid_cash_pagination",
+                )
             self._validate_transactions_path(next_path, continuation=True)
             if next_path in seen:
-                raise Trading212DataError("Trading 212 cash pagination repeated a page.")
+                raise Trading212DataError(
+                    "Trading 212 cash pagination repeated a page.", code="cash_pagination_repeated"
+                )
             await self._pause(self._page_delay)
             path = next_path
 
@@ -288,7 +443,9 @@ async def sync_portfolio_snapshot(
         not isinstance(identifier, str) or not identifier.strip() or identifier == "CASH"
         for identifier in reviewed_closed_identifiers
     ):
-        raise Trading212DataError("Invalid reviewed closure allowlist.")
+        raise Trading212DataError(
+            "Invalid reviewed closure allowlist.", code="invalid_closure_allowlist"
+        )
     account_name = await resolve_account_name(session, account_name)
     latest = await get_latest_batch_for_account(session, account_name)
     previous_identifiers = set()
@@ -313,7 +470,8 @@ async def sync_portfolio_snapshot(
         if exc.response.status_code != 403:
             raise
         raise Trading212DataError(
-            "Trading 212 cash is unavailable; complete account observation required."
+            "Trading 212 cash is unavailable; complete account observation required.",
+            code="account_summary_forbidden",
         ) from exc
     rows = positions_to_rows(
         positions,
@@ -324,10 +482,14 @@ async def sync_portfolio_snapshot(
 
     missing = previous_identifiers - {row.identifier for row in rows} - {"CASH"}
     if missing - reviewed_closed_identifiers:
-        raise Trading212DataError("Trading 212 positions disappeared; operator review required.")
+        raise Trading212DataError(
+            "Trading 212 positions disappeared; operator review required.",
+            code="positions_disappeared",
+        )
     if reviewed_closed_identifiers - missing:
         raise Trading212DataError(
-            "Reviewed closure allowlist does not match disappearing positions."
+            "Reviewed closure allowlist does not match disappearing positions.",
+            code="closure_allowlist_mismatch",
         )
 
     positions = sorted(positions, key=lambda item: json.dumps(item, sort_keys=True))
@@ -391,7 +553,9 @@ async def sync_cash_history(
     observed_at = dt.datetime.now(dt.UTC)
     rows = transactions_to_rows(await client.fetch_transactions())
     if any(row.occurred_at > observed_at for row in rows):
-        raise Trading212DataError("Trading 212 returned a future cash transaction.")
+        raise Trading212DataError(
+            "Trading 212 returned a future cash transaction.", code="future_cash_transaction"
+        )
     existing = {
         row.reference: row
         for row in (
@@ -413,12 +577,16 @@ async def sync_cash_history(
             or previous.occurred_at.replace(tzinfo=dt.UTC) != row.occurred_at
         ):
             raise Trading212DataError(
-                "Trading 212 cash history conflicts with previously imported events."
+                "Trading 212 cash history conflicts with previously imported events.",
+                code="cash_history_conflict",
             )
     new_rows = [row for row in rows if row.reference not in existing]
     coverage = await session.get(CashFlowCoverage, account_name)
     if coverage is not None and coverage.source != "trading212":
-        raise Trading212DataError("This account already has a different cash-history source.")
+        raise Trading212DataError(
+            "This account already has a different cash-history source.",
+            code="cash_history_source_conflict",
+        )
     for row in new_rows:
         session.add(
             ExternalCashFlow(
@@ -459,22 +627,29 @@ def transactions_to_rows(items: Iterable[Mapping[str, Any]]) -> list[CashFlowRow
     seen: dict[str, tuple[str, dt.datetime, float, str]] = {}
     for item in items:
         if not isinstance(item, Mapping):
-            raise Trading212DataError("Trading 212 returned an invalid cash transaction.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid cash transaction.", code="invalid_cash_transaction"
+            )
         kind = item.get("type")
         if kind not in ("DEPOSIT", "WITHDRAW", "FEE", "INTEREST_ON_FREE_CASH", "LENDING_INTEREST"):
             raise Trading212DataError(
-                "Trading 212 returned an unsupported cash transaction type; transfers need manual classification."
+                "Trading 212 returned an unsupported cash transaction type; transfers need manual classification.",
+                code="unsupported_cash_transaction_type",
             )
         reference = item.get("reference")
         amount = _number(item.get("amount"))
         timestamp = item.get("dateTime")
         if not isinstance(timestamp, str):
-            raise Trading212DataError("Trading 212 returned an invalid cash transaction date.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid cash transaction date.",
+                code="invalid_cash_transaction_date",
+            )
         try:
             occurred_at = dt.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
         except (AttributeError, TypeError, ValueError) as exc:
             raise Trading212DataError(
-                "Trading 212 returned an invalid cash transaction date."
+                "Trading 212 returned an invalid cash transaction date.",
+                code="invalid_cash_transaction_date",
             ) from exc
         if (
             not isinstance(reference, str)
@@ -486,13 +661,16 @@ def transactions_to_rows(items: Iterable[Mapping[str, Any]]) -> list[CashFlowRow
             or (kind in ("DEPOSIT", "WITHDRAW") and amount == 0)
             or (kind == "DEPOSIT" and amount < 0)
         ):
-            raise Trading212DataError("Trading 212 returned an invalid cash transaction.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid cash transaction.", code="invalid_cash_transaction"
+            )
         _require_gbp(item.get("currency"))
         occurred_at = occurred_at.astimezone(dt.UTC)
         identity = (kind, occurred_at, amount, item["currency"])
         if reference in seen and seen[reference] != identity:
             raise Trading212DataError(
-                "Trading 212 returned conflicting cash transaction references."
+                "Trading 212 returned conflicting cash transaction references.",
+                code="cash_reference_conflict",
             )
         seen[reference] = identity
         if kind in ("DEPOSIT", "WITHDRAW"):
@@ -515,7 +693,8 @@ def _number(value: Any) -> float | None:
 def _require_gbp(currency: Any) -> None:
     if str(currency or "").upper() != "GBP":
         raise Trading212CurrencyError(
-            "Trading 212 imports require a GBP primary account and GBP wallet values."
+            "Trading 212 imports require a GBP primary account and GBP wallet values.",
+            code="non_gbp_currency",
         )
 
 
@@ -544,11 +723,13 @@ def positions_to_rows(
         investment = str(instrument.get("name") or instrument.get("ticker") or "").strip()
         if not identifier or not investment:
             raise Trading212DataError(
-                "Trading 212 returned an invalid position without an identifier or name."
+                "Trading 212 returned an invalid position without an identifier or name.",
+                code="invalid_position_identity",
             )
         if value_gbp is None or book_cost_gbp is None or _number(position.get("quantity")) is None:
             raise Trading212DataError(
-                "Trading 212 returned an invalid position with missing numeric values."
+                "Trading 212 returned an invalid position with missing numeric values.",
+                code="invalid_position_numbers",
             )
         instrument_currency = str(instrument.get("currency") or "").upper() or None
         rows.append(
@@ -575,14 +756,18 @@ def positions_to_rows(
 
     cash = account.get("cash")
     if require_cash and not isinstance(cash, Mapping):
-        raise Trading212DataError("Trading 212 returned invalid cash values.")
+        raise Trading212DataError(
+            "Trading 212 returned invalid cash values.", code="invalid_cash_values"
+        )
     if isinstance(cash, Mapping):
         cash_parts = [
             _number(cash.get(field))
             for field in ("availableToTrade", "inPies", "reservedForOrders")
         ]
         if any(value is None for value in cash_parts):
-            raise Trading212DataError("Trading 212 returned invalid cash values.")
+            raise Trading212DataError(
+                "Trading 212 returned invalid cash values.", code="invalid_cash_values"
+            )
         cash_value = sum(value for value in cash_parts if value is not None)
         rows.append(
             ParsedHoldingRow(
@@ -652,7 +837,9 @@ def historical_orders_to_rows(
             or net_value is None
             or not fill_id_valid
         ):
-            raise Trading212DataError("Trading 212 returned an invalid order fill.")
+            raise Trading212DataError(
+                "Trading 212 returned an invalid order fill.", code="invalid_order_fill"
+            )
         rows.append(
             ParsedOrderRow(
                 security_name=security_name,
