@@ -97,6 +97,42 @@ exact installed rule and verify ownership/content before any policy replacement
 or installation. Approval gates remain: privileged policy installation,
 deployment/activation, migrations against real data, and any real broker run.
 
+## Safe Trading 212 error diagnostics
+
+Broker failures emit allowlisted `code`, `endpoint`, `phase`, and HTTP status
+fields. Scheduled sync logs also include the validated systemd invocation ID.
+Raw exception messages, tracebacks, request URLs, provider bodies, account
+identifiers and credentials are not emitted by these diagnostic paths. Unknown
+errors use `unexpected_error`, rather than formatting arbitrary exception text.
+The public sync-status file retains its existing restricted schema.
+
+On the Surface, Geoff already has read access to the service journal; no broker
+credential access or new sudo/Polkit grant is needed to diagnose these logs:
+
+```bash
+journalctl -u stocks-sync.service --since '2 days ago' --no-pager
+systemctl show stocks-sync.service -p InvocationID -p Result -p ExecMainStatus
+```
+
+Interpret the fixed codes as follows:
+
+- `account_summary_forbidden`, `endpoint=account_summary`, `http_status=403`:
+  the key lacks read-only `account` scope. Enable that scope or replace the key
+  in the protected broker configuration through the authorized operator. Never
+  grant trading permissions or bypass required cash verification.
+- `http_rate_limited`, `http_status=429`: avoid rapid repeated syncs and wait for
+  the provider's rate window; do not treat this as an authentication failure.
+- `positions_disappeared`: inspect broker evidence and use the explicit reviewed
+  closure workflow; never infer automatic approval from missing positions.
+- `cash_history_conflict` or `unsupported_cash_transaction_type`: reconcile
+  source evidence without editing the ledger or silently dropping transactions.
+- `transport_error` or `sync_timeout`: check connectivity/runtime budgets.
+
+Alembic can disable application loggers at startup. The sync CLI explicitly
+restores only its safe diagnostic logger after migrations; it does not enable
+verbose HTTP or payload logging. These changes take effect only after the code
+is released to the running deployment.
+
 ## Safe synthetic preview
 
 No production database, broker credentials, authentication store, migration,

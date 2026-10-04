@@ -67,7 +67,7 @@ Start at Data confidence; identify affected accounts, dates and source records. 
 
 ## Trading 212 read-only sync
 
-Use **Data → Import → Sync Trading 212** for one complete read-only refresh: current portfolio snapshot, completed fills/order history, and deposits/withdrawals. The API key needs portfolio, historical-order and historical-transaction (`history:transactions`) read permissions; do not grant order-placement permissions.
+Use **Data → Import → Sync Trading 212** for one complete read-only refresh: current portfolio snapshot, completed fills/order history, and deposits/withdrawals. The API key needs portfolio, account-summary (`account`), historical-order and historical-transaction (`history:transactions`) read permissions; do not grant order-placement permissions.
 
 ```dotenv
 PORTFOLIO_TRADING212_API_KEY=...
@@ -75,7 +75,7 @@ PORTFOLIO_TRADING212_API_SECRET=...
 PORTFOLIO_TRADING212_ACCOUNT_NAME=Trading 212
 ```
 
-Restart the backend after changing `.env`, then use **Data → Import** to run the combined sync. The `.env` file is ignored by Git. A key without account-summary permission still imports positions, but deliberately omits cash because the API cannot verify it. Trading 212 purchases are imported as ordinary buys rather than inferred DRIPs.
+Restart the backend after changing `.env`, then use **Data → Import** to run the combined sync. The `.env` file is ignored by Git. A key without account-summary permission rejects the complete sync without importing positions, orders or cash: an unavailable cash balance must never become a zero balance or a falsely closed holding. Trading 212 purchases are imported as ordinary buys rather than inferred DRIPs.
 
 If you click **Sync Trading 212** multiple times in one day, the API is queried again. An unchanged snapshot and unchanged order history are reported as `unchanged`; new cash events are imported by provider reference, while already-seen cash events report zero new rows. A changed same-day portfolio snapshot is retained as a same-day correction according to the existing snapshot rules. The operation is read-only at the broker and safe to repeat, although it still consumes the provider's rate limits.
 

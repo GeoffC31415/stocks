@@ -80,7 +80,7 @@ async def test_inbox_failure_still_runs_independent_provider_and_finishes(tmp_pa
     import app.services.sync_runner as runner
     async def broken(*args, **kwargs):
         raise PermissionError('PRIVATE_SENTINEL')
-    async def trading(session):
+    async def trading(session, *, invocation_id=None):
         return StepResult('Trading 212', 'ok')
     monkeypatch.setattr(runner, 'sync_inbox', broken)
     monkeypatch.setattr(runner, '_trading212_step', trading)
@@ -228,7 +228,7 @@ async def test_status_write_failure_does_not_abort_provider(tmp_path, monkeypatc
     import app.services.sync_runner as runner
     def denied(*args, **kwargs):
         raise PermissionError('PRIVATE_SENTINEL')
-    async def trading(session):
+    async def trading(session, *, invocation_id=None):
         return StepResult('Trading 212', 'ok')
     monkeypatch.setattr(runner, 'atomic_json', denied)
     monkeypatch.setattr(runner, '_trading212_step', trading)
@@ -308,7 +308,7 @@ async def test_terminal_publication_failure_is_visible_in_surviving_private_stat
             raise PermissionError('synthetic')
         return atomic_json(path, payload, **kwargs)
     monkeypatch.setattr(runner, 'atomic_json', write)
-    async def trading(session):
+    async def trading(session, *, invocation_id=None):
         return StepResult('Trading 212', 'ok')
     monkeypatch.setattr(runner, '_trading212_step', trading)
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
