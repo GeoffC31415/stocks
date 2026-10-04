@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Link, Upload } from "lucide-react";
 import {
   api,
-  type ServiceSync,
   formatSnapshotDateIso,
   snapshotDateIsoFromFile,
 } from "../lib/api";
@@ -39,45 +38,8 @@ export function ImportPanel() {
     queryFn: api.getSyncStatus,
   });
 
-  const [serviceRequest, setServiceRequest] = useState<ServiceSync | null>(null);
-  const servicePending = serviceRequest?.state === "accepted" || serviceRequest?.state === "running";
-  const requestSync = useMutation({
-    mutationFn: api.requestSync,
-    onSuccess: setServiceRequest,
-  });
-  const servicePoll = useQuery({
-    queryKey: ["requestedSync", serviceRequest?.request_id],
-    queryFn: api.getRequestedSyncStatus,
-    enabled: servicePending && !!serviceRequest?.request_id,
-    refetchInterval: servicePending ? 2000 : false,
-    retry: false,
-  });
-  useEffect(() => {
-    if (!servicePending) return;
-    const status = servicePoll.data;
-    if (servicePoll.isError || (status && status.request_id !== serviceRequest?.request_id)) {
-      setServiceRequest(current => current && ({ ...current, state: "unknown" }));
-    } else if (status && status.state !== "accepted" && status.state !== "running") {
-      setServiceRequest(status);
-      if (status.state === "completed" || (status.state === "failed" && status.last_run?.finished_at)) {
-        queryClient.invalidateQueries();
-      }
-    }
-  }, [servicePending, servicePoll.data, servicePoll.isError, serviceRequest?.request_id, queryClient]);
-  useEffect(() => {
-    if (!servicePending) return;
-    const timer = setTimeout(() => setServiceRequest(current => current && ({ ...current, state: "unknown" })), 20 * 60 * 1000);
-    return () => clearTimeout(timer);
-  }, [servicePending, serviceRequest?.request_id]);
-
-  const syncAll = useMutation({
-    mutationFn: () => api.syncAll(true),
-    onSuccess: () => queryClient.invalidateQueries(),
-    onError: () => queryClient.invalidateQueries({ queryKey: ["syncStatus"] }),
-  });
-
   const syncTrading212 = useMutation({
-    mutationFn: () => api.syncTrading212(forceImport),
+    mutationFn: () => api.syncTrading212(false),
     onSuccess: () => queryClient.invalidateQueries(),
   });
 
@@ -280,68 +242,11 @@ export function ImportPanel() {
         </div>
       )}
       {syncStatus && <SyncEvidence report={syncStatus.last_run ?? syncStatus} />}
-      <section aria-labelledby="sync-all-heading" className="mt-5 border-t border-white/[0.06] pt-4">
-        <h3 id="sync-all-heading" className="text-sm font-medium text-slate-200">Sync all accounts</h3>
+      <section aria-labelledby="sync-trading212-heading" className="mt-5 border-t border-white/[0.06] pt-4">
+        <h3 id="sync-trading212-heading" className="text-sm font-medium text-slate-200">Sync Trading 212</h3>
         <p className="my-2 text-xs text-slate-400">
-          Downloads the latest Hargreaves Lansdown and Barclays exports, imports them by content,
-          then refreshes Trading 212. Read-only: it never deals or moves money, and repeating a
-          sync does not duplicate records.
-        </p>
-        {syncStatus && syncStatus.accounts.length > 0 && (
-          <ul className="mb-2 space-y-1 text-xs" aria-label="Account freshness">
-            {syncStatus.accounts.map((a) => (
-              <li key={a.account_name} className="flex justify-between gap-2">
-                <span className="truncate text-slate-300">{a.account_name}</span>
-                <span className={a.stale ? "text-amber-400" : "text-slate-400"}>
-                  {a.last_snapshot_date ?? "never"}
-                  {a.age_days != null && ` (${a.age_days === 0 ? "today" : `${a.age_days}d ago`})`}
-                  {a.stale && " · stale"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {syncStatus && !syncStatus.manual_sync_enabled && (
-          <p className="text-xs text-slate-400">
-            Syncs automatically on weekdays at 18:30.
-            {syncStatus.last_run && ` Last run ${new Date(syncStatus.last_run.started_at).toLocaleString("en-GB")}: `}
-            {syncStatus.last_run?.steps.map((s) => `${s.name} ${s.status.replace("_", " ")}`).join(" · ")}
-          </p>
-        )}
-        {(syncStatus?.manual_sync_enabled || syncStatus?.service_trigger_enabled) && (
-        <button type="button" className="btn-primary flex w-full items-center justify-center gap-2"
-          onClick={() => syncStatus?.service_trigger_enabled ? requestSync.mutate() : syncAll.mutate()}
-          disabled={syncAll.isPending || syncStatus?.running || requestSync.isPending || servicePending}>
-          <Download size={16} />
-          {syncAll.isPending || syncStatus?.running || requestSync.isPending || servicePending ? "Syncing all accounts…" : "Sync all accounts"}
-        </button>
-        )}
-        {servicePending && <p role="status" className="mt-2 text-xs text-slate-400">Request accepted; waiting for the service to finish.</p>}
-        {serviceRequest?.state === "completed" && <div role="status" className="mt-2"><SyncEvidence report={serviceRequest.last_run} /></div>}
-        {serviceRequest && ["failed", "unknown", "busy", "disabled", "inactive"].includes(serviceRequest.state) && <p role="alert" className="mt-2 text-xs text-neg">
-          {serviceRequest.state === "failed" ? "Sync failed or needs attention. Check the service logs." : "Sync status is unknown or unavailable. Check again later; the service may still be running."}
-        </p>}
-        {requestSync.isError && <p role="alert" className="mt-2 text-xs text-neg">Could not confirm the sync request. Check again later.</p>}
-        {syncAll.isSuccess && (
-          <ul role="status" className="mt-2 space-y-0.5 text-xs">
-            {syncAll.data.steps.map((step) => (
-              <li key={step.name} className={
-                step.status === "failed" || step.status === "needs_attention" ? "text-neg"
-                  : "text-slate-400"}>
-                {step.name}: {step.status.replace("_", " ")}{step.detail ? ` — ${step.detail}` : ""}
-              </li>
-            ))}
-          </ul>
-        )}
-        {syncAll.isError && <p role="alert" className="mt-2 text-xs text-neg">
-          {(syncAll.error as Error).message}
-        </p>}
-      </section>
-      {syncStatus?.manual_sync_enabled && <section className="mt-5 border-t border-white/[0.06] pt-4">
-        <h3 className="text-sm font-medium text-slate-200">Trading 212</h3>
-        <p className="my-2 text-xs text-slate-400">
-          One read-only sync refreshes the current portfolio, completed fills and deposits/withdrawals.
-          It does not place trades or move money.
+          Refreshes only Trading 212: the current portfolio, completed fills and deposits/withdrawals.
+          Barclays remains manual; upload its exports above. This read-only sync does not place trades or move money.
         </p>
         <button type="button" className="btn-primary flex w-full items-center justify-center gap-2"
           onClick={() => syncTrading212.mutate()}
@@ -360,7 +265,7 @@ export function ImportPanel() {
         {syncTrading212.isError && <p role="alert" className="mt-2 text-xs text-neg">
           {(syncTrading212.error as Error).message}
         </p>}
-      </section>}
+      </section>
     </div>
   );
 }
