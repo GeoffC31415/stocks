@@ -16,7 +16,7 @@ The shared period applies to Performance. Holdings, allocation and groups use la
 
 ### Security identity, concentration and targets
 
-Security aggregation is conservative. The reviewed registry currently approves only EQQQ with exact ISIN `IE0032077012` or SEDOL `B0GL4T3`, listing `EQQQ` on `XLON`, provider mapping `EQQQ.L`, and supported source value currency `GBP`/`GBX`/`GBp`. The unchanged source currency remains part of the key. Similar names or editable tickers cannot merge unsupported identifiers, listings, currencies or share classes. Broker records are not rewritten. See [reviewed identity evidence](docs/security-identity.md).
+Security aggregation is conservative. The reviewed registry currently approves only EQQQ with exact ISIN `IE0032077012` or SEDOL `B0GL4T3`, listing `EQQQ` on `XLON`, provider mapping `EQQQ.L`, and supported source value currency `GBP`/`GBX`/`GBp`. The unchanged source currency remains part of the key. Similar names or editable tickers cannot merge unsupported identifiers, listings, currencies or share classes. Broker records are not rewritten. See [reviewed identity evidence](security-identity.md).
 
 HHI measures displayed weight concentration, **not diversification or fund overlap**. Product-level classifications are not constituent look-through. Two apparently separate funds can own the same underlying companies.
 
