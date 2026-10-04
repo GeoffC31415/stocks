@@ -1,0 +1,10 @@
+// Exact start-only authorization for the authenticated web control path.
+// No timer, unit edits, arbitrary command, restart or other service rights.
+polkit.addRule(function(action, subject) {
+    if (subject.user === "stocks" &&
+        action.id === "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") === "stocks-t212-sync.service" &&
+        action.lookup("verb") === "start") {
+        return polkit.Result.YES;
+    }
+});

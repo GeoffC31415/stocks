@@ -928,6 +928,8 @@ export const api = {
       cash_flows_imported: number; cash_flows_total: number; fetched_at: string;
     }>(`/api/trading212/sync?force=${String(force)}`, { method: "POST" }),
   getSyncStatus: () => requestJson<SyncStatus>("/api/sync/status"),
+  requestTrading212Sync: () => requestJson<ServiceSync>("/api/sync/trading212/request", { method: "POST", signal: AbortSignal.timeout(15000) }),
+  getRequestedTrading212SyncStatus: () => requestJson<ServiceSync>("/api/sync/trading212/request", { signal: AbortSignal.timeout(15000) }),
   requestSync: () => requestJson<ServiceSync>("/api/sync/request", { method: "POST", signal: AbortSignal.timeout(15000) }),
   getRequestedSyncStatus: () => requestJson<ServiceSync>("/api/sync/request", { signal: AbortSignal.timeout(15000) }),
   syncAll: (fetch = true) =>

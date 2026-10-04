@@ -1,0 +1,40 @@
+[Unit]
+Description=Stocks Trading 212-only read-only broker sync
+Wants=network-online.target
+After=network-online.target stocks.service
+
+[Service]
+Type=oneshot
+User=stocks-sync
+Group=stocks-sync
+SupplementaryGroups=stocks-data
+WorkingDirectory=/opt/stocks/current
+EnvironmentFile=/etc/stocks/trading212.env
+Environment=PYTHONPATH=/opt/stocks/current/backend
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+Environment=PORTFOLIO_SYNC_INBOX=/var/lib/stocks-sync/inbox
+Environment=PORTFOLIO_SYNC_STATUS_DIR=/var/lib/stocks-status/trading212
+Environment=HOME=/var/lib/stocks-sync
+ExecStart=/opt/stocks/current/.venv/bin/python -m app.trading212_cli
+TimeoutStartSec=5min
+UMask=0007
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/stocks-data /var/lib/stocks-sync/inbox /var/lib/stocks-status/trading212
+InaccessiblePaths=-/var/lib/stocks -/var/lib/stocks-sync/browser -/etc/stocks
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+MemoryHigh=512M
+MemoryMax=1G
+TasksMax=64

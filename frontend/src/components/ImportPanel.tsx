@@ -70,6 +70,42 @@ export function ImportPanel() {
     return () => clearTimeout(timer);
   }, [servicePending, serviceRequest?.request_id]);
 
+  const [trading212Request, setTrading212Request] = useState<ServiceSync | null>(null);
+  const trading212ServicePending = trading212Request?.state === "accepted" || trading212Request?.state === "running";
+  const requestTrading212Sync = useMutation({
+    mutationFn: () => api.requestTrading212Sync(),
+    onMutate: () => setTrading212Request(null),
+    onSuccess: status => setTrading212Request(
+      (status.state === "accepted" || status.state === "running") && !status.request_id
+        ? { ...status, state: "unknown" }
+        : status,
+    ),
+  });
+  const trading212Poll = useQuery({
+    queryKey: ["requestedTrading212Sync", trading212Request?.request_id],
+    queryFn: api.getRequestedTrading212SyncStatus,
+    enabled: trading212ServicePending && !!trading212Request?.request_id,
+    refetchInterval: trading212ServicePending ? 2000 : false,
+    retry: false,
+  });
+  useEffect(() => {
+    if (!trading212ServicePending) return;
+    const status = trading212Poll.data;
+    if (trading212Poll.isError || (status && status.request_id !== trading212Request?.request_id)) {
+      setTrading212Request(current => current && ({ ...current, state: "unknown" }));
+    } else if (status && status.state !== "accepted" && status.state !== "running") {
+      setTrading212Request(status);
+      if (status.state === "completed" || (status.state === "failed" && status.last_run?.finished_at)) {
+        queryClient.invalidateQueries();
+      }
+    }
+  }, [trading212ServicePending, trading212Poll.data, trading212Poll.isError, trading212Request?.request_id, queryClient]);
+  useEffect(() => {
+    if (!trading212ServicePending) return;
+    const timer = setTimeout(() => setTrading212Request(current => current && ({ ...current, state: "unknown" })), 20 * 60 * 1000);
+    return () => clearTimeout(timer);
+  }, [trading212ServicePending, trading212Request?.request_id]);
+
   const syncAll = useMutation({
     mutationFn: () => api.syncAll(true),
     onSuccess: () => queryClient.invalidateQueries(),
@@ -311,7 +347,7 @@ export function ImportPanel() {
         {(syncStatus?.manual_sync_enabled || syncStatus?.service_trigger_enabled) && (
         <button type="button" className="btn-primary flex w-full items-center justify-center gap-2"
           onClick={() => syncStatus?.service_trigger_enabled ? requestSync.mutate() : syncAll.mutate()}
-          disabled={syncAll.isPending || syncStatus?.running || requestSync.isPending || servicePending}>
+          disabled={syncAll.isPending || syncStatus?.running || requestSync.isPending || servicePending || syncTrading212.isPending || requestTrading212Sync.isPending || trading212ServicePending}>
           <Download size={16} />
           {syncAll.isPending || syncStatus?.running || requestSync.isPending || servicePending ? "Syncing all accounts…" : "Sync all accounts"}
         </button>
@@ -337,21 +373,29 @@ export function ImportPanel() {
           {(syncAll.error as Error).message}
         </p>}
       </section>
-      {syncStatus?.manual_sync_enabled && <section className="mt-5 border-t border-white/[0.06] pt-4">
-        <h3 className="text-sm font-medium text-slate-200">Trading 212</h3>
+      {(syncStatus?.manual_sync_enabled || syncStatus?.service_trigger_enabled) && <section aria-labelledby="trading212-sync-heading" className="mt-5 border-t border-white/[0.06] pt-4">
+        <h3 id="trading212-sync-heading" className="text-sm font-medium text-slate-200">Trading 212</h3>
         <p className="my-2 text-xs text-slate-400">
           One read-only sync refreshes the current portfolio, completed fills and deposits/withdrawals.
           It does not place trades or move money.
         </p>
         <button type="button" className="btn-primary flex w-full items-center justify-center gap-2"
-          onClick={() => syncTrading212.mutate()}
-          disabled={!trading212Status?.configured || syncTrading212.isPending}>
+          onClick={() => syncStatus?.service_trigger_enabled ? requestTrading212Sync.mutate() : syncTrading212.mutate()}
+          disabled={(!syncStatus?.service_trigger_enabled && !trading212Status?.configured) || syncTrading212.isPending || requestTrading212Sync.isPending || trading212ServicePending || syncAll.isPending || syncStatus?.running || requestSync.isPending || servicePending}>
           <Download size={16} />
-          {syncTrading212.isPending ? "Syncing Trading 212…" : "Sync Trading 212"}
+          {syncTrading212.isPending || requestTrading212Sync.isPending || trading212ServicePending ? "Syncing Trading 212…" : "Sync Trading 212"}
         </button>
-        {trading212Status && !trading212Status.configured && (
+        {!syncStatus?.service_trigger_enabled && trading212Status && !trading212Status.configured && (
           <p className="mt-1 text-xs text-amber-400">Add the Trading 212 credentials to .env to enable sync.</p>
         )}
+        {trading212ServicePending && <p role="status" className="mt-2 text-xs text-slate-400">Trading 212 request accepted; waiting for the service to finish.</p>}
+        {(trading212Request?.state === "completed" || (trading212Request?.state === "failed" && trading212Request.last_run?.finished_at)) && <div role="status" className="mt-2"><SyncEvidence report={trading212Request.last_run} /></div>}
+        {trading212Request && ["failed", "unknown", "busy", "disabled", "inactive"].includes(trading212Request.state) && <p role="alert" className="mt-2 text-xs text-neg">
+          {trading212Request.state === "failed" ? "Trading 212 sync failed or needs attention. Check the service logs."
+            : trading212Request.state === "busy" ? "Another sync is already running. Trading 212 sync was not started; try again later."
+            : "Trading 212 sync status is unknown or unavailable. Check again later; the service may still be running."}
+        </p>}
+        {requestTrading212Sync.isError && <p role="alert" className="mt-2 text-xs text-neg">Could not confirm the Trading 212 sync request. Check again later.</p>}
         {syncTrading212.isSuccess && <p role="status" className="mt-2 text-xs text-slate-300">
           Snapshot: {syncTrading212.data.snapshot}; orders: {syncTrading212.data.orders};
           cash: {syncTrading212.data.cash_flows_imported} new / {syncTrading212.data.cash_flows_total} total.
