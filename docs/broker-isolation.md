@@ -161,7 +161,7 @@ release/configuration coherence, and freshly checks boot, web InvocationID,
 effective units, service state and the anonymous boundary. Resume requires a
 quiescent timer; cutover requires its verified saved state and an inactive worker.
 Legacy/malformed/unknown records require manual recovery, never marker editing
-or automatic upgrade. See [completion-state semantics](completion-state.md) for
+or automatic upgrade. See completion-state semantics (historical document archived outside this repository; see documentation archive note) for
 publication, interruption, lock and recovery limits.
 
 ```sh

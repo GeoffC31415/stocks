@@ -38,7 +38,7 @@ enabled/active state (not necessarily be disabled), so approved schedule restora
 can precede cutover. If the saved timer was active, simply deferring its restoration
 will refuse cutover; that alternative needs a separately reviewed procedure.
 The same preflight runs again after backups and before config replacement.
-See [completion-state semantics and recovery limits](completion-state.md).
+See completion-state semantics and recovery limits (historical document archived outside this repository; see documentation archive note).
 
 Exact public origin and auth database path
 are required. Config/auth/evidence paths must be private, owned, non-symlink and

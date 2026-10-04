@@ -149,4 +149,4 @@ D01–D04 remain data- and approval-gated, not declared ready by this documentat
 - **D03:** reproducible scenario fans require D01–D02 plus separate acceptance of model assumptions.
 - **D04:** fund look-through requires validated constituent data and coverage, not ticker matching or product classifications.
 
-See the [implementation plan](docs/plans/2026-09-04-portfolio-experience.md), [verification evidence](docs/verification/portfolio-experience.md), and [market-data limitations](docs/market-data.md). Tests establish implementation behaviour, not provider readiness or release approval. Deployment is a separate, explicitly authorised operation with rollback planning.
+See the implementation plan (historical document archived outside this repository; see documentation archive note), verification evidence (historical document archived outside this repository; see documentation archive note), and [market-data limitations](docs/market-data.md). Tests establish implementation behaviour, not provider readiness or release approval. Deployment is a separate, explicitly authorised operation with rollback planning.

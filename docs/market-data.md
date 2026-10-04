@@ -16,7 +16,7 @@ Endpoint: `https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=2y&i
 
 **Interpretation:** Yahoo is now the recommended free first candidate for isolated full-portfolio backfill. Sample success does not prove provider terms, adjustment quality, valid aligned observations, specialist-fund mappings, or 80% value coverage. The production cache has not been populated by these probes; advanced-model release remains gated. Preserve missing-value, pence/pound, USD-listed London ETF, dated FX and valuation-date checks.
 
-D01 in the [implementation plan](plans/2026-09-04-portfolio-experience.md) now specifies the Yahoo-first adapter, reproducible probe, isolated backfill, sparse refresh/backoff, offline-cache acceptance and validated manual CSV fallback. No paid source is assumed or authorised. Recheck provider data-use terms before persistent backfill.
+D01 in the implementation plan (historical document archived outside this repository; see documentation archive note) now specifies the Yahoo-first adapter, reproducible probe, isolated backfill, sparse refresh/backoff, offline-cache acceptance and validated manual CSV fallback. No paid source is assumed or authorised. Recheck provider data-use terms before persistent backfill.
 
 ## Earlier result — 2026-09-04: probe failed; gate not passed
 
@@ -53,6 +53,6 @@ Offline regression tests exercise the real opener interface, cache-only misses, 
 4. Harden the coverage report to require finite, valid price/FX observations, daily alignment and minimum history, not merely one cached close/latest FX rate. Disclose quote currency and adjustment policy per series.
 5. Validate bounded refresh deadlines and cross-request single-flight behavior. The current sequential loop is not proof of process-wide concurrency control.
 6. Prove at least 126 aligned daily observations and coverage of at least 80% of current non-cash GBP value; record exclusions and the complete current portfolio denominator.
-7. Follow D01–D03 in the [Portfolio Experience and Insight Implementation Plan](plans/2026-09-04-portfolio-experience.md): validated history first, then risk and horizon-gated loss analysis, then separately gated bootstrap scenarios.
+7. Follow D01–D03 in the Portfolio Experience and Insight Implementation Plan (historical document archived outside this repository; see documentation archive note): validated history first, then risk and horizon-gated loss analysis, then separately gated bootstrap scenarios.
 
 **Advanced risk and scenario releases remain blocked by this gate. A caching design alone cannot pass it.**
