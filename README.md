@@ -86,7 +86,12 @@ An unchanged observation is reported as unchanged; rechecks still consume rate
 limits. Changed observations are retained even on the same day. Cash events deduplicate
 by account/provider reference. The combined operation fetches all sections before
 writes and commits snapshot, orders and cash atomically, rolling back on failure or
-cancellation. Automatic sync refuses disappearing securities, even with force.
+cancellation. A successful validated Trading 212 positions snapshot is authoritative
+for current holdings: ordinary sales, including selling the last holding to leave
+only verified cash, need no operator closure review or inferred SELL history.
+Missing securities are marked closed in the new snapshot; historical snapshots,
+orders and cash events are retained. Malformed or incomplete required data still
+rejects the entire combined sync.
 
 ### Cash deposits and withdrawals
 

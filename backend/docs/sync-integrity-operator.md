@@ -36,13 +36,24 @@ or real-broker authorization.
   repinning occurs. See [trusted HL enrollment](#trusted-hl-enrollment) below for the
   fail-closed bootstrap path, including legacy and empty accounts.
 
-## Genuine Trading 212 sale: narrow offline resolution
+## Trading 212 current holdings and optional offline closure review
 
-Automatic sync refuses disappearing securities. Historical sells or `--force` do
-not authorize closure. A human must independently verify the genuine sale, account
-ownership, completeness of all remaining positions and cash, and the exact source
-observation. The CLI below imports **only that snapshot**; it neither logs in nor
-imports orders/transactions nor advances provider freshness.
+A successful validated broker positions snapshot is authoritative for current
+holdings. Normal sync accepts sales without an operator allowlist or historical
+SELL inference, including an empty positions array when the account summary
+provides valid GBP cash buckets. Missing securities are marked closed; old holding
+snapshots, orders and cash history are not deleted or rewritten. Reappearing
+securities reopen the existing instruments. Failed requests, malformed records,
+duplicate identities and incomplete required data still reject; the combined sync
+commits positions, cash, orders and transactions together or rolls all changes back.
+No new account-total reconciliation heuristic is applied.
+
+The retained CLI is an **optional legacy offline repair tool**, not a required
+normal-sale workflow. Its account/baseline/digest/date checks and exact nonempty
+closure allowlist remain mandatory when using it. A human must independently
+verify the staged sale evidence, account ownership and completeness. It imports
+**only that snapshot**; it neither logs in nor imports orders/transactions nor
+advances provider freshness.
 
 1. Make a consistent SQLite backup/copy using SQLite's backup API (not an unsafe
    copy of a live WAL database). Use the copy for the preview. Identify the canonical

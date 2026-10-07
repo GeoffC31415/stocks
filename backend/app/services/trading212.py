@@ -437,8 +437,8 @@ async def sync_portfolio_snapshot(
     from app.services.import_service import import_holding_snapshot, resolve_account_name
     from app.services.portfolio_service import get_latest_batch_for_account
 
-    # Only a trusted, explicit operator review may approve disappearing securities.
-    # Never expose this allowlist through an automatic provider/sale inference.
+    # Successful validated provider snapshots are authoritative for current holdings.
+    # The legacy offline review is optional, but its explicit allowlist stays strict.
     if not isinstance(reviewed_closed_identifiers, frozenset) or any(
         not isinstance(identifier, str) or not identifier.strip() or identifier == "CASH"
         for identifier in reviewed_closed_identifiers
@@ -480,13 +480,14 @@ async def sync_portfolio_snapshot(
         require_cash=True,
     )
 
-    missing = previous_identifiers - {row.identifier for row in rows} - {"CASH"}
-    if missing - reviewed_closed_identifiers:
+    current_identifiers = {row.identifier for row in rows}
+    if len(current_identifiers) != len(rows):
         raise Trading212DataError(
-            "Trading 212 positions disappeared; operator review required.",
-            code="positions_disappeared",
+            "Trading 212 returned duplicate position identifiers.",
+            code="invalid_position_identity",
         )
-    if reviewed_closed_identifiers - missing:
+    missing = previous_identifiers - current_identifiers - {"CASH"}
+    if reviewed_closed_identifiers and reviewed_closed_identifiers != missing:
         raise Trading212DataError(
             "Reviewed closure allowlist does not match disappearing positions.",
             code="closure_allowlist_mismatch",
