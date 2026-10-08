@@ -198,6 +198,56 @@ async def test_known_provider_failures_have_distinct_safe_codes(
     assert all(record.exc_info is None for record in caplog.records)
 
 
+@pytest.mark.parametrize("field", ["date", "name", "side", "quantity", "value", "id"])
+async def test_order_fill_field_diagnostics_are_private_safe(
+    db, tmp_path, monkeypatch, caplog, field,
+):
+    item = {
+        "order": {"instrument": {"name": "PRIVATE_NAME_SENTINEL"}, "side": "SELL"},
+        "fill": {
+            "id": "PRIVATE_ID_SENTINEL", "type": "TRADE",
+            "filledAt": "2026-01-01T12:00:00Z", "quantity": -1,
+            "walletImpact": {"currency": "GBP", "netValue": 10},
+        },
+    }
+    if field == "date":
+        item["fill"]["filledAt"] = "PRIVATE_DATE_SENTINEL"
+    elif field == "name":
+        item["order"]["instrument"] = {}
+    elif field == "side":
+        item["order"]["side"] = "PRIVATE_SIDE_SENTINEL"
+    elif field == "quantity":
+        item["fill"]["quantity"] = "PRIVATE_QUANTITY_SENTINEL"
+    elif field == "value":
+        item["fill"]["walletImpact"]["netValue"] = "PRIVATE_VALUE_SENTINEL"
+    else:
+        item["fill"]["id"] = ["PRIVATE_ID_SENTINEL"]
+    defaults = {
+        "/api/v0/equity/positions": [],
+        "/api/v0/equity/account/summary": await Reader().fetch_account_summary(),
+        "/api/v0/equity/history/orders": {"items": [item], "nextPagePath": None},
+        "/api/v0/equity/history/transactions": {"items": [], "nextPagePath": None},
+    }
+    client = Trading212Client(
+        api_key="SYNTHETIC_KEY", api_secret="SYNTHETIC_SECRET", page_delay=0,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=defaults[request.url.path])
+        ),
+    )
+    report = await run(db, tmp_path, monkeypatch, client)
+    assert report.steps[-1].status == "failed"
+    assert f"code=invalid_order_fill_{field} endpoint=orders phase=import" in caplog.text
+    assert "PRIVATE_" not in caplog.text
+    assert "SYNTHETIC_" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+    public = json.loads((tmp_path / "public/last-sync.json").read_text())
+    assert "invalid_order_fill" not in json.dumps(public)
+    assert "PRIVATE_" not in json.dumps(public)
+    await db.commit()
+    assert await db.scalar(select(func.count()).select_from(ImportBatch)) == 0
+    assert await db.scalar(select(func.count()).select_from(OrderImportBatch)) == 0
+
+
 @pytest.mark.parametrize("code", ["PRIVATE_CODE_SENTINEL", ["PRIVATE_CODE_SENTINEL"], None])
 async def test_unknown_exception_metadata_never_enters_logs(
     db,

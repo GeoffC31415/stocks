@@ -15,6 +15,7 @@ from app.routers.trading212 import get_trading212_client, require_local_origin
 from app.services.trading212 import (
     Trading212Client,
     Trading212CurrencyError,
+    Trading212DataError,
     historical_orders_to_rows,
     positions_to_rows,
     sync_order_history,
@@ -149,13 +150,14 @@ def test_historical_orders_to_rows_maps_only_filled_trade_events() -> None:
     assert row.is_drip is False
 
 
-def test_historical_orders_keeps_trade_fill_from_cancelled_order() -> None:
+@pytest.mark.parametrize("quantity", [-1.25, 1.25])
+def test_historical_orders_keeps_trade_fill_from_cancelled_order(quantity) -> None:
     items = [
         {
             "fill": {
                 "id": 1,
                 "filledAt": "2026-09-05T10:11:12Z",
-                "quantity": 1,
+                "quantity": quantity,
                 "type": "TRADE",
                 "walletImpact": {"currency": "GBP", "netValue": 10},
             },
@@ -171,6 +173,9 @@ def test_historical_orders_keeps_trade_fill_from_cancelled_order() -> None:
 
     assert len(rows) == 1
     assert rows[0].side == "Sell"
+    assert rows[0].quantity == 1.25
+    assert rows[0].cost_proceeds_gbp == 10
+    assert rows[0].source_event_id == "1"
 
 
 def test_historical_orders_fail_closed_for_malformed_trade_fill() -> None:
@@ -223,8 +228,12 @@ def test_historical_orders_reject_malformed_fill_ids(fill_id) -> None:
         historical_orders_to_rows([item], account_name=ACCOUNT_NAME)
 
 
-@pytest.mark.parametrize("bad_value", [float("nan"), float("inf")])
-def test_historical_orders_reject_non_finite_values(bad_value: float) -> None:
+@pytest.mark.parametrize(("side", "bad_value"), [
+    ("BUY", -1), ("SELL", 0), ("SELL", True), ("SELL", False),
+    ("SELL", None), ("SELL", "not-a-number"),
+    ("SELL", float("nan")), ("SELL", float("inf")), ("SELL", -float("inf")),
+])
+def test_historical_orders_reject_invalid_quantities(side, bad_value) -> None:
     item = {
         "fill": {
             "id": 123,
@@ -233,11 +242,12 @@ def test_historical_orders_reject_non_finite_values(bad_value: float) -> None:
             "type": "TRADE",
             "walletImpact": {"currency": "GBP", "netValue": 10},
         },
-        "order": {"instrument": {"name": "Test plc"}, "side": "BUY"},
+        "order": {"instrument": {"name": "Test plc"}, "side": side},
     }
 
-    with pytest.raises(ValueError, match="order fill"):
+    with pytest.raises(Trading212DataError, match="order fill") as rejected:
         historical_orders_to_rows([item], account_name=ACCOUNT_NAME)
+    assert rejected.value.code == "invalid_order_fill_quantity"
 
 
 @pytest.mark.asyncio

@@ -44,7 +44,12 @@ DIAGNOSTIC_CODES = frozenset(
         "invalid_closure_allowlist",
         "invalid_data",
         "invalid_json_response",
-        "invalid_order_fill",
+        "invalid_order_fill_date",
+        "invalid_order_fill_name",
+        "invalid_order_fill_side",
+        "invalid_order_fill_quantity",
+        "invalid_order_fill_value",
+        "invalid_order_fill_id",
         "invalid_order_history_response",
         "invalid_order_pagination",
         "invalid_position_identity",
@@ -829,17 +834,31 @@ def historical_orders_to_rows(
         fill_id_valid = (
             isinstance(fill_id, int) and not isinstance(fill_id, bool) and fill_id >= 0
         ) or (isinstance(fill_id, str) and bool(fill_id.strip()))
-        if (
-            order_date is None
-            or not security_name
-            or side_raw not in {"BUY", "SELL"}
-            or quantity is None
-            or quantity <= 0
-            or net_value is None
-            or not fill_id_valid
-        ):
+        if order_date is None:
             raise Trading212DataError(
-                "Trading 212 returned an invalid order fill.", code="invalid_order_fill"
+                "Trading 212 returned an invalid order fill date.", code="invalid_order_fill_date"
+            )
+        if not security_name:
+            raise Trading212DataError(
+                "Trading 212 returned an invalid order fill name.", code="invalid_order_fill_name"
+            )
+        if side_raw not in {"BUY", "SELL"}:
+            raise Trading212DataError(
+                "Trading 212 returned an invalid order fill side.", code="invalid_order_fill_side"
+            )
+        # Side is authoritative: accept either SELL convention, never a signed BUY.
+        if quantity is None or quantity == 0 or (side_raw == "BUY" and quantity < 0):
+            raise Trading212DataError(
+                "Trading 212 returned an invalid order fill quantity.",
+                code="invalid_order_fill_quantity",
+            )
+        if net_value is None:
+            raise Trading212DataError(
+                "Trading 212 returned an invalid order fill value.", code="invalid_order_fill_value"
+            )
+        if not fill_id_valid:
+            raise Trading212DataError(
+                "Trading 212 returned an invalid order fill id.", code="invalid_order_fill_id"
             )
         rows.append(
             ParsedOrderRow(

@@ -177,6 +177,44 @@ async def test_complete_snapshot_accepts_sales_and_rebuy_without_review(db, rema
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("quantity", [-1, 1], ids=["signed-sell", "positive-sell"])
+async def test_sell_history_imports_after_complete_snapshot_closes_holding(db, quantity):
+    from app.services.trading212 import Trading212Client
+
+    await run_trading212_sync(db, Reader())
+    orders = await Reader().fetch_historical_orders()
+    sell = copy.deepcopy(orders[0])
+    sell["order"]["side"] = "SELL"
+    sell["fill"].update(id=2, quantity=quantity)
+    sell["fill"]["walletImpact"]["netValue"] = 10
+    orders.append(sell)
+    payloads = {
+        "/api/v0/equity/positions": [],
+        "/api/v0/equity/account/summary": await Reader().fetch_account_summary(),
+        "/api/v0/equity/history/orders": {"items": orders, "nextPagePath": None},
+        "/api/v0/equity/history/transactions": {
+            "items": await Reader().fetch_transactions(), "nextPagePath": None,
+        },
+    }
+    client = Trading212Client(
+        api_key="SYNTHETIC_KEY", api_secret="SYNTHETIC_SECRET",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payloads[request.url.path])
+        ), page_delay=0,
+    )
+    await run_trading212_sync(db, client)
+    db.expire_all()
+    instrument = await db.scalar(select(Instrument).where(Instrument.identifier == "ONE"))
+    assert instrument.closed_at is not None
+    sell_order = await db.scalar(select(Order).where(Order.side == "Sell"))
+    assert sell_order.instrument_id == instrument.id
+    assert sell_order.quantity == 1
+    assert sell_order.cost_proceeds_gbp == 10
+    assert (await run_trading212_sync(db, client)).orders == "unchanged"
+    assert await db.scalar(select(func.count()).select_from(Order)) == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [
     "malformed-positions", "missing-position-values", "duplicate-position",
     "missing-cash", "late-order-fetch", "late-transaction-fetch",
@@ -214,7 +252,15 @@ async def test_rejected_complete_sync_never_commits_sale_closures(db, failure):
             f"/api/v0/equity/history/{section}?cursor={cursor}&limit=50"
         )
     elif failure == "invalid-order":
-        payloads["/api/v0/equity/history/orders"]["items"][0]["fill"].pop("quantity")
+        items = payloads["/api/v0/equity/history/orders"]["items"]
+        valid_sell = copy.deepcopy(items[0])
+        valid_sell["order"]["side"] = "SELL"
+        valid_sell["fill"].update(id=2, quantity=-1)
+        valid_sell["fill"]["walletImpact"]["netValue"] = 10
+        invalid_fill = copy.deepcopy(valid_sell)
+        invalid_fill["fill"]["id"] = 3
+        invalid_fill["fill"].pop("quantity")
+        items.extend([valid_sell, invalid_fill])
     else:
         payloads["/api/v0/equity/history/transactions"]["items"][0]["type"] = "UNKNOWN"
 
@@ -238,6 +284,8 @@ async def test_rejected_complete_sync_never_commits_sale_closures(db, failure):
         expected = "orders" if failure == "invalid-order" else "transactions"
         assert rejected.value.t212_endpoint == expected
         assert rejected.value.t212_phase == "import"
+        if failure == "invalid-order":
+            assert rejected.value.code == "invalid_order_fill_quantity"
     elif failure in {"late-order-fetch", "late-transaction-fetch"}:
         assert rejected.value.t212_phase == "fetch"
     # An accidental inner commit must not survive the owner rollback, even if
