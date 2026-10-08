@@ -56,6 +56,17 @@ Private reports atomically publish/fsync under the worker lock; public reports a
 fields and omit filenames, source paths, raw exceptions, identities and credentials.
 Publication failure means persisted terminal status cannot be guaranteed.
 
+Trading 212 failure logs retain the stable `code`, `endpoint`, `phase`, HTTP status
+and worker `invocation_id`, adding reviewed fixed-English `reason`, `stage` and
+`resource` labels. They describe the observed rejection, not an inferred cause or
+repair; unknown failures say that no classified reason is available. The snapshot
+import stage validates positions and account-summary cash together, so its resource
+label includes both. Exception text/classes, rejected values, identities, provider
+bodies/URLs, credentials and tracebacks are not logged. Owner rollback remains before
+diagnostics. These explanations are **journal-only**: public status still suppresses
+step detail and diagnostic codes; the public scrubber and API error responses are
+unchanged. Use the worker invocation ID to correlate a failure with its journal line.
+
 ## Development checks and isolated previews
 
 Use an isolated checkout without `.env` or `backend/.env`, existing dependencies and

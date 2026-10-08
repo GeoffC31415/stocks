@@ -126,7 +126,7 @@ def get_trading212_client() -> Trading212Client:
 def _provider_error(exc: Exception, *, operation: str | None = None) -> HTTPException:
     # Fixed, revalidated tokens only. Never format exception text, causes,
     # request URLs, provider bodies or tracebacks into agent-readable logs.
-    from app.services.trading212 import trading212_diagnostic
+    from app.services.trading212 import trading212_diagnostic, trading212_failure_description
 
     code, endpoint, phase, http_status = trading212_diagnostic(exc)
     if operation in {"positions", "orders", "transactions"} and endpoint == "sync":
@@ -135,12 +135,17 @@ def _provider_error(exc: Exception, *, operation: str | None = None) -> HTTPExce
     # Migration fileConfig may disable pre-existing application loggers.
     # Restore only this safe diagnostic sink, never HTTP/provider loggers.
     logger.disabled = False
+    reason, stage, resource = trading212_failure_description(code, endpoint, phase, http_status)
     logger.error(
-        "Trading 212 sync failed code=%s endpoint=%s phase=%s http_status=%s",
+        "Trading 212 sync failed code=%s endpoint=%s phase=%s http_status=%s "
+        'reason="%s" stage="%s" resource="%s"',
         code,
         endpoint,
         phase,
         http_status if http_status is not None else "unavailable",
+        reason,
+        stage,
+        resource,
     )
     if code == "account_summary_forbidden":
         return HTTPException(

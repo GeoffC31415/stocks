@@ -135,7 +135,11 @@ def _trading212_configured() -> bool:
 async def _trading212_step(session: AsyncSession, *, invocation_id: str | None = None) -> StepResult:
     # Imported lazily to keep this module importable without FastAPI routing.
     from app.routers.trading212 import get_trading212_client, run_trading212_sync
-    from app.services.trading212 import Trading212DataError, trading212_diagnostic
+    from app.services.trading212 import (
+        Trading212DataError,
+        trading212_diagnostic,
+        trading212_failure_description,
+    )
 
     if not _trading212_configured():
         return StepResult("Trading 212", "skipped", "no API credentials")
@@ -143,13 +147,18 @@ async def _trading212_step(session: AsyncSession, *, invocation_id: str | None =
         result = await run_trading212_sync(session, get_trading212_client())
     except Exception as exc:
         code, endpoint, phase, http_status = trading212_diagnostic(exc)
+        reason, stage, resource = trading212_failure_description(code, endpoint, phase, http_status)
         logger.error(
-            "Trading 212 sync failed code=%s endpoint=%s phase=%s invocation_id=%s http_status=%s",
+            "Trading 212 sync failed code=%s endpoint=%s phase=%s invocation_id=%s http_status=%s "
+            'reason="%s" stage="%s" resource="%s"',
             code,
             endpoint,
             phase,
             validated_invocation_id(invocation_id) or "unavailable",
             http_status if http_status is not None else "unavailable",
+            reason,
+            stage,
+            resource,
         )
         if isinstance(exc, httpx.HTTPStatusError):
             return StepResult("Trading 212", "failed", f"HTTP {http_status or 'error'}")
@@ -349,11 +358,20 @@ async def _execute_steps(session: AsyncSession, report: RunReport, *, fetchers: 
                 report.steps.append(await _trading212_step(session, invocation_id=report.invocation_id))
         except Exception as exc:
             await session.rollback()
+            from app.services.trading212 import trading212_failure_description
+
+            code = "sync_timeout" if isinstance(exc, TimeoutError) else "unexpected_error"
+            phase = "deadline" if isinstance(exc, TimeoutError) else "unknown"
+            reason, stage, resource = trading212_failure_description(code, "sync", phase, None)
             logger.error(
-                "Trading 212 sync failed code=%s endpoint=sync phase=%s invocation_id=%s http_status=unavailable",
-                "sync_timeout" if isinstance(exc, TimeoutError) else "unexpected_error",
-                "deadline" if isinstance(exc, TimeoutError) else "unknown",
+                "Trading 212 sync failed code=%s endpoint=sync phase=%s invocation_id=%s http_status=unavailable "
+                'reason="%s" stage="%s" resource="%s"',
+                code,
+                phase,
                 validated_invocation_id(report.invocation_id) or "unavailable",
+                reason,
+                stage,
+                resource,
             )
             report.steps.append(StepResult("Trading 212", "failed", "provider_failed"))
 

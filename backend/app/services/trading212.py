@@ -76,6 +76,82 @@ DIAGNOSTIC_ENDPOINTS = frozenset({"positions", "account_summary", "orders", "tra
 DIAGNOSTIC_PHASES = frozenset({"fetch", "import", "commit", "setup", "deadline", "unknown"})
 
 
+# Reviewed prose only: never interpolate rejected values or exception text.
+DIAGNOSTIC_REASONS = {
+    "account_summary_forbidden": "Account summary access was denied; required cash data could not be verified.",
+    "cash_history_conflict": "Cash history is missing or changes previously imported events.",
+    "cash_history_source_conflict": "Retained cash history belongs to a different import source.",
+    "cash_pagination_limit": "Cash history pagination reached its safety limit.",
+    "cash_pagination_repeated": "Cash history pagination repeated a page.",
+    "cash_reference_conflict": "Cash transaction references contain conflicting events.",
+    "closure_allowlist_mismatch": "Reviewed closures do not match positions absent from this snapshot.",
+    "future_cash_transaction": "Cash transaction date is later than the observation time.",
+    "invalid_account_summary": "Account summary has an invalid structure.",
+    "invalid_cash_history_response": "Cash history response has an invalid structure.",
+    "invalid_cash_pagination": "Cash history pagination failed safety validation.",
+    "invalid_cash_transaction": "Cash transaction fields failed validation.",
+    "invalid_cash_transaction_date": "Cash transaction date is missing or invalid.",
+    "invalid_cash_values": "Required cash values are missing or invalid.",
+    "invalid_closure_allowlist": "Reviewed closure list is invalid.",
+    "invalid_data": "Provider data failed validation; no field-specific reason is available.",
+    "invalid_json_response": "Provider response is not valid JSON.",
+    "invalid_order_fill_date": "Order fill date is missing or invalid.",
+    "invalid_order_fill_name": "Order fill instrument name is missing or invalid.",
+    "invalid_order_fill_side": "Order fill side is not BUY or SELL.",
+    "invalid_order_fill_quantity": "Order fill quantity is missing, invalid, zero or inconsistent with its side.",
+    "invalid_order_fill_value": "Order fill net value is missing or invalid.",
+    "invalid_order_fill_id": "Order fill identifier is missing or invalid.",
+    "invalid_order_history_response": "Order history response has an invalid structure.",
+    "invalid_order_pagination": "Order history pagination failed safety validation.",
+    "invalid_position_identity": "Position identifier or name is missing, or identifiers are duplicated.",
+    "invalid_position_numbers": "Required position numbers are missing or invalid.",
+    "invalid_positions_response": "Positions response has an invalid structure.",
+    "invalid_retry_after": "Provider retry delay is invalid.",
+    "non_gbp_currency": "Required currency is missing or is not GBP.",
+    "order_pagination_limit": "Order history pagination reached its safety limit.",
+    "positions_disappeared": "Positions are absent from the new observation.",
+    "request_failed": "Provider request did not succeed within the allowed attempts.",
+    "retry_after_budget_exceeded": "Provider retry delay exceeds the remaining time budget.",
+    "retry_budget_exceeded": "Retry or pagination delay exceeds the remaining time budget.",
+    "runtime_budget_exhausted": "Provider operation exhausted its time budget.",
+    "sync_timeout": "Sync exceeded its time limit.",
+    "unsupported_cash_transaction_type": "Cash transaction type is not supported.",
+    "http_permission_denied": "Provider refused authentication or denied access.",
+    "http_rate_limited": "Provider rate limit was reached (HTTP 429).",
+    "http_error": "Provider returned an unsuccessful HTTP response.",
+    "transport_error": "Provider request failed at the transport layer.",
+    "unexpected_error": "Sync failed; no classified reason is available.",
+}
+DIAGNOSTIC_RESOURCES = {
+    "positions": "Current positions and cash snapshot",
+    "account_summary": "Account summary",
+    "orders": "Order fill history",
+    "transactions": "Cash transaction history",
+    "sync": "Overall sync (endpoint unavailable)",
+}
+DIAGNOSTIC_STAGES = {
+    "fetch": "Fetching provider data",
+    "import": "Validating and importing data",
+    "commit": "Committing database changes",
+    "setup": "Preparing sync",
+    "deadline": "Enforcing sync time limit",
+    "unknown": "Stage unavailable",
+}
+
+
+def trading212_failure_description(
+    code: str, endpoint: str, phase: str, http_status: int | None,
+) -> tuple[str, str, str]:
+    """Fixed journal-only prose; callers retain sink-validated technical metadata."""
+    reason = DIAGNOSTIC_REASONS.get(code, DIAGNOSTIC_REASONS["unexpected_error"])
+    if code == "http_permission_denied":
+        if http_status == 401:
+            reason = "Provider refused authentication (HTTP 401)."
+        elif http_status == 403:
+            reason = "Provider denied access (HTTP 403)."
+    return reason, DIAGNOSTIC_STAGES[phase], DIAGNOSTIC_RESOURCES[endpoint]
+
+
 class Trading212DataError(ValueError):
     """Raised when a read-only provider response cannot be imported safely."""
 

@@ -31,6 +31,14 @@ def test_every_provider_rejection_has_a_source_owned_allowlisted_code():
         assert codes[0].value != "invalid_data"
 
 
+def test_reviewed_prose_covers_all_validated_diagnostics():
+    assert set(service.DIAGNOSTIC_REASONS) == service.DIAGNOSTIC_CODES
+    assert set(service.DIAGNOSTIC_STAGES) == service.DIAGNOSTIC_PHASES
+    assert set(service.DIAGNOSTIC_RESOURCES) == service.DIAGNOSTIC_ENDPOINTS
+    for mapping in (service.DIAGNOSTIC_REASONS, service.DIAGNOSTIC_STAGES, service.DIAGNOSTIC_RESOURCES):
+        assert all(type(text) is str and 0 < len(text) <= 140 and '\n' not in text for text in mapping.values())
+
+
 @pytest.fixture(autouse=True)
 def journal_capture(monkeypatch, caplog):
     # Migration tests run Alembic fileConfig, which disables existing loggers.
@@ -88,6 +96,8 @@ async def test_unsupported_cash_type_is_correlated_without_payload(
     report = await run(db, tmp_path, monkeypatch, Reader())
     assert report.steps[-1].status == "failed"
     assert "code=unsupported_cash_transaction_type" in caplog.text
+    assert 'reason="Cash transaction type is not supported."' in caplog.text
+    assert 'stage="Validating and importing data" resource="Cash transaction history"' in caplog.text
     assert "endpoint=transactions phase=import" in caplog.text
     assert "invocation_id=" + "a" * 32 in caplog.text
     assert "PRIVATE_PROVIDER_SENTINEL" not in caplog.text
@@ -179,6 +189,19 @@ async def test_known_provider_failures_have_distinct_safe_codes(
     report = await run(db, tmp_path, monkeypatch, client)
     assert report.steps[-1].status == "failed"
     assert f"code={code}" in caplog.text
+    reasons = {
+        "invalid_positions_response": "Positions response has an invalid structure.",
+        "invalid_account_summary": "Account summary has an invalid structure.",
+        "account_summary_forbidden": "Account summary access was denied; required cash data could not be verified.",
+        "invalid_cash_values": "Required cash values are missing or invalid.",
+        "non_gbp_currency": "Required currency is missing or is not GBP.",
+        "invalid_order_history_response": "Order history response has an invalid structure.",
+        "invalid_order_pagination": "Order history pagination failed safety validation.",
+        "invalid_cash_history_response": "Cash history response has an invalid structure.",
+        "invalid_cash_pagination": "Cash history pagination failed safety validation.",
+        "invalid_cash_transaction_date": "Cash transaction date is missing or invalid.",
+    }
+    assert f'reason="{reasons[code]}"' in caplog.text
     # Snapshot validation consumes both summary and positions in the import phase.
     expected_endpoint = (
         "positions" if endpoint == "account_summary" and phase == "import" else endpoint
@@ -237,6 +260,16 @@ async def test_order_fill_field_diagnostics_are_private_safe(
     report = await run(db, tmp_path, monkeypatch, client)
     assert report.steps[-1].status == "failed"
     assert f"code=invalid_order_fill_{field} endpoint=orders phase=import" in caplog.text
+    expected = {
+        "date": "Order fill date is missing or invalid.",
+        "name": "Order fill instrument name is missing or invalid.",
+        "side": "Order fill side is not BUY or SELL.",
+        "quantity": "Order fill quantity is missing, invalid, zero or inconsistent with its side.",
+        "value": "Order fill net value is missing or invalid.",
+        "id": "Order fill identifier is missing or invalid.",
+    }
+    assert f'reason="{expected[field]}"' in caplog.text
+    assert 'stage="Validating and importing data" resource="Order fill history"' in caplog.text
     assert "PRIVATE_" not in caplog.text
     assert "SYNTHETIC_" not in caplog.text
     assert all(record.exc_info is None for record in caplog.records)
@@ -274,6 +307,7 @@ async def test_unknown_exception_metadata_never_enters_logs(
 @pytest.mark.parametrize(
     ("failure", "code", "status"),
     [
+        ("auth", "http_permission_denied", "401"),
         ("permission", "http_permission_denied", "403"),
         ("rate_limit", "http_rate_limited", "429"),
         ("http", "http_error", "502"),
@@ -297,7 +331,7 @@ async def test_transport_failures_are_safe_and_correlated(
 
     def transport(request):
         hostile_request = httpx.Request("GET", private_url)
-        if failure in {"permission", "rate_limit", "http"}:
+        if failure in {"auth", "permission", "rate_limit", "http"}:
             response = httpx.Response(
                 int(status), request=hostile_request, text="PRIVATE_BODY_SENTINEL"
             )
@@ -323,6 +357,19 @@ async def test_transport_failures_are_safe_and_correlated(
     assert report.steps[-1].status == "failed"
     assert f"code={code} endpoint=positions phase=fetch" in caplog.text
     assert f"http_status={status}" in caplog.text
+    reasons = {
+        "auth": "Provider refused authentication (HTTP 401).",
+        "permission": "Provider denied access (HTTP 403).",
+        "rate_limit": "Provider rate limit was reached (HTTP 429).",
+        "http": "Provider returned an unsuccessful HTTP response.",
+        "network": "Provider request failed at the transport layer.",
+        "unexpected": "Sync failed; no classified reason is available.",
+        "invalid_json": "Provider response is not valid JSON.",
+        "retry_header": "Provider retry delay is invalid.",
+        "retry_budget": "Provider retry delay exceeds the remaining time budget.",
+    }
+    assert f'reason="{reasons[failure]}"' in caplog.text
+    assert 'stage="Fetching provider data" resource="Current positions and cash snapshot"' in caplog.text
     assert "invocation_id=" + "a" * 32 in caplog.text
     assert "PRIVATE_" not in caplog.text
     assert "PRIVATE_" not in json.dumps(report.to_json())
@@ -422,6 +469,7 @@ async def test_outer_sync_deadline_is_logged_without_exception_details(
     report = await run(db, tmp_path, monkeypatch, HangingReader())
     assert report.steps[-1].status == "failed"
     assert "code=sync_timeout endpoint=sync phase=deadline" in caplog.text
+    assert 'reason="Sync exceeded its time limit." stage="Enforcing sync time limit"' in caplog.text
     assert "invocation_id=" + "a" * 32 in caplog.text
     assert all(record.exc_info is None for record in caplog.records)
 
@@ -449,6 +497,8 @@ async def test_sink_revalidates_all_metadata_and_invocation(
     result = await runner._trading212_step(db, invocation_id=invocation_id)
     assert result.detail == "Trading212DataError"
     assert "code=invalid_data endpoint=sync phase=unknown invocation_id=unavailable" in caplog.text
+    assert 'reason="Provider data failed validation; no field-specific reason is available."' in caplog.text
+    assert 'stage="Stage unavailable" resource="Overall sync (endpoint unavailable)"' in caplog.text
     assert "PRIVATE_" not in caplog.text
     assert all(record.exc_info is None for record in caplog.records)
 
@@ -468,6 +518,12 @@ def test_api_error_logs_only_safe_codes_and_never_exception_text(kind, caplog, m
         expected = "account_summary_forbidden"
     result = router._provider_error(exc)
     assert f"code={expected}" in caplog.text
+    reasons = {
+        "unexpected": "Sync failed; no classified reason is available.",
+        "validation": "Provider data failed validation; no field-specific reason is available.",
+        "permission": "Account summary access was denied; required cash data could not be verified.",
+    }
+    assert f'reason="{reasons[kind]}"' in caplog.text
     assert "PRIVATE_SECRET_SENTINEL" not in caplog.text
     assert "PRIVATE_SECRET_SENTINEL" not in result.detail
     assert all(record.exc_info is None for record in caplog.records)
