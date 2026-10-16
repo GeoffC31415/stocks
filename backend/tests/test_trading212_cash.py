@@ -47,7 +47,6 @@ def test_cash_mapping_counts_only_deposits_and_withdrawals():
         ("currency", "USD"),
         ("dateTime", "invalid"),
         ("dateTime", "2026-09-08"),
-        ("type", "TRANSFER"),
         ("type", "UNKNOWN"),
     ],
 )
@@ -56,6 +55,81 @@ def test_cash_mapping_fails_closed(field, value):
     item[field] = value
     with pytest.raises(trading212.Trading212DataError):
         trading212.transactions_to_rows([item])
+
+
+@pytest.mark.parametrize(("kind", "amount", "expected"), [
+    ("DEPOSIT", 10, [10]), ("WITHDRAW", 10, [-10]), ("WITHDRAW", -10, [-10]),
+    ("FEE", -1, []), ("INTEREST_ON_FREE_CASH", 1, []), ("LENDING_INTEREST", 1, []),
+    ("TRANSFER", -10, [-10]), ("TRANSFER", 10, [10]),
+])
+def test_all_classified_documented_cash_types(kind, amount, expected):
+    rows = trading212.transactions_to_rows([transaction(kind=kind, amount=amount)])
+    assert [row.amount_gbp for row in rows] == expected
+
+
+def test_transfer_rejects_zero_nonfinite_and_malformed_amounts():
+    for amount in (
+        0, -0.0, None, True, [], {}, "PRIVATE_AMOUNT_SENTINEL",
+        float("nan"), float("inf"), -float("inf"), 10**1000,
+    ):
+        with pytest.raises(trading212.Trading212DataError) as rejected:
+            trading212.transactions_to_rows([transaction(kind="TRANSFER", amount=amount)])
+        assert rejected.value.code == "invalid_cash_transfer_amount"
+
+
+def test_transfer_reference_and_currency_safeguards():
+    for field, value, code in (
+        ("reference", " padded ", "invalid_cash_transaction_reference"),
+        ("reference", "", "invalid_cash_transaction_reference"),
+        ("currency", "USD", "invalid_cash_transaction_currency"),
+        ("currency", None, "invalid_cash_transaction_currency"),
+    ):
+        item = transaction(kind="TRANSFER", amount=-10)
+        item[field] = value
+        with pytest.raises(trading212.Trading212DataError) as rejected:
+            trading212.transactions_to_rows([item])
+        assert rejected.value.code == code
+    item = transaction(kind="TRANSFER", amount=-10)
+    assert len(trading212.transactions_to_rows([item, item])) == 1
+    with pytest.raises(trading212.Trading212DataError) as rejected:
+        trading212.transactions_to_rows([item, transaction(kind="TRANSFER", amount=10)])
+    assert rejected.value.code == "cash_reference_conflict"
+
+
+def test_cash_numeric_boundaries_for_every_classified_type():
+    for kind in ("DEPOSIT", "WITHDRAW", "FEE", "INTEREST_ON_FREE_CASH", "LENDING_INTEREST"):
+        for amount in (None, True, float("nan"), float("inf"), -float("inf")):
+            with pytest.raises(trading212.Trading212DataError) as rejected:
+                trading212.transactions_to_rows([transaction(kind=kind, amount=amount)])
+            assert rejected.value.code == "invalid_cash_transaction_amount", kind
+        if kind in ("DEPOSIT", "WITHDRAW"):
+            with pytest.raises(trading212.Trading212DataError) as rejected:
+                trading212.transactions_to_rows([transaction(kind=kind, amount=0)])
+            assert rejected.value.code == "invalid_cash_transaction_amount"
+        else:
+            # Internal events still validate even though they create no external flow.
+            assert trading212.transactions_to_rows([transaction(kind=kind, amount=0)]) == []
+
+
+@pytest.mark.parametrize("kind", ["UNKNOWN", "WITHDRAWAL", None, [], {}])
+def test_unknown_cash_types_are_not_aliases(kind):
+    with pytest.raises(trading212.Trading212DataError) as rejected:
+        trading212.transactions_to_rows([transaction(kind=kind)])
+    assert rejected.value.code == "unsupported_cash_transaction_type"
+
+
+def test_all_cash_categories_validate_currency_and_reference_identity():
+    for kind in ("DEPOSIT", "WITHDRAW", "TRANSFER", "FEE", "INTEREST_ON_FREE_CASH", "LENDING_INTEREST"):
+        item = transaction(kind=kind, amount=10)
+        expected = trading212.transactions_to_rows([item])
+        assert trading212.transactions_to_rows([item, item]) == expected, kind
+        with pytest.raises(trading212.Trading212DataError) as rejected:
+            trading212.transactions_to_rows([item, transaction(kind=kind, amount=20)])
+        assert rejected.value.code == "cash_reference_conflict", kind
+        for currency in (None, "USD"):
+            with pytest.raises(trading212.Trading212DataError) as rejected:
+                trading212.transactions_to_rows([dict(item, currency=currency)])
+            assert rejected.value.code == "invalid_cash_transaction_currency", kind
 
 
 def test_cash_mapping_rejects_conflicting_references():

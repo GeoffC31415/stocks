@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 DIAGNOSTIC_CODES = frozenset(
     {
         "account_summary_forbidden",
+        "invalid_cash_transfer_amount",
         "cash_history_conflict",
         "cash_history_source_conflict",
         "cash_pagination_limit",
@@ -40,11 +41,15 @@ DIAGNOSTIC_CODES = frozenset(
         "invalid_cash_pagination",
         "invalid_cash_transaction",
         "invalid_cash_transaction_date",
+        "invalid_cash_transaction_reference",
+        "invalid_cash_transaction_amount",
+        "invalid_cash_transaction_currency",
         "invalid_cash_values",
         "invalid_closure_allowlist",
         "invalid_data",
         "invalid_json_response",
         "invalid_order_fill_date",
+        "invalid_order_fill_type",
         "invalid_order_fill_name",
         "invalid_order_fill_side",
         "invalid_order_fill_quantity",
@@ -79,6 +84,7 @@ DIAGNOSTIC_PHASES = frozenset({"fetch", "import", "commit", "setup", "deadline",
 # Reviewed prose only: never interpolate rejected values or exception text.
 DIAGNOSTIC_REASONS = {
     "account_summary_forbidden": "Account summary access was denied; required cash data could not be verified.",
+    "invalid_cash_transfer_amount": "Cash TRANSFER amount is missing, nonfinite or zero.",
     "cash_history_conflict": "Cash history is missing or changes previously imported events.",
     "cash_history_source_conflict": "Retained cash history belongs to a different import source.",
     "cash_pagination_limit": "Cash history pagination reached its safety limit.",
@@ -91,11 +97,15 @@ DIAGNOSTIC_REASONS = {
     "invalid_cash_pagination": "Cash history pagination failed safety validation.",
     "invalid_cash_transaction": "Cash transaction fields failed validation.",
     "invalid_cash_transaction_date": "Cash transaction date is missing or invalid.",
+    "invalid_cash_transaction_reference": "Cash transaction reference is missing or invalid.",
+    "invalid_cash_transaction_amount": "Cash transaction amount is missing, nonfinite, zero funding or inconsistent with its type.",
+    "invalid_cash_transaction_currency": "Cash transaction currency is missing or is not GBP.",
     "invalid_cash_values": "Required cash values are missing or invalid.",
     "invalid_closure_allowlist": "Reviewed closure list is invalid.",
     "invalid_data": "Provider data failed validation; no field-specific reason is available.",
     "invalid_json_response": "Provider response is not valid JSON.",
     "invalid_order_fill_date": "Order fill date is missing or invalid.",
+    "invalid_order_fill_type": "Order fill type is missing or is not a documented fill category.",
     "invalid_order_fill_name": "Order fill instrument name is missing or invalid.",
     "invalid_order_fill_side": "Order fill side is not BUY or SELL.",
     "invalid_order_fill_quantity": "Order fill quantity is missing, invalid, zero or inconsistent with its side.",
@@ -258,8 +268,13 @@ class Trading212Client:
             raise Trading212DataError(
                 "Trading 212 returned an invalid pagination path.", code="invalid_order_pagination"
             )
-        expected_query = f"cursor={cursor}&limit={limit}" if continuation else f"limit={limit}"
-        if parsed.query != expected_query:
+        # The documented example puts limit first; accept only these two literal
+        # permutations, not arbitrary decoded/normalized query equivalents.
+        expected_queries = (
+            {f"cursor={cursor}&limit={limit}", f"limit={limit}&cursor={cursor}"}
+            if continuation else {f"limit={limit}"}
+        )
+        if parsed.query not in expected_queries:
             raise Trading212DataError(
                 "Trading 212 returned an invalid pagination path.", code="invalid_order_pagination"
             )
@@ -704,7 +719,7 @@ class CashFlowRow:
 
 
 def transactions_to_rows(items: Iterable[Mapping[str, Any]]) -> list[CashFlowRow]:
-    """Only explicit funding events are external; trading/income is internal."""
+    """Account-scoped funding includes signed cash transfers; income is internal."""
     rows: dict[str, CashFlowRow] = {}
     seen: dict[str, tuple[str, dt.datetime, float, str]] = {}
     for item in items:
@@ -713,9 +728,9 @@ def transactions_to_rows(items: Iterable[Mapping[str, Any]]) -> list[CashFlowRow
                 "Trading 212 returned an invalid cash transaction.", code="invalid_cash_transaction"
             )
         kind = item.get("type")
-        if kind not in ("DEPOSIT", "WITHDRAW", "FEE", "INTEREST_ON_FREE_CASH", "LENDING_INTEREST"):
+        if kind not in ("DEPOSIT", "WITHDRAW", "TRANSFER", "FEE", "INTEREST_ON_FREE_CASH", "LENDING_INTEREST"):
             raise Trading212DataError(
-                "Trading 212 returned an unsupported cash transaction type; transfers need manual classification.",
+                "Trading 212 returned an unsupported cash transaction type.",
                 code="unsupported_cash_transaction_type",
             )
         reference = item.get("reference")
@@ -738,15 +753,35 @@ def transactions_to_rows(items: Iterable[Mapping[str, Any]]) -> list[CashFlowRow
             or not reference
             or reference != reference.strip()
             or len(reference) > 512
-            or occurred_at.tzinfo is None
-            or amount is None
+        ):
+            raise Trading212DataError(
+                "Trading 212 returned an invalid cash transaction reference.",
+                code="invalid_cash_transaction_reference",
+            )
+        if occurred_at.tzinfo is None:
+            raise Trading212DataError(
+                "Trading 212 returned an invalid cash transaction date.",
+                code="invalid_cash_transaction_date",
+            )
+        if kind == "TRANSFER" and (amount is None or amount == 0):
+            raise Trading212DataError(
+                "Trading 212 returned an invalid cash transfer amount.",
+                code="invalid_cash_transfer_amount",
+            )
+        if (
+            amount is None
             or (kind in ("DEPOSIT", "WITHDRAW") and amount == 0)
             or (kind == "DEPOSIT" and amount < 0)
         ):
             raise Trading212DataError(
-                "Trading 212 returned an invalid cash transaction.", code="invalid_cash_transaction"
+                "Trading 212 returned an invalid cash transaction amount.",
+                code="invalid_cash_transaction_amount",
             )
-        _require_gbp(item.get("currency"))
+        if str(item.get("currency") or "").upper() != "GBP":
+            raise Trading212CurrencyError(
+                "Trading 212 cash transaction currency must be GBP.",
+                code="invalid_cash_transaction_currency",
+            )
         occurred_at = occurred_at.astimezone(dt.UTC)
         identity = (kind, occurred_at, amount, item["currency"])
         if reference in seen and seen[reference] != identity:
@@ -755,7 +790,11 @@ def transactions_to_rows(items: Iterable[Mapping[str, Any]]) -> list[CashFlowRow
                 code="cash_reference_conflict",
             )
         seen[reference] = identity
-        if kind in ("DEPOSIT", "WITHDRAW"):
+        if kind == "TRANSFER":
+            # Observed cash-ledger transfers cross this account's boundary.
+            # Preserve the signed leg; do not infer or invent a destination.
+            rows[reference] = CashFlowRow(reference, occurred_at, amount)
+        elif kind in ("DEPOSIT", "WITHDRAW"):
             rows[reference] = CashFlowRow(
                 reference, occurred_at, abs(amount) * (1 if kind == "DEPOSIT" else -1)
             )
@@ -767,7 +806,7 @@ def _number(value: Any) -> float | None:
         return None
     try:
         parsed = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return parsed if math.isfinite(parsed) else None
 
@@ -887,6 +926,15 @@ def _parse_datetime(value: Any) -> dt.datetime | None:
     return parsed.astimezone(dt.UTC)
 
 
+# Official Fill.type enum. Non-TRADE events remain deliberately unmodelled;
+# recognising a category is not evidence of corporate-action ledger support.
+DOCUMENTED_FILL_TYPES = frozenset({
+    "TRADE", "STOCK_SPLIT", "STOCK_DISTRIBUTION", "FOP", "FOP_CORRECTION",
+    "CUSTOM_STOCK_DISTRIBUTION", "EQUITY_RIGHTS", "SCRIP_STOCK_DIVIDENDS",
+    "STOCK_DIVIDENDS", "STOCK_ACQUISITION", "CASH_AND_STOCK_ACQUISITION", "SPIN_OFF",
+})
+
+
 def historical_orders_to_rows(
     items: Iterable[Mapping[str, Any]],
     *,
@@ -896,7 +944,13 @@ def historical_orders_to_rows(
     for item in items:
         fill = item.get("fill") or {}
         order = item.get("order") or {}
-        if fill.get("type") != "TRADE":
+        kind = fill.get("type")
+        if type(kind) is not str or kind not in DOCUMENTED_FILL_TYPES:
+            raise Trading212DataError(
+                "Trading 212 returned an undocumented order fill type.",
+                code="invalid_order_fill_type",
+            )
+        if kind != "TRADE":
             continue
         wallet = fill.get("walletImpact") or {}
         _require_gbp(wallet.get("currency"))

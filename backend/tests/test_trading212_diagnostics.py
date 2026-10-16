@@ -10,7 +10,7 @@ from pydantic import SecretStr
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models import Base, ImportBatch, OrderImportBatch
+from app.models import Base, CashFlowCoverage, ExternalCashFlow, ImportBatch, OrderImportBatch
 from app.routers import trading212 as router
 from app.services import sync_runner as runner
 from app.services import trading212 as service
@@ -111,6 +111,45 @@ async def test_unsupported_cash_type_is_correlated_without_payload(
     assert "unsupported_cash_transaction_type" not in json.dumps(public)
     assert await db.scalar(select(func.count()).select_from(ImportBatch)) == 0
     assert await db.scalar(select(func.count()).select_from(OrderImportBatch)) == 0
+
+
+@pytest.mark.parametrize(("kind", "field", "value", "code"), [
+    ("TRANSFER", "amount", "PRIVATE_AMOUNT_SENTINEL", "invalid_cash_transfer_amount"),
+    ("DEPOSIT", "type", "PRIVATE_TYPE_SENTINEL", "unsupported_cash_transaction_type"),
+    ("DEPOSIT", "reference", " PRIVATE_REFERENCE_SENTINEL ", "invalid_cash_transaction_reference"),
+    ("DEPOSIT", "amount", "PRIVATE_AMOUNT_SENTINEL", "invalid_cash_transaction_amount"),
+    ("DEPOSIT", "dateTime", "PRIVATE_DATE_SENTINEL", "invalid_cash_transaction_date"),
+    ("DEPOSIT", "dateTime", "2026-01-01", "invalid_cash_transaction_date"),
+    ("DEPOSIT", "currency", "PRIVATE_CURRENCY_SENTINEL", "invalid_cash_transaction_currency"),
+])
+async def test_cash_field_rejections_have_safe_journal_only_reasons(
+    db, tmp_path, monkeypatch, caplog, kind, field, value, code,
+):
+    class CashReader(Reader):
+        async def fetch_transactions(self):
+            item = {
+                "type": kind, "reference": "PRIVATE_REFERENCE_SENTINEL",
+                "amount": 10, "dateTime": "2026-01-01T12:00:00Z", "currency": "GBP",
+            }
+            item[field] = value
+            return [{
+                "type": "TRANSFER", "reference": "PRIVATE_VALID_REFERENCE_SENTINEL",
+                "amount": -1, "dateTime": "2026-01-01T12:00:00Z", "currency": "GBP",
+            }, item]
+
+    report = await run(db, tmp_path, monkeypatch, CashReader())
+    assert report.steps[-1].status == "failed"
+    assert f"code={code} endpoint=transactions phase=import" in caplog.text
+    assert f'reason="{service.DIAGNOSTIC_REASONS[code]}"' in caplog.text
+    assert "PRIVATE_" not in caplog.text
+    assert "2026-01-01" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+    public = json.loads((tmp_path / "public/last-sync.json").read_text())
+    assert code not in json.dumps(public)
+    assert "PRIVATE_" not in json.dumps(public)
+    await db.commit()
+    for model in (ImportBatch, OrderImportBatch, ExternalCashFlow, CashFlowCoverage):
+        assert await db.scalar(select(func.count()).select_from(model)) == 0
 
 
 @pytest.mark.parametrize(
@@ -221,7 +260,7 @@ async def test_known_provider_failures_have_distinct_safe_codes(
     assert all(record.exc_info is None for record in caplog.records)
 
 
-@pytest.mark.parametrize("field", ["date", "name", "side", "quantity", "value", "id"])
+@pytest.mark.parametrize("field", ["date", "name", "side", "quantity", "value", "id", "type"])
 async def test_order_fill_field_diagnostics_are_private_safe(
     db, tmp_path, monkeypatch, caplog, field,
 ):
@@ -243,6 +282,8 @@ async def test_order_fill_field_diagnostics_are_private_safe(
         item["fill"]["quantity"] = "PRIVATE_QUANTITY_SENTINEL"
     elif field == "value":
         item["fill"]["walletImpact"]["netValue"] = "PRIVATE_VALUE_SENTINEL"
+    elif field == "type":
+        item["fill"]["type"] = "PRIVATE_TYPE_SENTINEL"
     else:
         item["fill"]["id"] = ["PRIVATE_ID_SENTINEL"]
     defaults = {
@@ -267,6 +308,7 @@ async def test_order_fill_field_diagnostics_are_private_safe(
         "quantity": "Order fill quantity is missing, invalid, zero or inconsistent with its side.",
         "value": "Order fill net value is missing or invalid.",
         "id": "Order fill identifier is missing or invalid.",
+        "type": "Order fill type is missing or is not a documented fill category.",
     }
     assert f'reason="{expected[field]}"' in caplog.text
     assert 'stage="Validating and importing data" resource="Order fill history"' in caplog.text

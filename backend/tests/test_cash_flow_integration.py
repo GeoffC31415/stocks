@@ -51,13 +51,13 @@ async def session():
     await engine.dispose()
 
 
-async def seed(session, account=ACCOUNT, with_orders=True):
+async def seed(session, account=ACCOUNT, with_orders=True, closing_value=1450):
     instrument = Instrument(
         account_name=account, identifier="TEST", security_name="Test", is_cash=False
     )
     session.add(instrument)
     await session.flush()
-    for date, value in [(dt.date(2026, 9, 1), 1000), (dt.date(2026, 9, 8), 1450)]:
+    for date, value in [(dt.date(2026, 9, 1), 1000), (dt.date(2026, 9, 8), closing_value)]:
         batch = ImportBatch(as_of_date=date, file_sha256=f"{account}-{date}")
         session.add(batch)
         await session.flush()
@@ -90,6 +90,56 @@ async def seed(session, account=ACCOUNT, with_orders=True):
                 )
             )
     await session.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transfer", [-450, 450])
+async def test_account_scoped_transfer_is_not_investment_loss_or_gain(session, transfer):
+    # Negative leg models Invest -> out-of-scope CFD. No destination holdings or
+    # orders are invented. Positive leg independently exercises an inbound movement.
+    account = "Synthetic Invest"
+    await seed(session, account=account, with_orders=False, closing_value=1000 + transfer)
+    client = CashClient([
+        event("synthetic-opening", "DEPOSIT", 1000, "2026-09-01"),
+        event("synthetic-transfer", "TRANSFER", transfer, "2026-09-04"),
+    ])
+    assert (await trading212.sync_cash_history(session, client, account_name=account))["imported_count"] == 2
+    assert (await trading212.sync_cash_history(session, client, account_name=account))["imported_count"] == 0
+    performance = await get_portfolio_performance(session, account_name=account)
+    returns = await get_portfolio_return_summary(session, account_name=account)
+    attribution = await get_snapshot_attribution(session, account_name=account)
+    for result in (performance["flow_adjusted"], returns, attribution):
+        assert result["net_external_flow_gbp"] == transfer
+        assert result["contributions_gbp"] == max(transfer, 0)
+        assert result["withdrawals_gbp"] == max(-transfer, 0)
+    assert returns["absolute_gain_after_flows_gbp"] == 0
+    assert returns["modified_dietz_return_pct"] == 0
+    assert performance["flow_adjusted"]["total_return_pct"] == 0
+    assert attribution["residual_market_movement_gbp"] == 0
+    assert set((await session.scalars(select(Instrument.account_name))).all()) == {account}
+    assert await session.scalar(select(func.count()).select_from(Order)) == 0
+
+
+@pytest.mark.asyncio
+async def test_transfer_legs_cancel_only_when_both_generic_accounts_are_in_scope(session):
+    # Generic supported accounts; this does not assert CFD API support.
+    for account, transfer in (("Synthetic A", -450), ("Synthetic B", 450)):
+        await seed(session, account=account, with_orders=False, closing_value=1000 + transfer)
+        await trading212.sync_cash_history(session, CashClient([
+            event("synthetic-opening", "DEPOSIT", 1000, "2026-09-01"),
+            event("synthetic-transfer", "TRANSFER", transfer, "2026-09-04"),
+        ]), account_name=account)
+    performance = await get_portfolio_performance(session)
+    returns = await get_portfolio_return_summary(session)
+    attribution = await get_snapshot_attribution(session)
+    for result in (performance["flow_adjusted"], returns, attribution):
+        assert result["net_external_flow_gbp"] == 0
+        assert result["contributions_gbp"] == 450
+        assert result["withdrawals_gbp"] == 450
+    assert returns["absolute_gain_after_flows_gbp"] == 0
+    assert returns["modified_dietz_return_pct"] == 0
+    assert performance["flow_adjusted"]["total_return_pct"] == 0
+    assert attribution["residual_market_movement_gbp"] == 0
 
 
 @pytest.mark.asyncio

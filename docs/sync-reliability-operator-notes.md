@@ -66,6 +66,76 @@ bodies/URLs, credentials and tracebacks are not logged. Owner rollback remains b
 diagnostics. These explanations are **journal-only**: public status still suppresses
 step detail and diagnostic codes; the public scrubber and API error responses are
 unchanged. Use the worker invocation ID to correlate a failure with its journal line.
+No item index or provider-derived category metadata is added: only source-owned,
+sink-allowlisted codes and fixed explanations cross the diagnostic boundary.
+
+### Trading 212 cash and fill contract
+
+The [official API schema](https://docs.trading212.com/api/) documents these cash types:
+
+| Cash type | Handling |
+| --- | --- |
+| `DEPOSIT` | Positive finite nonzero external funding. |
+| `WITHDRAW` | Either finite nonzero sign accepted; external outflow is `-abs(amount)`. |
+| `FEE` | Validated internal event; no external funding row. |
+| `INTEREST_ON_FREE_CASH` | Validated internal event; no external funding row. |
+| `LENDING_INTEREST` | Validated internal event; no external funding row. |
+| `TRANSFER` | Signed finite nonzero external cash movement for the observed account: negative outflow, positive inflow, preserving amount's sign. |
+| Missing/unknown type | Reject with `unsupported_cash_transaction_type`; no speculative aliases. |
+
+All classified events require a timezone-bearing date, nonblank unpadded reference,
+finite amount and GBP currency, including internal events. Internal zero amounts are
+allowed; funding zeroes and negative deposits are refused. Exact duplicate references
+are deduplicated; conflicting reference evidence is refused. Field failures use
+`invalid_cash_transaction_reference`, `_date`, `_amount` or `_currency`; malformed
+items use `invalid_cash_transaction`; invalid transfer amounts have the distinct
+`invalid_cash_transfer_amount` code. Cross-refresh consistency checks cover retained
+external funding events; internal fee/interest events are validated on each fetch
+but are not retained for historical comparison. Failure rolls back the complete
+sync, not only the offending section.
+
+The cash-ledger TRANSFER policy is grounded in an observed negative event confirmed
+as Invest -> CFD: cash left the observed Invest account. CFD is outside this equity
+API portfolio scope; never invent its holdings, orders or a corresponding incoming
+cash leg. The observed account movement is funding, not investment loss. Positive
+transfers are account inflows, not investment gains. Opposite legs cancel aggregate
+funding only when both accounts and both actual legs are independently in scope.
+This account-scoped policy is not a guarantee about every future provider subtype
+or a classification of within-account Pie reallocations. Unknown types remain
+fail-closed; no spelling aliases or broad provider-wide completeness claims are made.
+
+| Fill type | Handling |
+| --- | --- |
+| `TRADE` | Import validated execution; BUY quantity must be positive, SELL accepts either nonzero sign and stores magnitude. |
+| `STOCK_SPLIT`, `STOCK_DISTRIBUTION`, `FOP`, `FOP_CORRECTION`, `CUSTOM_STOCK_DISTRIBUTION`, `EQUITY_RIGHTS`, `SCRIP_STOCK_DIVIDENDS`, `STOCK_DIVIDENDS`, `STOCK_ACQUISITION`, `CASH_AND_STOCK_ACQUISITION`, `SPIN_OFF` | Recognised and skipped, preserving existing behaviour; never fabricated as trades. |
+| Missing/unknown fill type | Reject with `invalid_order_fill_type`. |
+
+Recognition of all 12 fill categories does not implement a corporate-action ledger or
+validate skipped event economics. Fill trade side, quantity, date, instrument name,
+identifier, net value and wallet currency remain required. Order origin, status,
+strategy, order type, time validity and fill trading method do not determine whether
+an actual validated trade fill is imported. Order pagination accepts only canonical
+`cursor=123&limit=50` or `limit=50&cursor=123` parameter order, with existing path,
+host, unique-key, numeric-bound and encoding checks retained.
+
+### Journal troubleshooting (read-only)
+
+Select the unit that actually ran; general and dedicated workers have separate reports:
+
+```sh
+journalctl -u stocks-t212-sync.service -n 80 --no-pager -o cat
+journalctl -u stocks-sync.service -n 80 --no-pager -o cat
+# Copy the exact invocation ID from the matching failure/report, never a credential:
+journalctl _SYSTEMD_INVOCATION_ID=EXACT_INVOCATION_ID --no-pager -o cat
+```
+
+The failure line discloses only validated code/endpoint/phase, HTTP status when known,
+invocation correlation and reviewed prose. It does not disclose the rejected type
+value (even for unknown types), dates, amounts, references, holdings, account identity,
+provider payloads, URLs, exceptions or traceback. The fixed invalid TRANSFER amount
+reason names a source-owned category, not an arbitrary echoed provider string. Public status
+continues to omit these diagnostic details. Journal access may require the operator's
+normal approved permissions; do not read credential files or enable HTTP debug logs.
 
 ## Development checks and isolated previews
 

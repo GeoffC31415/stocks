@@ -206,10 +206,18 @@ async def test_successful_sync_commits_all_data_once_and_repeats_idempotently(sy
                     "amount": 10,
                     "currency": "GBP",
                     "dateTime": "2020-01-01T09:00:00Z",
-                }
+                },
+                {
+                    "reference": "synthetic-transfer-out", "type": "TRANSFER", "amount": -2,
+                    "currency": "GBP", "dateTime": "2020-01-01T09:30:00Z",
+                },
+                {
+                    "reference": "synthetic-transfer-in", "type": "TRANSFER", "amount": 3,
+                    "currency": "GBP", "dateTime": "2020-01-01T09:45:00Z",
+                },
             ]
 
-    for expected_snapshot, expected_cash in [("imported", 1), ("unchanged", 0)]:
+    for expected_snapshot, expected_cash in [("imported", 3), ("unchanged", 0)]:
         commits.clear()
         async with sessions() as session:
             result = await trading212.sync_trading212_all(
@@ -229,10 +237,15 @@ async def test_successful_sync_commits_all_data_once_and_repeats_idempotently(sy
                 (Instrument, 2),
                 (HoldingSnapshot, 2),
                 (Order, 1),
-                (ExternalCashFlow, 1),
+                (ExternalCashFlow, 3),
                 (CashFlowCoverage, 1),
             ]:
                 assert await check.scalar(select(func.count()).select_from(model)) == expected_count
+            assert dict((await check.execute(select(
+                ExternalCashFlow.reference, ExternalCashFlow.amount_gbp,
+            ))).all()) == {
+                "test-deposit": 10, "synthetic-transfer-out": -2, "synthetic-transfer-in": 3,
+            }
 
 
 @pytest.mark.asyncio
