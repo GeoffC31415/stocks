@@ -2,24 +2,27 @@
 
 import datetime as dt
 
-import httpx
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-from app.database import get_session
-from app.main import app
-from app.models import (
-    Base,
-    HoldingSnapshot,
-    ImportBatch,
-    Instrument,
-    InstrumentGroup,
-    InstrumentGroupMember,
-)
 
 
 @pytest.fixture
 async def target_db():
+    # Pure parser/service collections must not import the entire ASGI app.
+    # This fixture alone needs its routers, database dependency and seed models.
+    import httpx
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.database import get_session
+    from app.main import app
+    from app.models import (
+        Base,
+        HoldingSnapshot,
+        ImportBatch,
+        Instrument,
+        InstrumentGroup,
+        InstrumentGroupMember,
+    )
+
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

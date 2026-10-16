@@ -6,6 +6,7 @@ import datetime as dt
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 from test_gate_a_trading212 import Reader
 
 from app.models import Base, ImportBatch, Order
@@ -30,8 +31,7 @@ async def test_cancelled_final_cash_cannot_survive_owner_commit(tmp_path, monkey
         monkeypatch.setattr(sync_runner, "FETCH_TIMEOUT_SECONDS", 0.1)
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'disposable.db'}")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine, expire_on_commit=False)() as owner:
             if runner:
                 task = asyncio.create_task(
@@ -360,8 +360,7 @@ async def test_closure_cli_preview_then_explicit_apply_on_disposable_database(
     database = tmp_path / database_name
     engine = create_async_engine(URL.create("sqlite+aiosqlite", database=str(database)))
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             batch, _ = await sync_portfolio_snapshot(session, Reader(), account_name="Trading 212")
             reader = Reader()
@@ -520,8 +519,7 @@ async def test_latest_observation_dedupe_allows_a_b_a_then_unchanged(tmp_path, p
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'sequence.db'}")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             for index, cash in enumerate([25, 26, 25, 25]):
                 if provider == "trading212":

@@ -25,16 +25,22 @@ def forbid_production_database(monkeypatch):
     monkeypatch.setattr(main, "init_db", forbidden_migration)
 
 
-@pytest.fixture
-def public_config(tmp_path):
+@pytest.fixture(scope="module")
+def public_password_hash():
+    """Reuse only synthetic setup data; authentication still verifies real scrypt."""
     from app.security import hash_password
 
+    return hash_password("test-password")
+
+
+@pytest.fixture
+def public_config(tmp_path, public_password_hash):
     return Settings(
         _env_file=None,
         deployment_mode="public",
         public_origin="https://example.test",
         auth_username="owner",
-        auth_password_hash=hash_password("test-password"),
+        auth_password_hash=public_password_hash,
         frontend_dist=tmp_path / "not-built",
     )
 
@@ -657,9 +663,10 @@ async def test_spa_assets_require_auth_and_fetches_do_not_fallback(spa_app):
     ],
 )
 @pytest.mark.asyncio
-async def test_public_startup_fails_before_database_for_invalid_config(overrides, monkeypatch):
+async def test_public_startup_fails_before_database_for_invalid_config(
+    overrides, monkeypatch, public_password_hash
+):
     import app.main as main
-    from app.security import hash_password
 
     assert callable(getattr(main, "create_app", None)), "isolated app factory missing"
     values = {"deployment_mode": "public"}
@@ -667,7 +674,7 @@ async def test_public_startup_fails_before_database_for_invalid_config(overrides
         values.update(
             public_origin="https://example.test",
             auth_username="owner",
-            auth_password_hash=hash_password("test-password"),
+            auth_password_hash=public_password_hash,
         )
         values.update(overrides)
     config = Settings(_env_file=None, **values)

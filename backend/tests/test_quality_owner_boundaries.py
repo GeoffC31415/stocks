@@ -7,9 +7,10 @@ import json
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 from test_gate_a_trading212 import Reader
 
-from app.models import Base, ImportBatch, Instrument
+from app.models import ImportBatch, Instrument
 from app.services.closure_review import review_closure_observation
 from app.services.trading212 import Trading212DataError, sync_portfolio_snapshot
 
@@ -25,8 +26,7 @@ async def test_closure_binds_ingestion_and_retained_valuation(tmp_path, apply, c
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'synthetic.db'}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with factory() as owner:
             retained, _ = await sync_portfolio_snapshot(owner, Reader(), account_name="Trading 212")
             retained.as_of_date = dt.date(2026, 1, 1)
@@ -174,8 +174,7 @@ async def test_hl_owner_pin_is_explicit_and_immutable(tmp_path, case):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'synthetic-hl.db'}")
     factory = async_sessionmaker(engine, expire_on_commit=False)
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with factory() as owner:
             if case == "verified_alias":
                 owner.add(

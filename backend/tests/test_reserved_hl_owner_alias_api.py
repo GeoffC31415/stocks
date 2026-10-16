@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 from test_gate_a_hl_pair import ACTIVITY, HOLDINGS, enroll_synthetic_hl_owner
 
 from app.database import get_session
@@ -37,8 +38,7 @@ async def synthetic_api(tmp_path):
             yield session
 
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         app.dependency_overrides[get_session] = isolated_session
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://synthetic"

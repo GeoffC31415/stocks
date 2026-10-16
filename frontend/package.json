@@ -8,6 +8,10 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
+    "test:fast": "vitest run src/__tests__/routing.test.ts src/components/__tests__/holdingSignals.test.ts src/lib/__tests__/allocationApi.test.ts src/lib/__tests__/chartTheme.test.ts src/lib/__tests__/formatters.test.ts src/lib/__tests__/groupScope.test.ts src/lib/__tests__/holdingsView.test.ts src/lib/__tests__/instrumentBuyMarkers.test.ts src/lib/__tests__/investigationLinks.test.ts src/lib/__tests__/orderPageApi.test.ts src/lib/__tests__/performanceChart.test.ts src/routes/__tests__/cgtPresentation.test.ts",
+    "test:run": "vitest run",
+    "test:watch": "vitest watch",
+    "test:isolation": "vitest run src/test/isolation --maxWorkers=1",
     "preview": "vite preview"
   },
   "dependencies": {

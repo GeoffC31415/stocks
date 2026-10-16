@@ -8,9 +8,9 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
 from app.models import (
-    Base,
     CashFlowCoverage,
     ExternalCashFlow,
     HoldingSnapshot,
@@ -63,8 +63,7 @@ async def sync_database(tmp_path, monkeypatch):
         cursor.execute("PRAGMA busy_timeout=100")
         cursor.close()
 
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     try:
         yield engine, async_sessionmaker(engine, expire_on_commit=False)
     finally:

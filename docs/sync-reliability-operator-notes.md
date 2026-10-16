@@ -139,6 +139,64 @@ normal approved permissions; do not read credential files or enable HTTP debug l
 
 ## Development checks and isolated previews
 
+### Fast feedback versus full acceptance
+
+`make test` (also `make test-fast`) is the **default fast development subset**.
+It runs core broker cash/order mappings, account funding/performance, normal sales
+and atomic rollback checks, plus DOM-free frontend routing/chart/formatting/filter
+logic. It deliberately omits full DOM rendering, auth/passkey capacity, migration,
+worker-diagnostic and broader end-to-end matrices. Add the directly affected tests
+when changing those areas. It is fast feedback for routine edits/pushes, **not** a
+claim that all regressions have been checked. Typecheck/build are not repeated on
+every edit; run them when their changed inputs warrant it.
+
+`make test-full` runs **all** backend and frontend tests with bounded concurrency;
+use it when comprehensive acceptance is requested or the change warrants it, not
+as a compulsory repeat on every routine push. Set
+`PYTHON=/absolute/path/to/the/existing/.venv/bin/python` in isolated worktrees
+without their own virtualenv. `make test-backend` and `make test-frontend` run the
+complete suites separately; `TEST_JOBS=1` selects serial backend execution.
+`scripts/test_backend.py` first collects the full backend suite, then launches each
+shard through the safe synthetic bootstrap. It refuses success unless the resulting
+JUnit node multiset exactly matches fresh collection. Its private output directory
+contains logs, XML, a summary and optional `timings.json` scheduling hints. Passing
+`TEST_TIMINGS=/absolute/path/to/timings.json` changes balancing only, never coverage.
+No previous result can skip a test. Frontend forks retain per-file isolation; unsafe
+single-worker VM batching is not used. Typecheck and a private build remain separate
+acceptance steps, and the home release script's full checks remain mandatory.
+
+Run the affected files/node IDs during edits, then their integration boundaries.
+For example, a Trading 212 cash change needs parser, transactional import and
+worker-diagnostic checks together:
+
+```sh
+/home/geoff/code/stocks/.venv/bin/python scripts/test_t212_synthetic.py \
+  backend/tests/test_trading212_cash.py \
+  backend/tests/test_trading212_transactions.py \
+  backend/tests/test_trading212_diagnostics.py -q
+npm --prefix frontend test -- --run src/components/__tests__/ImportPanel.test.tsx
+```
+
+Use Vitest watch mode on the relevant files for repeated frontend edits. Dependency-
+selected `related` runs are development feedback, not proof of release coverage;
+explicitly include shared auth/API/cache/routing boundaries when relevant. Reserve
+full suites, typecheck and isolated builds for explicit comprehensive verification
+or changes that warrant those gates; routine pushes use the fast subset and affected
+tests. Do not run a fresh dependency installation/release preparation on every edit,
+and do not repeat unchanged full gates merely because a tested tree was
+committed or fast-forwarded. Reuse evidence only when all tested source, tests,
+configuration, lockfiles and toolchain inputs are unchanged; invalidate it after
+behaviour or test changes. Keep provenance and complete release checks intact.
+
+Profile rather than deleting assertions by count: backend `--durations=30` reports
+call/setup costs; `--junitxml=/absolute/private/scratch/backend.xml` retains per-case
+and per-file timings. Vitest's JSON reporter retains assertion durations; its normal
+summary separates environment/import/setup/test costs. Record wall time and toolchain,
+run comparable benchmarks serially, and keep machine-specific reports outside Git.
+A development test timing is not an activation/rehearsal measurement. The home release
+script still performs fresh frontend checks and package validation; do not bypass it
+or weaken immutable-source, runtime, rehearsal or rollback safeguards for speed.
+
 Use an isolated checkout without `.env` or `backend/.env`, existing dependencies and
 private scratch output. Never launch normal app lifespan against live data or overwrite
 served `frontend/dist`. From that worktree root:
