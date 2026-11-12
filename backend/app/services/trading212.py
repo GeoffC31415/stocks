@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import json
 import math
+import re
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -434,15 +435,25 @@ class Trading212Client:
     _MAX_TRANSACTION_PAGES = 1000
 
     def _validate_transactions_path(self, path: str, *, continuation: bool) -> None:
+        # Reject raw controls before urlsplit can silently remove LF, CR or TAB.
+        if any(ord(c) < 32 or ord(c) == 127 for c in path):
+            raise Trading212DataError(
+                "Trading 212 returned an invalid cash pagination path.",
+                code="invalid_cash_pagination",
+            )
         parsed = urlsplit(path)
         query = parse_qs(parsed.query, keep_blank_values=True)
+        allowed_keys = (
+            ({"cursor", "limit"}, {"cursor", "limit", "time"})
+            if continuation else ({"limit"},)
+        )
         if (
             not path.startswith(self._TRANSACTIONS_PATH + "?")
             or parsed.scheme
             or parsed.netloc
             or parsed.path != self._TRANSACTIONS_PATH
             or "#" in path
-            or set(query) != ({"cursor", "limit"} if continuation else {"limit"})
+            or set(query) not in allowed_keys
             or any(len(v) != 1 for v in query.values())
         ):
             raise Trading212DataError(
@@ -462,6 +473,23 @@ class Trading212Client:
                 "Trading 212 returned an invalid cash pagination path.",
                 code="invalid_cash_pagination",
             )
+        if "time" in query:
+            # The broker continuation may include its documented RFC3339 filter.
+            # Validate it, but follow the original path without rewriting its cutoff.
+            timestamp = query["time"][0]
+            try:
+                if re.fullmatch(
+                    r"[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}"
+                    r"(?:\.[0-9]+)?(?:[Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
+                    timestamp,
+                ) is None:
+                    raise ValueError
+                dt.datetime.fromisoformat(timestamp.upper().replace("Z", "+00:00"))
+            except ValueError:
+                raise Trading212DataError(
+                    "Trading 212 returned an invalid cash pagination path.",
+                    code="invalid_cash_pagination",
+                ) from None
 
     async def fetch_transactions(self) -> list[Mapping[str, Any]]:
         path = f"{self._TRANSACTIONS_PATH}?limit=50"

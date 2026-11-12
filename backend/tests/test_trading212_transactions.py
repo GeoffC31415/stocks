@@ -216,6 +216,40 @@ async def test_successful_sync_commits_all_data_once_and_repeats_idempotently(sy
                 },
             ]
 
+    from app.services.trading212 import Trading212Client
+
+    reader = CompleteReader()
+    payloads = {
+        "/api/v0/equity/positions": await reader.fetch_positions(),
+        "/api/v0/equity/account/summary": await reader.fetch_account_summary(),
+        "/api/v0/equity/history/orders": {
+            "items": await reader.fetch_historical_orders(), "nextPagePath": None,
+        },
+    }
+    cash = await reader.fetch_transactions()
+    next_path = (
+        "/api/v0/equity/history/transactions?cursor=synthetic-next&limit=50"
+        "&time=2020-01-01T09%3A45%3A00Z"
+    )
+    cash_requests = []
+
+    def transport(request):
+        assert request.method == "GET"
+        if request.url.path == "/api/v0/equity/history/transactions":
+            cash_requests.append(request.url.raw_path.decode())
+            payload = (
+                {"items": cash[2:], "nextPagePath": None}
+                if "cursor" in request.url.params
+                else {"items": cash[:2], "nextPagePath": next_path}
+            )
+        else:
+            payload = payloads[request.url.path]
+        return httpx.Response(200, json=payload)
+
+    client = Trading212Client(
+        api_key="synthetic-key", api_secret="synthetic-secret",
+        transport=httpx.MockTransport(transport), page_delay=0,
+    )
     for expected_snapshot, expected_cash in [("imported", 3), ("unchanged", 0)]:
         commits.clear()
         async with sessions() as session:
@@ -223,7 +257,7 @@ async def test_successful_sync_commits_all_data_once_and_repeats_idempotently(sy
                 force=False,
                 _origin_guard=None,
                 session=session,
-                client=CompleteReader(),
+                client=client,
             )
         assert commits == [True]
         assert result.snapshot == expected_snapshot
@@ -245,6 +279,9 @@ async def test_successful_sync_commits_all_data_once_and_repeats_idempotently(sy
             ))).all()) == {
                 "test-deposit": 10, "synthetic-transfer-out": -2, "synthetic-transfer-in": 3,
             }
+    assert cash_requests == [
+        "/api/v0/equity/history/transactions?limit=50", next_path,
+    ] * 2
 
 
 @pytest.mark.asyncio

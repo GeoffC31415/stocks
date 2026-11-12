@@ -250,6 +250,7 @@ async def test_rejected_complete_sync_never_commits_sale_closures(db, failure):
         cursor = "123" if section == "orders" else "opaque-cursor"
         payloads[f"/api/v0/equity/history/{section}"]["nextPagePath"] = (
             f"/api/v0/equity/history/{section}?cursor={cursor}&limit=50"
+            + ("&time=2026-01-01T12%3A00%3A00Z" if section == "transactions" else "")
         )
     elif failure == "invalid-order":
         items = payloads["/api/v0/equity/history/orders"]["items"]
@@ -262,10 +263,17 @@ async def test_rejected_complete_sync_never_commits_sale_closures(db, failure):
         invalid_fill["fill"].pop("quantity")
         items.extend([valid_sell, invalid_fill])
     else:
-        payloads["/api/v0/equity/history/transactions"]["items"][0]["type"] = "UNKNOWN"
+        payloads["/api/v0/equity/history/transactions"]["nextPagePath"] = (
+            "/api/v0/equity/history/transactions?cursor=opaque-cursor&limit=50"
+            "&time=2026-01-01T12%3A00%3A00Z"
+        )
 
     def transport(request):
         if "cursor" in request.url.params:
+            if failure == "invalid-transaction":
+                return httpx.Response(200, json={
+                    "items": [{"type": "UNKNOWN"}], "nextPagePath": None,
+                })
             return httpx.Response(403)
         return httpx.Response(200, json=payloads[request.url.path])
 

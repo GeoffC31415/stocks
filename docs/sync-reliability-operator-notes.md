@@ -116,7 +116,12 @@ identifier, net value and wallet currency remain required. Order origin, status,
 strategy, order type, time validity and fill trading method do not determine whether
 an actual validated trade fill is imported. Order pagination accepts only canonical
 `cursor=123&limit=50` or `limit=50&cursor=123` parameter order, with existing path,
-host, unique-key, numeric-bound and encoding checks retained.
+host, unique-key, numeric-bound and encoding checks retained. Cash-history
+continuations also accept an optional single timezone-bearing RFC3339 `time` value
+alongside the required cursor and limit. The original validated continuation is
+followed unchanged; missing/duplicate/unknown keys, malformed timestamps, off-endpoint
+paths and external URLs remain refused. Cursor, page-count, cycle, delay and
+whole-operation deadline safeguards are unchanged.
 
 ### Journal troubleshooting (read-only)
 

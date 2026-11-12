@@ -106,7 +106,10 @@ async def test_pagination_and_all_sections_share_one_deadline(endpoint):
             200,
             json={
                 "items": [],
-                "nextPagePath": f"/api/v0/equity/history/{endpoint}?cursor={len(requests)}&limit=50",
+                "nextPagePath": (
+                    f"/api/v0/equity/history/{endpoint}?cursor={len(requests)}&limit=50"
+                    + ("&time=2026-01-01T12%3A00%3A00Z" if endpoint == "transactions" else "")
+                ),
             },
         )
 

@@ -142,8 +142,14 @@ def test_cash_mapping_deduplicates_exact_references_but_not_identical_amounts():
     assert len(rows) == 2
 
 
+@pytest.mark.parametrize("next_path", [
+    "/api/v0/equity/history/transactions?cursor=opaque-123&limit=50",
+    "/api/v0/equity/history/transactions?limit=50&cursor=opaque-123",
+    "/api/v0/equity/history/transactions?cursor=opaque-123&limit=50&time=2026-11-11T12%3A34%3A56.789Z",
+    "/api/v0/equity/history/transactions?time=2026-11-11T12%3A34%3A56%2B01%3A00&limit=50&cursor=opaque-123",
+])
 @pytest.mark.asyncio
-async def test_cash_client_paginates_read_only_with_endpoint_delay():
+async def test_cash_client_paginates_read_only_with_endpoint_delay(next_path):
     calls = []
     delays = []
 
@@ -157,10 +163,9 @@ async def test_cash_client_paginates_read_only_with_endpoint_delay():
         return httpx.Response(
             200,
             json={
-                "items": [transaction(str(len(calls)))],
-                "nextPagePath": "/api/v0/equity/history/transactions?cursor=opaque-123&limit=50"
-                if len(calls) == 1
-                else None,
+                "items": [transaction(f"first-{n}") for n in range(50)]
+                if len(calls) == 1 else [transaction("last")],
+                "nextPagePath": next_path if len(calls) == 1 else None,
             },
         )
 
@@ -170,8 +175,10 @@ async def test_cash_client_paginates_read_only_with_endpoint_delay():
         transport=httpx.MockTransport(handler),
         sleep=sleep,
     )
-    assert len(await client.fetch_transactions()) == 2
+    rows = await client.fetch_transactions()
+    assert [row["reference"] for row in rows] == [f"first-{n}" for n in range(50)] + ["last"]
     assert len(calls) == 2
+    assert calls[1].url.raw_path.decode() == next_path
     assert delays == [10.1]
 
 
@@ -184,11 +191,29 @@ async def test_cash_client_paginates_read_only_with_endpoint_delay():
         "/api/v0/equity/history/transactions?cursor=1&limit=50&limit=50",
         "/api/v0/equity/history/transactions?cursor=1&limit=50&extra=1",
         "/api/v0/equity/history/transactions?cursor=1&limit=50#fragment",
+        "/api/v0/equity/history/transactions?cursor=1&cursor=2&limit=50&time=2026-11-11T12:34:56Z",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-11-11T12:34:56Z&time=2026-11-11T12:34:56Z",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=not-a-date",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-11-11",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-11-11T12:34:56",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-02-30T12:34:56Z",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-11-11T12:34:56%2B25:00",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-11-11T12:34:56%2B00:99",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-11-11T12:34:56+01:00",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-11-11%2012:34:56Z",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-11-11T12:34:5\n6Z",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-11-11T12:34:5\r6Z",
+        "/api/v0/equity/history/transactions?cursor=1&limit=50&time=2026-11-11T12:34:5\t6Z",
     ],
 )
 @pytest.mark.asyncio
 async def test_cash_client_rejects_bad_pagination_before_following(path):
     calls = []
+    delays = []
+
+    async def sleep(delay):
+        delays.append(delay)
 
     def handler(request):
         calls.append(request)
@@ -198,8 +223,10 @@ async def test_cash_client_rejects_bad_pagination_before_following(path):
         api_key="test-key",
         api_secret="test-secret",
         transport=httpx.MockTransport(handler),
-        page_delay=0,
+        sleep=sleep,
     )
-    with pytest.raises(trading212.Trading212DataError):
+    with pytest.raises(trading212.Trading212DataError) as rejected:
         await client.fetch_transactions()
+    assert rejected.value.code == "invalid_cash_pagination"
     assert len(calls) == 1
+    assert delays == []
