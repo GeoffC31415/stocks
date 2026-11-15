@@ -8,7 +8,7 @@ import math
 import re
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from email.utils import parsedate_to_datetime
 from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import parse_qs, urlsplit
@@ -56,6 +56,8 @@ DIAGNOSTIC_CODES = frozenset(
         "invalid_order_fill_quantity",
         "invalid_order_fill_value",
         "invalid_order_fill_id",
+        "invalid_order_fill_identity",
+        "order_fill_identity_conflict",
         "invalid_order_history_response",
         "invalid_order_pagination",
         "invalid_position_identity",
@@ -112,6 +114,8 @@ DIAGNOSTIC_REASONS = {
     "invalid_order_fill_quantity": "Order fill quantity is missing, invalid, zero or inconsistent with its side.",
     "invalid_order_fill_value": "Order fill net value is missing or invalid.",
     "invalid_order_fill_id": "Order fill identifier is missing or invalid.",
+    "invalid_order_fill_identity": "Order fill identity evidence is invalid.",
+    "order_fill_identity_conflict": "Order fill identifier has conflicting trade details in this response.",
     "invalid_order_history_response": "Order history response has an invalid structure.",
     "invalid_order_pagination": "Order history pagination failed safety validation.",
     "invalid_position_identity": "Position identifier or name is missing or invalid, or identifiers are duplicated.",
@@ -987,9 +991,16 @@ def historical_orders_to_rows(
     account_name: str,
 ) -> list[ParsedOrderRow]:
     rows: list[ParsedOrderRow] = []
+    # Scoped to this fully fetched history only; old rows do not retain fill IDs.
+    seen_fills: dict[str, ParsedOrderRow] = {}
+    seen_identity_evidence: dict[str, dict[str, str]] = {}
     for item in items:
-        fill = item.get("fill") or {}
-        order = item.get("order") or {}
+        fill = item.get("fill")
+        if not isinstance(fill, Mapping):
+            raise Trading212DataError(
+                "Trading 212 returned an undocumented order fill type.",
+                code="invalid_order_fill_type",
+            )
         kind = fill.get("type")
         if type(kind) is not str or kind not in DOCUMENTED_FILL_TYPES:
             raise Trading212DataError(
@@ -998,11 +1009,42 @@ def historical_orders_to_rows(
             )
         if kind != "TRADE":
             continue
-        wallet = fill.get("walletImpact") or {}
+        wallet = fill.get("walletImpact")
+        if wallet is None:
+            wallet = {}
+        elif not isinstance(wallet, Mapping):
+            raise Trading212DataError(
+                "Trading 212 returned an invalid order fill value.", code="invalid_order_fill_value"
+            )
         _require_gbp(wallet.get("currency"))
         order_date = _parse_datetime(fill.get("filledAt"))
-        instrument = order.get("instrument") or {}
-        security_name = str(instrument.get("name") or order.get("ticker") or "").strip()
+        order = item.get("order")
+        if order is None:
+            order = {}
+        elif not isinstance(order, Mapping):
+            raise Trading212DataError(
+                "Trading 212 returned invalid order fill identity evidence.",
+                code="invalid_order_fill_identity",
+            )
+        instrument = order.get("instrument")
+        if instrument is None:
+            instrument = {}
+        elif not isinstance(instrument, Mapping):
+            raise Trading212DataError(
+                "Trading 212 returned invalid order fill identity evidence.",
+                code="invalid_order_fill_identity",
+            )
+        name = instrument.get("name")
+        if name is not None and not isinstance(name, str):
+            raise Trading212DataError(
+                "Trading 212 returned an invalid order fill name.", code="invalid_order_fill_name"
+            )
+        ticker = order.get("ticker")
+        if not name and ticker is not None and not isinstance(ticker, str):
+            raise Trading212DataError(
+                "Trading 212 returned an invalid order fill name.", code="invalid_order_fill_name"
+            )
+        security_name = (name or ticker or "").strip()
         side_raw = str(order.get("side") or "").upper()
         quantity = _number(fill.get("quantity"))
         net_value = _number(wallet.get("netValue"))
@@ -1036,18 +1078,64 @@ def historical_orders_to_rows(
             raise Trading212DataError(
                 "Trading 212 returned an invalid order fill id.", code="invalid_order_fill_id"
             )
-        rows.append(
-            ParsedOrderRow(
-                security_name=security_name,
-                order_date=order_date,
-                order_status="Completed",
-                account_name=account_name,
-                side=side_raw.title(),
-                quantity=abs(quantity),
-                cost_proceeds_gbp=abs(net_value),
-                country=None,
-                is_drip=False,
-                source_event_id=str(fill_id).strip(),
-            )
+        source_id = str(fill_id).strip()
+        row = ParsedOrderRow(
+            security_name=security_name,
+            order_date=order_date,
+            order_status="Completed",
+            account_name=account_name,
+            side=side_raw.title(),
+            quantity=abs(quantity),
+            cost_proceeds_gbp=abs(net_value),
+            country=None,
+            is_drip=False,
+            source_event_id=source_id,
         )
+        # Match the existing fingerprint's ID normalization without altering it.
+        identity = source_id.casefold()
+        previous = seen_fills.get(identity)
+        if previous is not None and replace(row, source_event_id=previous.source_event_id) != previous:
+            raise Trading212DataError(
+                "Trading 212 returned conflicting order fills.",
+                code="order_fill_identity_conflict",
+            )
+        parent_id = order.get("id")
+        try:
+            if parent_id is None or (isinstance(parent_id, str) and not parent_id.strip()):
+                parent_claim = None
+            elif type(parent_id) is int:
+                parent_claim = str(parent_id)
+            elif isinstance(parent_id, str) and re.fullmatch(r"[+-]?[0-9]+", parent_id.strip()):
+                parent_claim = parent_id.strip()
+            else:
+                raise ValueError
+            if parent_claim is not None and not -(2**63) <= int(parent_claim) <= 2**63 - 1:
+                raise ValueError
+        except ValueError:
+            raise Trading212DataError(
+                "Trading 212 returned invalid order fill identity evidence.",
+                code="invalid_order_fill_identity",
+            ) from None
+        evidence = seen_identity_evidence.setdefault(identity, {})
+        for key, value in (
+            ("ticker", instrument.get("ticker")),
+            ("ticker", ticker),
+            ("isin", instrument.get("isin")),
+            ("order_id", parent_claim),
+        ):
+            if key != "order_id" and value is not None and not isinstance(value, str):
+                raise Trading212DataError(
+                    "Trading 212 returned invalid order fill identity evidence.",
+                    code="invalid_order_fill_identity",
+                )
+            if isinstance(value, str) and value.strip():
+                observed = value.strip()
+                if key in evidence and evidence[key] != observed:
+                    raise Trading212DataError(
+                        "Trading 212 returned conflicting order fills.",
+                        code="order_fill_identity_conflict",
+                    )
+                evidence[key] = observed
+        seen_fills[identity] = row
+        rows.append(row)
     return rows

@@ -111,10 +111,43 @@ fail-closed; no spelling aliases or broad provider-wide completeness claims are 
 | Missing/unknown fill type | Reject with `invalid_order_fill_type`. |
 
 Recognition of all 12 fill categories does not implement a corporate-action ledger or
-validate skipped event economics. Fill trade side, quantity, date, instrument name,
-identifier, net value and wallet currency remain required. Order origin, status,
-strategy, order type, time validity and fill trading method do not determine whether
-an actual validated trade fill is imported. Order pagination accepts only canonical
+validate skipped event economics. A TRADE requires a valid fill ID, execution date,
+side, quantity, GBP wallet currency, net value and instrument name (or the existing
+order-ticker name fallback). A malformed-present name cannot be stringified into a
+security; invalid needed fallback tickers are rejected. Order origin, status, strategy,
+order type, time validity and fill trading method do not determine whether an actual
+validated trade fill is imported. A missing, null or malformed fill container is
+classified as `invalid_order_fill_type`. For TRADE, a present non-mapping `order`
+is `invalid_order_fill_identity`, and a present non-mapping `walletImpact` is
+`invalid_order_fill_value`; with the other fields valid, missing or null order and
+wallet containers retain missing-name and missing-currency validation respectively.
+Empty mappings still follow their normal field validation. Recognised non-TRADE fills
+skip unused order and wallet validation. Diagnostics do not include provider values.
+
+Within one fully fetched order history, repeated TRADE fill IDs (normalized with the
+existing fingerprint's trim and casefold) must have identical mapped fields, including
+normalized SELL quantity and net-value magnitudes. Observed `order.instrument.ticker`
+and `order.ticker` are compared as the same ticker claim, including within one item;
+observed `order.instrument.isin` and parent `order.id` are also compared across all
+occurrences. Claims may be missing, null or empty; subsequent missing claims do not
+forget earlier evidence. Tickers and ISINs must be strings when present, are trimmed
+and compared case-sensitively. Parent order IDs must be signed 64-bit integers (not
+booleans) or optionally signed decimal strings within the signed 64-bit range; integer
+-123 and string `-123` agree after trimming,
+but different spellings, including `123` and `+123`, are not mapped together. This
+does not change the separate fill-ID policy. Malformed identity evidence rejects with
+`invalid_order_fill_identity`; conflicts reject with `order_fill_identity_conflict` and
+owner rollback. Matching page overlaps are deduplicated by the unchanged order
+fingerprint; different normalized fill IDs remain distinct.
+
+This guard covers **mapped fields and observed identity evidence only**. It does not
+compare unmodelled financially relevant fields such as execution price, FX, fees or
+tax, and genuinely unused additions do not affect it. Non-TRADE fills remain skipped.
+It is **only within one fetch**: historical rows do not retain provider fill IDs
+separately, so the guard cannot detect changed economics or identity for the same fill
+across refreshes or verify already retained history.
+
+Order pagination accepts only canonical
 `cursor=123&limit=50` or `limit=50&cursor=123` parameter order, with existing path,
 host, unique-key, numeric-bound and encoding checks retained. Cash-history
 continuations also accept an optional single timezone-bearing RFC3339 `time` value

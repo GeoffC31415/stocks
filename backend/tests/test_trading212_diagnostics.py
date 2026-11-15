@@ -1,8 +1,10 @@
 """Journal diagnostics use synthetic responses and never expose provider data."""
 
 import ast
+import copy
 import inspect
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -260,11 +262,14 @@ async def test_known_provider_failures_have_distinct_safe_codes(
     assert all(record.exc_info is None for record in caplog.records)
 
 
-@pytest.mark.parametrize("field", ["date", "name", "side", "quantity", "value", "id", "type"])
+@pytest.mark.parametrize("field", [
+    "date", "name", "side", "quantity", "value", "id", "type", "conflict", "identity",
+    "fill-container", "order-container", "wallet-container",
+])
 async def test_order_fill_field_diagnostics_are_private_safe(
     db, tmp_path, monkeypatch, caplog, field,
 ):
-    item = {
+    item: dict[str, Any] = {
         "order": {"instrument": {"name": "PRIVATE_NAME_SENTINEL"}, "side": "SELL"},
         "fill": {
             "id": "PRIVATE_ID_SENTINEL", "type": "TRADE",
@@ -284,12 +289,25 @@ async def test_order_fill_field_diagnostics_are_private_safe(
         item["fill"]["walletImpact"]["netValue"] = "PRIVATE_VALUE_SENTINEL"
     elif field == "type":
         item["fill"]["type"] = "PRIVATE_TYPE_SENTINEL"
-    else:
+    elif field == "id":
         item["fill"]["id"] = ["PRIVATE_ID_SENTINEL"]
+    elif field == "identity":
+        item["order"]["id"] = ["PRIVATE_PARENT_SENTINEL"]
+    elif field == "fill-container":
+        item["fill"] = ["PRIVATE_FILL_SENTINEL"]
+    elif field == "order-container":
+        item["order"] = ["PRIVATE_ORDER_SENTINEL"]
+    elif field == "wallet-container":
+        item["fill"]["walletImpact"] = ["PRIVATE_WALLET_SENTINEL"]
+    items = [item]
+    if field == "conflict":
+        duplicate = copy.deepcopy(item)
+        duplicate["fill"]["quantity"] = -2
+        items.append(duplicate)
     defaults = {
         "/api/v0/equity/positions": [],
         "/api/v0/equity/account/summary": await Reader().fetch_account_summary(),
-        "/api/v0/equity/history/orders": {"items": [item], "nextPagePath": None},
+        "/api/v0/equity/history/orders": {"items": items, "nextPagePath": None},
         "/api/v0/equity/history/transactions": {"items": [], "nextPagePath": None},
     }
     client = Trading212Client(
@@ -300,7 +318,11 @@ async def test_order_fill_field_diagnostics_are_private_safe(
     )
     report = await run(db, tmp_path, monkeypatch, client)
     assert report.steps[-1].status == "failed"
-    assert f"code=invalid_order_fill_{field} endpoint=orders phase=import" in caplog.text
+    category = {
+        "fill-container": "type", "order-container": "identity", "wallet-container": "value",
+    }.get(field, field)
+    code = "order_fill_identity_conflict" if category == "conflict" else f"invalid_order_fill_{category}"
+    assert f"code={code} endpoint=orders phase=import" in caplog.text
     expected = {
         "date": "Order fill date is missing or invalid.",
         "name": "Order fill instrument name is missing or invalid.",
@@ -309,14 +331,17 @@ async def test_order_fill_field_diagnostics_are_private_safe(
         "value": "Order fill net value is missing or invalid.",
         "id": "Order fill identifier is missing or invalid.",
         "type": "Order fill type is missing or is not a documented fill category.",
+        "conflict": "Order fill identifier has conflicting trade details in this response.",
+        "identity": "Order fill identity evidence is invalid.",
     }
-    assert f'reason="{expected[field]}"' in caplog.text
+    assert f'reason="{expected[category]}"' in caplog.text
     assert 'stage="Validating and importing data" resource="Order fill history"' in caplog.text
     assert "PRIVATE_" not in caplog.text
     assert "SYNTHETIC_" not in caplog.text
     assert all(record.exc_info is None for record in caplog.records)
     public = json.loads((tmp_path / "public/last-sync.json").read_text())
     assert "invalid_order_fill" not in json.dumps(public)
+    assert "order_fill_identity_conflict" not in json.dumps(public)
     assert "PRIVATE_" not in json.dumps(public)
     await db.commit()
     assert await db.scalar(select(func.count()).select_from(ImportBatch)) == 0
