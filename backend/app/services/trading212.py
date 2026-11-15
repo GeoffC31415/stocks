@@ -114,7 +114,7 @@ DIAGNOSTIC_REASONS = {
     "invalid_order_fill_id": "Order fill identifier is missing or invalid.",
     "invalid_order_history_response": "Order history response has an invalid structure.",
     "invalid_order_pagination": "Order history pagination failed safety validation.",
-    "invalid_position_identity": "Position identifier or name is missing, or identifiers are duplicated.",
+    "invalid_position_identity": "Position identifier or name is missing or invalid, or identifiers are duplicated.",
     "invalid_position_numbers": "Required position numbers are missing or invalid.",
     "invalid_positions_response": "Positions response has an invalid structure.",
     "invalid_retry_after": "Provider retry delay is invalid.",
@@ -858,8 +858,34 @@ def positions_to_rows(
     rows: list[ParsedHoldingRow] = []
 
     for position in positions:
-        instrument = position.get("instrument") or {}
-        wallet = position.get("walletImpact") or {}
+        instrument = position.get("instrument")
+        if not isinstance(instrument, Mapping):
+            raise Trading212DataError(
+                "Trading 212 returned an invalid position identifier or name.",
+                code="invalid_position_identity",
+            )
+        isin = instrument.get("isin")
+        name = instrument.get("name")
+        # Ticker is relevant only when a preferred identity field is absent.
+        ticker = instrument.get("ticker") if not isin or not name else None
+        if any(value is not None and not isinstance(value, str) for value in (isin, name, ticker)):
+            raise Trading212DataError(
+                "Trading 212 returned an invalid position identifier or name.",
+                code="invalid_position_identity",
+            )
+        identifier = (isin or ticker or "").strip()
+        investment = (name or ticker or "").strip()
+        if not identifier or not investment:
+            raise Trading212DataError(
+                "Trading 212 returned an invalid position identifier or name.",
+                code="invalid_position_identity",
+            )
+        wallet = position.get("walletImpact")
+        if not isinstance(wallet, Mapping):
+            raise Trading212DataError(
+                "Trading 212 returned an invalid position with missing numeric values.",
+                code="invalid_position_numbers",
+            )
         _require_gbp(wallet.get("currency"))
         value_gbp = _number(wallet.get("currentValue"))
         book_cost_gbp = _number(wallet.get("totalCost"))
@@ -867,14 +893,6 @@ def positions_to_rows(
         pct_change = None
         if book_cost_gbp is not None and book_cost_gbp != 0 and unrealized is not None:
             pct_change = unrealized / book_cost_gbp * 100.0
-
-        identifier = str(instrument.get("isin") or instrument.get("ticker") or "").strip()
-        investment = str(instrument.get("name") or instrument.get("ticker") or "").strip()
-        if not identifier or not investment:
-            raise Trading212DataError(
-                "Trading 212 returned an invalid position without an identifier or name.",
-                code="invalid_position_identity",
-            )
         if value_gbp is None or book_cost_gbp is None or _number(position.get("quantity")) is None:
             raise Trading212DataError(
                 "Trading 212 returned an invalid position with missing numeric values.",
