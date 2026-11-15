@@ -22,8 +22,10 @@ async def test_documented_http_timeout_retries_one_get_then_succeeds():
         delays.append(seconds)
 
     client = Trading212Client(
-        api_key="synthetic-key", api_secret="synthetic-secret",
-        transport=httpx.MockTransport(handler), sleep=sleep,
+        api_key="synthetic-key",
+        api_secret="synthetic-secret",
+        transport=httpx.MockTransport(handler),
+        sleep=sleep,
     )
     assert await client.fetch_positions() == []
     assert len(calls) == 2
@@ -42,8 +44,10 @@ async def test_repeated_408_stops_after_three_gets():
         delays.append(seconds)
 
     client = Trading212Client(
-        api_key="synthetic-key", api_secret="synthetic-secret",
-        transport=httpx.MockTransport(handler), sleep=sleep,
+        api_key="synthetic-key",
+        api_secret="synthetic-secret",
+        transport=httpx.MockTransport(handler),
+        sleep=sleep,
     )
     with pytest.raises(httpx.HTTPStatusError) as rejected:
         await client.fetch_positions()
@@ -64,9 +68,12 @@ async def test_408_does_not_retry_when_delay_exceeds_budget():
         delays.append(seconds)
 
     client = Trading212Client(
-        api_key="synthetic-key", api_secret="synthetic-secret",
-        transport=httpx.MockTransport(handler), sleep=sleep,
-        runtime_budget=5, clock=lambda: 0,
+        api_key="synthetic-key",
+        api_secret="synthetic-secret",
+        transport=httpx.MockTransport(handler),
+        sleep=sleep,
+        runtime_budget=5,
+        clock=lambda: 0,
     )
     with pytest.raises(Trading212DataError) as rejected:
         await client.fetch_positions()
@@ -85,7 +92,8 @@ async def test_permission_and_bad_request_responses_are_not_retried(status):
         return httpx.Response(status)
 
     client = Trading212Client(
-        api_key="synthetic-key", api_secret="synthetic-secret",
+        api_key="synthetic-key",
+        api_secret="synthetic-secret",
         transport=httpx.MockTransport(handler),
     )
     with pytest.raises(httpx.HTTPStatusError) as rejected:

@@ -40,22 +40,32 @@ async def persisted_state(db):
 @pytest.mark.parametrize(
     ("field", "bad_value"),
     [
-        *(pytest.param("isin", value, id=f"isin-{index}") for index, value in enumerate(
-            ([], ["ONE"], {}, {"isin": "ONE"}, 0, 1, False, True, 0.0, 1.5)
-        )),
-        *(pytest.param("name", value, id=f"name-{index}") for index, value in enumerate(
-            ([], ["One"], {}, {"name": "One"}, 0, 1, False, True)
-        )),
-        *(pytest.param(field, value, id=f"{field}-{index}")
-          for field in ("ticker-for-isin", "ticker-for-name")
-          for index, value in enumerate(([], ["ONE"], {}, {"ticker": "ONE"}, 0, 1, False, True))),
-        *(pytest.param("instrument", value, id=f"instrument-{index}") for index, value in enumerate(
-            (None, [], ["ONE"], {}, "bad", 0, 1, False, True)
-        )),
+        *(
+            pytest.param("isin", value, id=f"isin-{index}")
+            for index, value in enumerate(
+                ([], ["ONE"], {}, {"isin": "ONE"}, 0, 1, False, True, 0.0, 1.5)
+            )
+        ),
+        *(
+            pytest.param("name", value, id=f"name-{index}")
+            for index, value in enumerate(([], ["One"], {}, {"name": "One"}, 0, 1, False, True))
+        ),
+        *(
+            pytest.param(field, value, id=f"{field}-{index}")
+            for field in ("ticker-for-isin", "ticker-for-name")
+            for index, value in enumerate(([], ["ONE"], {}, {"ticker": "ONE"}, 0, 1, False, True))
+        ),
+        *(
+            pytest.param("instrument", value, id=f"instrument-{index}")
+            for index, value in enumerate((None, [], ["ONE"], {}, "bad", 0, 1, False, True))
+        ),
         pytest.param("identity-and-wallet", ["ONE"], id="bad-identity-and-wallet"),
-        *(pytest.param("wallet-impact", value, id=f"bad-wallet-{index}") for index, value in enumerate(
-            (["not-an-object"], [], "not-an-object", 0, 1, False, True)
-        )),
+        *(
+            pytest.param("wallet-impact", value, id=f"bad-wallet-{index}")
+            for index, value in enumerate(
+                (["not-an-object"], [], "not-an-object", 0, 1, False, True)
+            )
+        ),
     ],
 )
 async def test_malformed_identity_never_closes_an_existing_position(db, field, bad_value):
@@ -74,14 +84,24 @@ async def test_malformed_identity_never_closes_an_existing_position(db, field, b
         },
         "/api/v0/equity/history/orders": {"items": [], "nextPagePath": None},
         "/api/v0/equity/history/transactions": {
-            "items": [{"reference": "deposit", "type": "DEPOSIT", "amount": 10,
-                       "currency": "GBP", "dateTime": "2026-01-01T12:00:00Z"}],
+            "items": [
+                {
+                    "reference": "deposit",
+                    "type": "DEPOSIT",
+                    "amount": 10,
+                    "currency": "GBP",
+                    "dateTime": "2026-01-01T12:00:00Z",
+                }
+            ],
             "nextPagePath": None,
         },
     }
     client = Trading212Client(
-        api_key="SYNTHETIC_KEY", api_secret="SYNTHETIC_SECRET",
-        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payloads[request.url.path])),
+        api_key="SYNTHETIC_KEY",
+        api_secret="SYNTHETIC_SECRET",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payloads[request.url.path])
+        ),
         page_delay=0,
     )
     await run_trading212_sync(db, client)
@@ -104,7 +124,9 @@ async def test_malformed_identity_never_closes_an_existing_position(db, field, b
         corrupted["instrument"]["ticker"] = bad_value
     else:
         corrupted["instrument"][field] = bad_value
-    expected_code = "invalid_position_numbers" if field == "wallet-impact" else "invalid_position_identity"
+    expected_code = (
+        "invalid_position_numbers" if field == "wallet-impact" else "invalid_position_identity"
+    )
     # A valid row precedes the corrupted row; no partial snapshot may survive.
     payloads["/api/v0/equity/positions"] = [other, corrupted]
     payloads["/api/v0/equity/account/summary"]["cash"]["availableToTrade"] = 30
@@ -114,7 +136,10 @@ async def test_malformed_identity_never_closes_an_existing_position(db, field, b
     assert rejected.value.t212_endpoint == "positions"
     assert rejected.value.t212_phase == "import"
     assert trading212_diagnostic(rejected.value) == (
-        expected_code, "positions", "import", None,
+        expected_code,
+        "positions",
+        "import",
+        None,
     )
     # Even a subsequent caller commit must not persist any failed-sync writes.
     await db.commit()
@@ -133,7 +158,9 @@ def test_non_string_position_name_cannot_be_coerced_or_fallback(bad_name):
     assert rejected.value.code == "invalid_position_identity"
 
 
-@pytest.mark.parametrize("bad_ticker", [[], ["TICKER"], {}, {"ticker": "TICKER"}, 0, 1, False, True])
+@pytest.mark.parametrize(
+    "bad_ticker", [[], ["TICKER"], {}, {"ticker": "TICKER"}, 0, 1, False, True]
+)
 @pytest.mark.parametrize("fallback_field", ["isin", "name"])
 def test_non_string_ticker_is_rejected_when_needed_for_identity(bad_ticker, fallback_field):
     instrument = {"isin": "ONE", "ticker": bad_ticker, "name": "One"}
@@ -162,7 +189,9 @@ def test_non_mapping_instrument_is_a_classified_identity_error(bad_instrument):
 
 @pytest.mark.parametrize("fallback_field", ["isin", "name"])
 @pytest.mark.parametrize("absent_value", [None, "", "MISSING"])
-def test_missing_identity_fields_use_valid_ticker_without_extra_aliases(fallback_field, absent_value):
+def test_missing_identity_fields_use_valid_ticker_without_extra_aliases(
+    fallback_field, absent_value
+):
     instrument = {"isin": "ONE", "name": "One", "ticker": " ONE_TICKER ", "currency": "GBP"}
     if absent_value == "MISSING":
         instrument.pop(fallback_field)
@@ -173,7 +202,7 @@ def test_missing_identity_fields_use_valid_ticker_without_extra_aliases(fallback
         "quantity": 1,
         "walletImpact": {"currency": "GBP", "currentValue": 10, "totalCost": 9},
     }
-    row, = positions_to_rows([position], {"currency": "GBP"}, account_name="Trading 212")
+    (row,) = positions_to_rows([position], {"currency": "GBP"}, account_name="Trading 212")
     assert row.identifier == ("ONE_TICKER" if fallback_field == "isin" else "ONE")
     assert row.investment == ("ONE_TICKER" if fallback_field == "name" else "One")
 
@@ -198,7 +227,7 @@ def test_zero_values_and_numeric_strings_keep_existing_position_semantics():
         "quantity": "0",
         "walletImpact": {"currency": "GBP", "currentValue": 0, "totalCost": "0"},
     }
-    row, = positions_to_rows([position], {"currency": "GBP"}, account_name="Trading 212")
+    (row,) = positions_to_rows([position], {"currency": "GBP"}, account_name="Trading 212")
     assert (row.quantity, row.value_gbp, row.book_cost_gbp, row.pct_change) == (0, 0, 0, None)
 
 
@@ -234,8 +263,11 @@ async def test_real_client_accepts_ticker_fallback_and_unknown_fields(db, isin_v
         "/api/v0/equity/history/transactions": {"items": [], "nextPagePath": None},
     }
     client = Trading212Client(
-        api_key="SYNTHETIC_KEY", api_secret="SYNTHETIC_SECRET",
-        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payloads[request.url.path])),
+        api_key="SYNTHETIC_KEY",
+        api_secret="SYNTHETIC_SECRET",
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json=payloads[request.url.path])
+        ),
         page_delay=0,
     )
     assert (await run_trading212_sync(db, client)).snapshot == "imported"
@@ -254,10 +286,15 @@ async def test_real_client_accepts_ticker_fallback_and_unknown_fields(db, isin_v
     assert all(instrument.closed_at is None for instrument in instruments)
     latest = await db.scalar(select(ImportBatch).order_by(ImportBatch.id.desc()).limit(1))
     assert latest.diff_summary["closed"] == []
-    assert set((await db.scalars(
-        select(Instrument.identifier).join(HoldingSnapshot)
-        .where(HoldingSnapshot.import_batch_id == latest.id)
-    )).all()) == {"ONE_TICKER", "CASH"}
+    assert set(
+        (
+            await db.scalars(
+                select(Instrument.identifier)
+                .join(HoldingSnapshot)
+                .where(HoldingSnapshot.import_batch_id == latest.id)
+            )
+        ).all()
+    ) == {"ONE_TICKER", "CASH"}
 
 
 def test_malformed_identity_diagnostics_are_accurate_and_do_not_leak(caplog):
