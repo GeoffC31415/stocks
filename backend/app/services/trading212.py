@@ -349,7 +349,7 @@ class Trading212Client:
                     await self._pause(self._page_delay * (2**attempt))
                     continue
                 self._remaining()
-                if response.status_code in {429, 500, 502, 503, 504} and attempt < 2:
+                if response.status_code in {408, 429, 500, 502, 503, 504} and attempt < 2:
                     await self._pause(self._retry_delay(response, attempt))
                     continue
                 response.raise_for_status()
