@@ -17,11 +17,13 @@ import httpx
 
 from app.services.barclays_order_parser import ParsedOrderRow
 from app.services.barclays_parser import ParsedHoldingRow
+from app.services.trading212_shape import ShapeJournal, project_record
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from app.models import ImportBatch, OrderImportBatch
+    from app.services.import_service import SnapshotProjection
 
 
 # Only these source-owned tokens may enter the sync journal. Exception messages,
@@ -239,6 +241,7 @@ class Trading212Client:
         self._api_key = api_key
         self._api_secret = api_secret
         self._transport = transport
+        self._shape = ShapeJournal()
         self._timeout = timeout
         self._page_delay = page_delay
         self._sleep = sleep
@@ -371,6 +374,7 @@ class Trading212Client:
             raise Trading212DataError(
                 "Trading 212 returned an invalid account summary.", code="invalid_account_summary"
             )
+        self._shape.observe("account", result)
         return result
 
     async def fetch_positions(self) -> list[Mapping[str, Any]]:
@@ -380,6 +384,7 @@ class Trading212Client:
                 "Trading 212 returned an invalid positions response.",
                 code="invalid_positions_response",
             )
+        self._shape.observe("position", result)
         return result
 
     async def fetch_historical_orders(self) -> list[Mapping[str, Any]]:
@@ -416,6 +421,7 @@ class Trading212Client:
                     "Trading 212 returned an invalid order-history response.",
                     code="invalid_order_history_response",
                 )
+            self._shape.observe("orders_page", result)
             items.extend(page_items)
             next_path = result.get("nextPagePath")
             if next_path in (None, ""):
@@ -519,6 +525,7 @@ class Trading212Client:
                     "Trading 212 returned invalid cash transaction history.",
                     code="invalid_cash_history_response",
                 )
+            self._shape.observe("transactions_page", result)
             items.extend(result["items"])
             next_path = result["nextPagePath"]
             if next_path in (None, ""):
@@ -547,6 +554,20 @@ class Trading212Reader(Protocol):
     async def fetch_positions(self) -> list[Mapping[str, Any]]: ...
 
     async def fetch_historical_orders(self) -> list[Mapping[str, Any]]: ...
+
+
+def _batch_payload(
+    account_name: str, collection: str, records: Iterable[Mapping[str, Any]],
+    **sections: Mapping[str, Any],
+) -> bytes:
+    # Legacy serialization. Sort the actual input collection, so projecting a
+    # record cannot leak its prior (metadata-dependent) position into the digest.
+    ordered = sorted(records, key=lambda record: json.dumps(record, sort_keys=True))
+    return json.dumps(
+        {"account_name": account_name, collection: ordered, **sections},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
 
 
 async def sync_portfolio_snapshot(
@@ -621,22 +642,31 @@ async def sync_portfolio_snapshot(
             code="closure_allowlist_mismatch",
         )
 
-    positions = sorted(positions, key=lambda item: json.dumps(item, sort_keys=True))
-    source_payload = json.dumps(
-        {"account_name": account_name, "account": account, "positions": positions},
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
+    raw_sha256 = hashlib.sha256(
+        _batch_payload(account_name, "positions", positions, account=account)
+    ).hexdigest()
+    # Offline closure review is bound to exact source evidence, never a projection.
+    projection: SnapshotProjection | None = None
+    if not reviewed_closed_identifiers:
+        projected = _batch_payload(
+            account_name, "positions", (project_record("position", p) for p in positions),
+            account=project_record("account", account),
+        )
+        projection = {
+            "scheme": "trading212-portfolio-v1",
+            "sha256": hashlib.sha256(projected).hexdigest(),
+        }
 
     return await import_holding_snapshot(
         session,
         parsed_rows=rows,
         as_of_date=observation_date or dt.datetime.now(dt.UTC).date(),
         filename="trading212-api-portfolio.json",
-        file_sha256=hashlib.sha256(source_payload).hexdigest(),
+        file_sha256=raw_sha256,
         force=force,
         commit=commit,
         latest_observation=True,
+        latest_projection=projection,
     )
 
 
@@ -652,19 +682,21 @@ async def sync_order_history(
 
     items = await client.fetch_historical_orders()
     rows = historical_orders_to_rows(items, account_name=account_name)
-    items = sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
-    source_payload = json.dumps(
-        {"account_name": account_name, "items": items},
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
+
+    def projected_source_sha256_v1() -> str:
+        projected = _batch_payload(
+            account_name, "items", (project_record("historical_order", item) for item in items),
+        )
+        return hashlib.sha256(projected).hexdigest()
+
     return await ingest_parsed_orders(
         session,
         parsed=rows,
-        file_bytes=source_payload,
+        file_bytes=_batch_payload(account_name, "items", items),
         filename="trading212-api-orders.json",
         force=force,
         commit=commit,
+        projected_source_sha256=projected_source_sha256_v1,
     )
 
 

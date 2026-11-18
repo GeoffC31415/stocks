@@ -3,9 +3,9 @@ from __future__ import annotations
 import datetime
 import hashlib
 from collections import defaultdict
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
     HoldingSnapshot,
@@ -21,6 +21,11 @@ from app.services.hl_parser import parse_hl_activity_csv_bytes
 from app.services.instrument_matcher import link_orders_to_instruments
 from app.services.order_fingerprint import order_fingerprint
 from app.services.order_scope_service import order_account_scope
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class DuplicateOrderImportError(Exception):
@@ -144,16 +149,25 @@ async def ingest_parsed_orders(
     filename: str | None,
     force: bool = False,
     commit: bool = True,
+    projected_source_sha256: Callable[[], str] | None = None,
 ) -> tuple[OrderImportBatch, int]:
     sha = hashlib.sha256(file_bytes).hexdigest()
     if not force:
-        dup = (
-            await session.execute(
-                select(OrderImportBatch).where(OrderImportBatch.file_sha256 == sha)
-            )
-        ).scalar_one_or_none()
-        if dup is not None:
-            raise DuplicateOrderImportError(dup.id)
+        batch_ids = select(OrderImportBatch.id)
+        duplicate_id = await session.scalar(batch_ids.where(OrderImportBatch.file_sha256 == sha))
+        if duplicate_id is None and projected_source_sha256 is not None:
+            # The order batch has no secondary digest column. Only a previously
+            # retained RAW source matching the incoming projection proves equality.
+            projected = projected_source_sha256()
+            if projected != sha:
+                duplicate_id = await session.scalar(
+                    batch_ids.where(
+                        OrderImportBatch.filename == filename,
+                        OrderImportBatch.file_sha256 == projected,
+                    )
+                )
+        if duplicate_id is not None:
+            raise DuplicateOrderImportError(duplicate_id)
 
     existing = await session.execute(select(Order.order_fingerprint))
     seen_fingerprints = {fingerprint for fingerprint in existing.scalars().all() if fingerprint}

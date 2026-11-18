@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -49,6 +49,25 @@ class DuplicateImportError(Exception):
     def __init__(self, batch_id: int) -> None:
         self.batch_id = batch_id
         super().__init__(f"Identical file already imported as batch {batch_id}")
+
+
+class SnapshotProjection(TypedDict):
+    scheme: str
+    sha256: str
+
+
+def _matches_observation(
+    batch: ImportBatch, raw_sha256: str, filename: str | None, projection: SnapshotProjection | None,
+) -> bool:
+    if batch.file_sha256 == raw_sha256:
+        return True
+    if projection is None or batch.filename != filename:
+        return False
+    # A legacy raw digest can also prove equality if the projected source bytes
+    # reproduce it exactly. Never infer a digest from mapped snapshots.
+    return batch.file_sha256 == projection["sha256"] or (
+        (batch.diff_summary or {}).get("source_projection") == projection
+    )
 
 
 async def _snapshots_for_batch(session: AsyncSession, batch_id: int) -> list[HoldingSnapshot]:
@@ -283,11 +302,15 @@ async def import_holding_snapshot(
     preserve_missing_identifiers: set[str] | None = None,
     commit: bool = True,
     latest_observation: bool = False,
+    latest_projection: SnapshotProjection | None = None,
 ) -> tuple[ImportBatch, dict[str, Any]]:
     if latest_observation and not force:
         accounts = {await resolve_account_name(session, row.account_name) for row in parsed_rows}
         latest = [await get_latest_observation_for_account(session, name) for name in accounts]
-        if latest and all(batch is not None and batch.file_sha256 == file_sha256 for batch in latest):
+        if latest and all(
+            batch is not None and _matches_observation(batch, file_sha256, filename, latest_projection)
+            for batch in latest
+        ):
             raise DuplicateImportError(max(batch.id for batch in latest if batch is not None))
     elif not force:
         dup = (
@@ -420,6 +443,8 @@ async def import_holding_snapshot(
         "row_count": len(parsed_rows),
         "orders_linked": orders_linked,
     }
+    if latest_projection is not None and latest_projection["sha256"] != file_sha256:
+        summary["source_projection"] = latest_projection
     batch.diff_summary = summary
     if commit:
         await session.commit()
