@@ -6,9 +6,12 @@ or real-broker authorization.
 
 ## Status semantics
 
-- A Trading 212 observation requires holdings, cash, order history and transaction
-  history. Missing account-summary/cash permission rejects the entire observation,
-  including the first import. Cancellation/timeout rolls back the owning transaction.
+- A new Trading 212 valuation requires holdings, account-summary cash, order history
+  and transaction history. In a worker refresh, a problem confined to one section can
+  leave independently validated history eligible for import. Keep the prior valuation
+  (or no valuation on a first import); never close holdings or invent cash during a
+  partial refresh. A truncated, malformed or conflicting history is rejected as a
+  whole. The local direct combined API remains atomic.
 - Live snapshot hashes are compared with the latest **ingested account observation**
   (batch ID), not every historical hash or the latest-dated valuation. A → B → A
   imports three observations; only the fourth consecutive A is unchanged. Local
@@ -44,9 +47,28 @@ SELL inference, including an empty positions array when the account summary
 provides valid GBP cash buckets. Missing securities are marked closed; old holding
 snapshots, orders and cash history are not deleted or rewritten. Reappearing
 securities reopen the existing instruments. Failed requests, malformed records,
-duplicate identities and incomplete required data still reject; the combined sync
-commits positions, cash, orders and transactions together or rolls all changes back.
+duplicate identities and incomplete required data still block a valuation. A
+worker partial result must not be presented as a complete account observation.
 No new account-total reconciliation heuristic is applied.
+
+Trading 212 `file_sha256` still identifies the full canonical source payload, not
+the mapped financial rows. For duplicate detection only, v1 drops undocumented
+keys at known object paths, preserving all documented fields, account labels and
+record multiplicity. Mapping and validation still use the original responses.
+
+- Normal holdings imports compare only with the latest ingested account batch.
+  If its raw hash differs from its v1 hash, a **new** batch also records
+  `diff_summary.source_projection` (`scheme: trading212-portfolio-v1`, `sha256`).
+  Only the same scheme is comparable; a schema change requires a new version.
+  A raw-only Trading 212 batch can match if the incoming projection reproduces
+  its raw hash exactly. No old batch is backfilled from stored rows.
+- Order batches have only a unique raw hash, not a second identity field. A new
+  response can match any retained Trading 212 order source whose raw hash it
+  reproduces after projection. If both sources contain different extras and no
+  such raw match exists, sync retains a new batch, possibly with zero new fills.
+  Equal row counts or fill fingerprints do not prove equal order histories.
+- `force` bypasses duplicate comparisons, not the unique raw order hash or fill
+  fingerprints. Offline closure review still requires exact **raw** hashes.
 
 The retained CLI is an **optional legacy offline repair tool**, not a required
 normal-sale workflow. Its account/baseline/digest/date checks and exact nonempty

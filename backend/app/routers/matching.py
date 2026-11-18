@@ -51,7 +51,12 @@ from app.services.matching.candidates import (
     resolve_canonical_account,
 )
 from app.services.matching.normalisation import normalise_name
-from app.services.matching.resolver import dry_run_resolve, resolve_batch
+from app.services.matching.resolver import (
+    T212_MANUAL_ONLY,
+    dry_run_resolve,
+    requires_manual_match,
+    resolve_batch,
+)
 from app.services.matching.scoring import determine_method, score_candidate
 
 router = APIRouter(prefix="/api/matching", tags=["matching"])
@@ -450,7 +455,7 @@ async def unmatch_order(
     order.match_status = "unmatched"
     order.match_method = None
     order.match_confidence = None
-    order.match_evidence = None
+    order.match_evidence = {T212_MANUAL_ONLY: True} if requires_manual_match(order) else None
     order.matched_by = "admin"
 
     await session.commit()

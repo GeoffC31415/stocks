@@ -60,6 +60,7 @@ DIAGNOSTIC_CODES = frozenset(
         "invalid_order_fill_id",
         "invalid_order_fill_identity",
         "order_fill_identity_conflict",
+        "order_history_conflict",
         "invalid_order_history_response",
         "invalid_order_pagination",
         "invalid_position_identity",
@@ -118,6 +119,7 @@ DIAGNOSTIC_REASONS = {
     "invalid_order_fill_id": "Order fill identifier is missing or invalid.",
     "invalid_order_fill_identity": "Order fill identity evidence is invalid.",
     "order_fill_identity_conflict": "Order fill identifier has conflicting trade details in this response.",
+    "order_history_conflict": "Order history does not reproduce previously imported trades.",
     "invalid_order_history_response": "Order history response has an invalid structure.",
     "invalid_order_pagination": "Order history pagination failed safety validation.",
     "invalid_position_identity": "Position identifier or name is missing or invalid, or identifiers are duplicated.",
@@ -296,6 +298,10 @@ class Trading212Client:
                 "Trading 212 runtime budget exhausted.", code="runtime_budget_exhausted"
             )
         return remaining
+
+    def check_budget(self) -> None:
+        """Check the original broker deadline before the worker commits any replay."""
+        self._remaining()
 
     async def _pause(self, seconds: float) -> None:
         remaining = self._remaining()
@@ -677,11 +683,49 @@ async def sync_order_history(
     account_name: str,
     force: bool = False,
     commit: bool = True,
+    require_retained: bool = False,
+    manual_matching_only: bool = False,
 ) -> tuple[OrderImportBatch, int]:
     from app.services.order_service import ingest_parsed_orders
 
     items = await client.fetch_historical_orders()
     rows = historical_orders_to_rows(items, account_name=account_name)
+    if require_retained:
+        # There is no separately persisted fill ID. Require the entire incoming
+        # history to reproduce each scoped legacy fingerprint before accepting
+        # it, even when the payload matches a historical order batch.
+        from sqlalchemy import select
+
+        from app.models import Order, OrderImportBatch
+        from app.services.order_fingerprint import order_fingerprint
+
+        prior = await session.scalars(
+            select(Order.order_fingerprint)
+            .join(OrderImportBatch)
+            .where(
+                Order.account_name == account_name,
+                OrderImportBatch.filename == "trading212-api-orders.json",
+            )
+        )
+        fingerprints = {
+            order_fingerprint(
+                security_name=r.security_name,
+                order_date=r.order_date,
+                order_status=r.order_status,
+                account_name=r.account_name,
+                side=r.side,
+                quantity=r.quantity,
+                cost_proceeds_gbp=r.cost_proceeds_gbp,
+                country=r.country,
+                source_event_id=r.source_event_id,
+            )
+            for r in rows
+        }
+        if not set(prior).issubset(fingerprints):
+            raise Trading212DataError(
+                "Trading 212 order history conflicts with retained trades.",
+                code="order_history_conflict",
+            )
 
     def projected_source_sha256_v1() -> str:
         projected = _batch_payload(
@@ -697,6 +741,7 @@ async def sync_order_history(
         force=force,
         commit=commit,
         projected_source_sha256=projected_source_sha256_v1,
+        manual_matching_only=manual_matching_only,
     )
 
 
@@ -706,12 +751,13 @@ async def sync_cash_history(
     *,
     account_name: str,
     commit: bool = True,
+    observed_at: dt.datetime | None = None,
 ) -> dict[str, Any]:
     from sqlalchemy import select
 
     from app.models import CashFlowCoverage, ExternalCashFlow
 
-    observed_at = dt.datetime.now(dt.UTC)
+    observed_at = observed_at or dt.datetime.now(dt.UTC)
     rows = transactions_to_rows(await client.fetch_transactions())
     if any(row.occurred_at > observed_at for row in rows):
         raise Trading212DataError(

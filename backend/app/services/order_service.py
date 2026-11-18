@@ -19,6 +19,7 @@ from app.models import (
 from app.services.barclays_order_parser import ParsedOrderRow, parse_barclays_order_xls_bytes
 from app.services.hl_parser import parse_hl_activity_csv_bytes
 from app.services.instrument_matcher import link_orders_to_instruments
+from app.services.matching.resolver import T212_MANUAL_ONLY, requires_manual_match
 from app.services.order_fingerprint import order_fingerprint
 from app.services.order_scope_service import order_account_scope
 
@@ -150,6 +151,7 @@ async def ingest_parsed_orders(
     force: bool = False,
     commit: bool = True,
     projected_source_sha256: Callable[[], str] | None = None,
+    manual_matching_only: bool = False,
 ) -> tuple[OrderImportBatch, int]:
     sha = hashlib.sha256(file_bytes).hexdigest()
     if not force:
@@ -209,13 +211,17 @@ async def ingest_parsed_orders(
             country=row.country,
             is_drip=row.is_drip,
             order_fingerprint=fingerprint,
+            match_status="unmatched" if manual_matching_only else None,
+            match_method=T212_MANUAL_ONLY if manual_matching_only else None,
+            match_evidence={T212_MANUAL_ONLY: True} if manual_matching_only else None,
         )
         session.add(order)
         new_orders.append(order)
 
     batch.row_count = len(new_orders)
     await session.flush()
-    await link_orders_to_instruments(session, new_orders, commit=commit)
+    if not manual_matching_only:
+        await link_orders_to_instruments(session, new_orders, commit=commit)
 
     if commit:
         await session.commit()
@@ -437,6 +443,10 @@ async def get_order_positions(
     # Aggregate by instrument_id where available, fall back to security_name
     agg: dict[str | int, dict] = {}
     for o in orders:
+        # An unassigned fill is a valid execution, not an identified position
+        # or a disposal. Keep it in order history and the manual matching queue.
+        if o.instrument_id is None and requires_manual_match(o):
+            continue
         key: str | int = (
             o.instrument_id if o.instrument_id is not None else o.security_name.lower().strip()
         )

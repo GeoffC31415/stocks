@@ -15,6 +15,21 @@ import { SegmentedControl, type Segment } from "./SegmentedControl";
 type Tab = "portfolio" | "orders";
 type BrokerSource = "barclays" | "hl";
 
+function partialSyncMessage(report: ServiceSync["last_run"]) {
+  const step = report?.steps?.find(s => s.name === "Trading 212");
+  const sections = step?.sections;
+  const historyVerified = [sections?.orders, sections?.transactions].some(
+    s => s && ["ok", "imported", "unchanged"].includes(s.status ?? ""),
+  );
+  if (step?.status === "committed_with_attention" && historyVerified &&
+      sections?.holdings?.status === "needs_attention" && sections.cash?.status === "needs_attention") {
+    return "Verified history was retained. The portfolio valuation was not updated. Check the section results and service logs.";
+  }
+  // Publication can fail after the portfolio was committed. A partial run
+  // outcome alone does not say which sections were imported.
+  return "Some work completed. Check the section results and service logs.";
+}
+
 export function ImportPanel() {
   const queryClient = useQueryClient();
   const { dripThreshold } = usePreferences();
@@ -298,7 +313,9 @@ export function ImportPanel() {
         {trading212ServicePending && <p role="status" className="mt-2 text-xs text-slate-400">Trading 212 request accepted; waiting for the service to finish.</p>}
         {(trading212Request?.state === "completed" || (trading212Request?.state === "failed" && trading212Request.last_run?.finished_at)) && <div role="status" className="mt-2"><SyncEvidence report={trading212Request.last_run} /></div>}
         {trading212Request && ["failed", "unknown", "busy", "disabled", "inactive"].includes(trading212Request.state) && <p role="alert" className="mt-2 text-xs text-neg">
-          {trading212Request.state === "failed" ? "Trading 212 sync failed or needs attention. Check the service logs."
+          {trading212Request.state === "failed" && trading212Request.last_run?.finished_at && trading212Request.last_run.outcome === "partial"
+            ? partialSyncMessage(trading212Request.last_run)
+            : trading212Request.state === "failed" ? "Trading 212 sync failed or needs attention. Check the service logs."
             : trading212Request.state === "busy" ? "Another sync is already running. Trading 212 sync was not started; try again later."
             : "Trading 212 sync status is unknown or unavailable. Check again later; the service may still be running."}
         </p>}

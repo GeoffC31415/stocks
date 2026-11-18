@@ -15,6 +15,7 @@ import json
 import logging
 import os
 from collections.abc import Awaitable, Callable, Iterable
+from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -53,6 +54,14 @@ class StagedPair(Protocol):
 Fetcher = Callable[[Path], Awaitable["StepResult | FetchedPair | StagedPair"]]
 
 
+def _verified(section: dict[str, Any]) -> bool:
+    return (
+        section.get("status") in {"ok", "imported", "unchanged"}
+        and section.get("coverage") == "complete"
+        and bool(section.get("verified_at"))
+    )
+
+
 @dataclass
 class StepResult:
     name: str
@@ -80,9 +89,7 @@ class RunReport:
         bad = bad or any(
             step.status in {'ok', 'unchanged', 'committed_with_attention'}
             and any(
-                step.sections.get(name, {}).get('status') not in {'ok', 'imported', 'unchanged'}
-                or step.sections.get(name, {}).get('coverage') != 'complete'
-                or not step.sections.get(name, {}).get('verified_at')
+                not _verified(step.sections.get(name, {}))
                 for name in REQUIRED_SECTIONS.get(step.name, set())
             )
             for step in self.steps
@@ -132,25 +139,26 @@ def _trading212_configured() -> bool:
     )
 
 
-async def _trading212_step(session: AsyncSession, *, invocation_id: str | None = None) -> StepResult:
-    # Imported lazily to keep this module importable without FastAPI routing.
-    from app.routers.trading212 import get_trading212_client, run_trading212_sync
-    from app.services.trading212 import (
-        Trading212DataError,
-        trading212_diagnostic,
-        trading212_failure_description,
-    )
+def _log_trading212_error(
+    exc: BaseException, invocation_id: str | None, *, partial: bool = False, deadline: bool = False,
+) -> int | None:
+    from app.services.trading212 import trading212_diagnostic, trading212_failure_description
 
-    if not _trading212_configured():
-        return StepResult("Trading 212", "skipped", "no API credentials")
-    try:
-        result = await run_trading212_sync(session, get_trading212_client())
-    except Exception as exc:
-        code, endpoint, phase, http_status = trading212_diagnostic(exc)
+    code, endpoint, phase, http_status = "unexpected_error", "sync", "unknown", None
+    if deadline:
+        code, phase = "sync_timeout", "deadline"
+    elif isinstance(exc, Exception):
+        with suppress(Exception):
+            code, endpoint, phase, http_status = trading212_diagnostic(exc)
+    # A journal/metadata failure is not an import failure. In particular the
+    # router may already have committed verified history before returning.
+    with suppress(Exception):
         reason, stage, resource = trading212_failure_description(code, endpoint, phase, http_status)
+        logger.disabled = False  # Restore only the worker's fixed diagnostic sink after fileConfig.
         logger.error(
-            "Trading 212 sync failed code=%s endpoint=%s phase=%s invocation_id=%s http_status=%s "
+            "Trading 212 %s failed code=%s endpoint=%s phase=%s invocation_id=%s http_status=%s "
             'reason="%s" stage="%s" resource="%s"',
+            "section" if partial else "sync",
             code,
             endpoint,
             phase,
@@ -160,6 +168,24 @@ async def _trading212_step(session: AsyncSession, *, invocation_id: str | None =
             stage,
             resource,
         )
+    return http_status
+
+
+async def _trading212_step(session: AsyncSession, *, invocation_id: str | None = None) -> StepResult:
+    if not _trading212_configured():
+        return StepResult("Trading 212", "skipped", "no API credentials")
+    # Imported lazily to keep this module importable without FastAPI routing.
+    from app.routers.trading212 import (
+        Trading212Incomplete,
+        get_trading212_client,
+        run_trading212_worker_sync,
+    )
+    from app.services.trading212 import Trading212DataError
+
+    try:
+        result = await run_trading212_worker_sync(session, get_trading212_client())
+    except Exception as exc:
+        http_status = _log_trading212_error(exc, invocation_id)
         if isinstance(exc, httpx.HTTPStatusError):
             return StepResult("Trading 212", "failed", f"HTTP {http_status or 'error'}")
         if isinstance(exc, httpx.HTTPError):
@@ -167,6 +193,13 @@ async def _trading212_step(session: AsyncSession, *, invocation_id: str | None =
         if isinstance(exc, Trading212DataError):
             return StepResult("Trading 212", "failed", "Trading212DataError")
         return StepResult("Trading 212", "failed", "unexpected error (see log)")
+    if isinstance(result, Trading212Incomplete):
+        partial = any(_verified(result.sections[name]) for name in REQUIRED_SECTIONS["Trading 212"])
+        for error in result.errors:
+            _log_trading212_error(error, invocation_id, partial=partial)
+        return StepResult(
+            "Trading 212", "committed_with_attention" if partial else "failed", sections=result.sections,
+        )
     changed = (
         result.snapshot == "imported" or result.orders == "imported" or result.cash_flows_imported
     )
@@ -221,10 +254,7 @@ async def _run_sync_all_locked(
         started_at=dt.datetime.now(dt.UTC).isoformat(),
         invocation_id=validated_invocation_id(os.environ.get("INVOCATION_ID")),
     )
-    previous = read_last_sync(inbox) or {}
-    if previous.get("schema_version") == 2 and isinstance(previous.get("freshness"), dict):
-        safe_previous = public_report(previous)
-        report.freshness = safe_previous["freshness"] if safe_previous else {}
+    report.freshness = read_last_freshness(inbox)
     if write_status and not dry_run:
         publish_report(inbox, report)
 
@@ -358,21 +388,7 @@ async def _execute_steps(session: AsyncSession, report: RunReport, *, fetchers: 
                 report.steps.append(await _trading212_step(session, invocation_id=report.invocation_id))
         except Exception as exc:
             await session.rollback()
-            from app.services.trading212 import trading212_failure_description
-
-            code = "sync_timeout" if isinstance(exc, TimeoutError) else "unexpected_error"
-            phase = "deadline" if isinstance(exc, TimeoutError) else "unknown"
-            reason, stage, resource = trading212_failure_description(code, "sync", phase, None)
-            logger.error(
-                "Trading 212 sync failed code=%s endpoint=sync phase=%s invocation_id=%s http_status=unavailable "
-                'reason="%s" stage="%s" resource="%s"',
-                code,
-                phase,
-                validated_invocation_id(report.invocation_id) or "unavailable",
-                reason,
-                stage,
-                resource,
-            )
+            _log_trading212_error(exc, report.invocation_id, deadline=isinstance(exc, TimeoutError))
             report.steps.append(StepResult("Trading 212", "failed", "provider_failed"))
 
 
@@ -416,3 +432,11 @@ def read_last_sync(inbox: Path | None = None) -> dict[str, Any] | None:
         return value if isinstance(value, dict) else None
     except (OSError, ValueError):
         return None
+
+
+def read_last_freshness(report_dir: Path) -> dict[str, Any]:
+    previous = read_last_sync(report_dir)
+    if not previous or previous.get("schema_version") != 2:
+        return {}
+    safe = public_report(previous)
+    return safe["freshness"] if safe else {}

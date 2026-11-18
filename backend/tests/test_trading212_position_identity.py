@@ -279,7 +279,10 @@ async def test_real_client_accepts_ticker_fallback_and_unknown_fields(db, isin_v
     position["instrument"]["unknown"] = ["future"]
     position["walletImpact"]["unknown"] = {"future": True}
     payloads["/api/v0/equity/account/summary"]["unknown"] = "future"
-    assert (await run_trading212_sync(db, client)).snapshot == "imported"
+    # An unchanged null ISIN plus extras is the same observation; changing a
+    # documented identifier field (null to missing/empty) still retains evidence.
+    expected = "unchanged" if isin_variant is None else "imported"
+    assert (await run_trading212_sync(db, client)).snapshot == expected
     db.expire_all()
     instruments = (await db.scalars(select(Instrument))).all()
     assert {instrument.identifier for instrument in instruments} == {"ONE_TICKER", "CASH"}

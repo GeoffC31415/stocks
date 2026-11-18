@@ -69,6 +69,37 @@ unchanged. Use the worker invocation ID to correlate a failure with its journal 
 No item index or provider-derived category metadata is added: only source-owned,
 sink-allowlisted codes and fixed explanations cross the diagnostic boundary.
 
+### Response differences and partial worker imports
+
+The worker journals `Trading 212 response drift` for extra keys and unexpected
+non-null field types at known JSON locations. Warnings identify the endpoint,
+object, and (for known fields) field, not an unknown key, value, payload or URL.
+They are limited to one per distinct location/field/reason per client. They are
+best effort: a journal handler failure cannot reject an import. Filter them with
+`journalctl -u stocks-sync.service -u stocks-t212-sync.service -g 'Trading 212 response drift'`.
+A warning by itself is not a failed import. Use the invocation's terminal outcome.
+
+On a section-specific failure, the worker can retain a separately verified order
+or cash-transaction history, but **never** advances the holdings or cash valuation
+from that run. It accepts no prefixes of failed histories. Check the individual
+sections in a `partial` report: prior verification dates on failed sections are
+historical, not a successful current check. A partial run still exits nonzero;
+a later complete run can publish the new valuation without duplicating trades
+or funding. New trades imported during a partial run appear under **Matching →
+Unmatched Groups** for manual matching. A later complete sync or automatic
+backfill will not link them, even if a later broker response names an instrument.
+The trade is already recorded in order history. Until explicitly matched, it is
+excluded from per-security position/P&L analysis: an unlinked trade is not a
+closed position. Clearing a link or applying an empty choice keeps it manual-only.
+Trades first seen on a complete run follow normal matching.
+
+New worker valuations record the interval from requesting positions to receiving
+the account summary. Calculations use the selected valuation's evidence, not the
+later database insert time, to check cash-history coverage. A trade or funding
+movement during those separate reads can make a flow-adjusted result unavailable;
+the importer does not invent a single broker as-of time. Legacy batches are not
+restamped. The direct combined development endpoint is still all-or-nothing.
+
 ### Trading 212 cash and fill contract
 
 The [official API schema](https://docs.trading212.com/api/) documents these cash types:
@@ -91,8 +122,9 @@ are deduplicated; conflicting reference evidence is refused. Field failures use
 items use `invalid_cash_transaction`; invalid transfer amounts have the distinct
 `invalid_cash_transfer_amount` code. Cross-refresh consistency checks cover retained
 external funding events; internal fee/interest events are validated on each fetch
-but are not retained for historical comparison. Failure rolls back the complete
-sync, not only the offending section.
+but are not retained for historical comparison. A cash-history failure never imports
+a prefix of the ledger or advances its coverage; the worker may still verify orders
+without publishing a valuation. The direct combined API rolls back as before.
 
 The cash-ledger TRANSFER policy is grounded in an observed negative event confirmed
 as Invest -> CFD: cash left the observed Invest account. CFD is outside this equity

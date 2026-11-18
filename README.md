@@ -84,23 +84,28 @@ DB. See [sync guidance](docs/sync-reliability-operator-notes.md) and
 
 An unchanged observation is reported as unchanged; rechecks still consume rate
 limits. Changed observations are retained even on the same day. Cash events deduplicate
-by account/provider reference. The combined operation fetches all sections before
-writes and commits snapshot, orders and cash atomically, rolling back on failure or
-cancellation. A successful validated Trading 212 positions snapshot is authoritative
+by account/provider reference. A worker publishes a new portfolio valuation only
+when all four reads validate. If one dataset is unusable, it can still import a
+separately verified *whole* order or transaction history. The run reports **partial**,
+not complete; previously verified holdings and cash are left alone, even if the
+positions response appears to show a sale. A failed section never advances its
+verification time. Trades first imported on a partial run stay in the unmatched
+queue until you match them manually. Local direct combined sync remains all-or-nothing.
+A successful validated Trading 212 positions snapshot is authoritative
 for current holdings: ordinary sales, including selling the last holding to leave
 only verified cash, need no operator closure review or inferred SELL history.
 Missing securities are marked closed in the new snapshot; historical snapshots,
-orders and cash events are retained. Malformed or incomplete required data still
-rejects the entire combined sync.
+orders and cash events are retained. No incomplete refresh can remove a holding.
 
 ### Cash deposits and withdrawals
 
 Full paginated transaction history imports deposits positively and withdrawals
-negatively; fees and cash/lending interest are not external funding. Ambiguous
-transfers, unsupported currencies (only GBP), malformed records and conflicting
-references reject the sync. Missing transaction permission changes no ledger rows.
-A separately requested local cash-history refresh writes the ledger/coverage marker,
-not snapshots or trades; the combined button imports all sections together.
+negatively; signed transfers are funding for this account. Fees and cash/lending
+interest are not external funding. Unknown transaction types, unsupported currencies
+(only GBP), malformed records and conflicting references block the entire ledger
+refresh. Missing transaction permission changes no ledger rows. A separately
+requested local cash-history refresh writes the ledger/coverage marker, not
+snapshots or trades.
 
 A successful empty history proves zero reported funding and suppresses buy/sell
 proxies for that account. Unavailable history does not. Coverage means all pages

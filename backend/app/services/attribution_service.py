@@ -158,7 +158,7 @@ async def get_snapshot_attribution(
     try:
         flows = await external_flows_for_period(session, start=from_batch.as_of_date,
                                                end=to_batch.as_of_date, account_name=account_name,
-                                               through_batch=to_batch)
+                                               opening_batch=from_batch, through_batch=to_batch)
     except CashFlowCoverageError as exc:
         return _unavailable(from_batch=from_batch, to_batch=to_batch, note=str(exc))
 

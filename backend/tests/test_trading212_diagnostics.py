@@ -96,7 +96,7 @@ async def test_unsupported_cash_type_is_correlated_without_payload(
     caplog,
 ):
     report = await run(db, tmp_path, monkeypatch, Reader())
-    assert report.steps[-1].status == "failed"
+    assert report.steps[-1].status == "committed_with_attention"
     assert "code=unsupported_cash_transaction_type" in caplog.text
     assert 'reason="Cash transaction type is not supported."' in caplog.text
     assert 'stage="Validating and importing data" resource="Cash transaction history"' in caplog.text
@@ -112,7 +112,23 @@ async def test_unsupported_cash_type_is_correlated_without_payload(
     assert public["steps"][-1]["detail"] is None
     assert "unsupported_cash_transaction_type" not in json.dumps(public)
     assert await db.scalar(select(func.count()).select_from(ImportBatch)) == 0
-    assert await db.scalar(select(func.count()).select_from(OrderImportBatch)) == 0
+    assert await db.scalar(select(func.count()).select_from(OrderImportBatch)) == 1
+
+
+async def test_journal_failure_cannot_discard_committed_history(db, tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    broken_journal = Mock(side_effect=OSError("PRIVATE_JOURNAL_ERROR"))
+    monkeypatch.setattr(runner.logger, "error", broken_journal)
+    report = await run(db, tmp_path, monkeypatch, Reader())
+    broken_journal.assert_called_once()
+    assert report.steps[-1].status == "committed_with_attention" and report.outcome == "partial"
+    assert report.freshness["Trading 212"]["orders"]["verified_at"]
+    assert "PRIVATE_" not in json.dumps(report.to_json())
+    async with async_sessionmaker(db.bind)() as check:
+        assert await check.scalar(select(func.count()).select_from(OrderImportBatch)) == 1
+        for model in (ImportBatch, ExternalCashFlow, CashFlowCoverage):
+            assert await check.scalar(select(func.count()).select_from(model)) == 0
 
 
 @pytest.mark.parametrize(("kind", "field", "value", "code"), [
@@ -140,7 +156,7 @@ async def test_cash_field_rejections_have_safe_journal_only_reasons(
             }, item]
 
     report = await run(db, tmp_path, monkeypatch, CashReader())
-    assert report.steps[-1].status == "failed"
+    assert report.steps[-1].status == "committed_with_attention"
     assert f"code={code} endpoint=transactions phase=import" in caplog.text
     assert f'reason="{service.DIAGNOSTIC_REASONS[code]}"' in caplog.text
     assert "PRIVATE_" not in caplog.text
@@ -150,7 +166,8 @@ async def test_cash_field_rejections_have_safe_journal_only_reasons(
     assert code not in json.dumps(public)
     assert "PRIVATE_" not in json.dumps(public)
     await db.commit()
-    for model in (ImportBatch, OrderImportBatch, ExternalCashFlow, CashFlowCoverage):
+    assert await db.scalar(select(func.count()).select_from(OrderImportBatch)) == 1
+    for model in (ImportBatch, ExternalCashFlow, CashFlowCoverage):
         assert await db.scalar(select(func.count()).select_from(model)) == 0
 
 
@@ -159,7 +176,7 @@ async def test_cash_field_rejections_have_safe_journal_only_reasons(
     [
         ("positions", {}, 200, "invalid_positions_response", "fetch"),
         ("account_summary", [], 200, "invalid_account_summary", "fetch"),
-        ("account_summary", {}, 403, "account_summary_forbidden", "import"),
+        ("account_summary", {}, 403, "account_summary_forbidden", "fetch"),
         ("account_summary", {"currency": "GBP", "cash": {}}, 200, "invalid_cash_values", "import"),
         ("account_summary", {"currency": "USD"}, 200, "non_gbp_currency", "import"),
         ("orders", {}, 200, "invalid_order_history_response", "fetch"),
@@ -228,7 +245,7 @@ async def test_known_provider_failures_have_distinct_safe_codes(
         page_delay=0,
     )
     report = await run(db, tmp_path, monkeypatch, client)
-    assert report.steps[-1].status == "failed"
+    assert report.steps[-1].status == "committed_with_attention"
     assert f"code={code}" in caplog.text
     reasons = {
         "invalid_positions_response": "Positions response has an invalid structure.",
@@ -317,7 +334,7 @@ async def test_order_fill_field_diagnostics_are_private_safe(
         ),
     )
     report = await run(db, tmp_path, monkeypatch, client)
-    assert report.steps[-1].status == "failed"
+    assert report.steps[-1].status == "committed_with_attention"
     category = {
         "fill-container": "type", "order-container": "identity", "wallet-container": "value",
     }.get(field, field)
@@ -346,6 +363,7 @@ async def test_order_fill_field_diagnostics_are_private_safe(
     await db.commit()
     assert await db.scalar(select(func.count()).select_from(ImportBatch)) == 0
     assert await db.scalar(select(func.count()).select_from(OrderImportBatch)) == 0
+    assert await db.scalar(select(func.count()).select_from(CashFlowCoverage)) == 1
 
 
 @pytest.mark.parametrize("code", ["PRIVATE_CODE_SENTINEL", ["PRIVATE_CODE_SENTINEL"], None])
@@ -560,7 +578,7 @@ async def test_sink_revalidates_all_metadata_and_invocation(
 
     monkeypatch.setattr(runner, "_trading212_configured", lambda: True)
     monkeypatch.setattr(router, "get_trading212_client", Reader)
-    monkeypatch.setattr(router, "run_trading212_sync", hostile_sync)
+    monkeypatch.setattr(router, "run_trading212_worker_sync", hostile_sync)
     result = await runner._trading212_step(db, invocation_id=invocation_id)
     assert result.detail == "Trading212DataError"
     assert "code=invalid_data endpoint=sync phase=unknown invocation_id=unavailable" in caplog.text

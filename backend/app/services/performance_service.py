@@ -533,7 +533,7 @@ async def _flow_adjusted_block(
         from app.services.cash_flow_service import external_flows_for_period
 
         flows = await external_flows_for_period(session, start=window_start, end=window_end,
-                                               account_name=account_name)
+                                               account_name=account_name, daily=True)
         contributions, withdrawals, signed_flows = flows.contributions, flows.withdrawals, flows.signed_flows
     except Exception:  # noqa: BLE001 - a flow query failure should not kill the panel
         return unavailable

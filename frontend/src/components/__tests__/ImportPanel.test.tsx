@@ -120,6 +120,26 @@ describe("ImportPanel Trading 212 sync", () => {
     expect(screen.getByRole("button", { name: "Import Barclays XLS snapshot" })).toBeInTheDocument();
   });
 
+  it.each([
+    { providerStatus: "committed_with_attention", holdings: "needs_attention", message: "Verified history was retained. The portfolio valuation was not updated." },
+    { providerStatus: "ok", holdings: "imported", message: "Some work completed. Check the section results and service logs." },
+  ])("reports the actual valuation section on a partial run: $holdings", async ({ providerStatus, holdings, message }) => {
+    vi.mocked(api.getSyncStatus).mockResolvedValue({ manual_sync_enabled: false, service_trigger_enabled: true, accounts: [], stale_after_days: 7, last_run: null, running: false });
+    const sections = { holdings: { status: holdings }, cash: { status: holdings }, orders: { status: "imported" } };
+    const steps = [{ name: "Trading 212", status: providerStatus, sections },
+      ...(providerStatus === "ok" ? [{ name: "Sync step", status: "failed", sections: {} }] : [])];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, options) => new Response(JSON.stringify(options?.method === "POST"
+      ? { state: "accepted", request_id: "partial-request" }
+      : { state: "failed", request_id: "partial-request", last_run: { outcome: "partial", finished_at: "2026-01-01T12:02:00Z", steps } })));
+    show();
+    const button = await screen.findByRole("button", { name: "Sync Trading 212" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.getByText(`Trading 212 / holdings: ${holdings}`)).toBeInTheDocument();
+    expect(screen.getByText("Refresh outcome: partial")).toBeInTheDocument();
+  });
+
   it("keeps the Barclays XLS import as a manual upload", async () => {
     const file = new File(["portfolio"], "portfolio.xls");
     const importXls = vi.spyOn(api, "importXls").mockResolvedValue({

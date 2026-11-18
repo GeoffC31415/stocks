@@ -31,6 +31,13 @@ from app.services.matching.scoring import (
     score_candidate,
 )
 
+T212_MANUAL_ONLY = "trading212_manual_only"
+
+
+def requires_manual_match(order: Order) -> bool:
+    # Import provenance is independent of the method of the last operator action.
+    return isinstance(order.match_evidence, dict) and order.match_evidence.get(T212_MANUAL_ONLY) is True
+
 
 async def resolve_order(
     session: AsyncSession,
@@ -53,8 +60,11 @@ async def resolve_order(
     - evidence
     - changed (bool)
     """
-    # Skip manual/ignored orders unless explicitly allowed
-    if order.match_status in ("manual", "ignored") and not overwrite_manual:
+    # A fill first imported by a history-only refresh must be linked by the
+    # operator, not by a later sync, alias score or global automatic backfill.
+    if requires_manual_match(order) or (
+        order.match_status in ("manual", "ignored") and not overwrite_manual
+    ):
         return {
             "order_id": order.id,
             "instrument_id": order.instrument_id,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import datetime as dt  # noqa: TC003 - Pydantic runtime annotation.
 import logging
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -25,6 +25,7 @@ from app.services.trading212 import (
     sync_order_history,
     sync_portfolio_snapshot,
 )
+from app.services.trading212_valuation import ValuationObservation, ledger_scope
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -64,29 +65,30 @@ class Trading212Status(BaseModel):
     account_name: str
 
 
-@dataclass(frozen=True)
+@dataclass
 class _FetchedTrading212Data:
     """Replay fetched responses to import services without any network access."""
 
-    positions: list[Mapping[str, Any]]
-    account_summary: Mapping[str, Any] | httpx.HTTPStatusError
-    historical_orders: list[Mapping[str, Any]]
-    transactions: list[Mapping[str, Any]]
+    # Only fully fetched sections are present. Looking up an unavailable
+    # section fails closed; it must never be replayed as an empty response.
+    responses: dict[str, Any] = field(default_factory=dict)
+    observed_at: dict[str, dt.datetime] = field(default_factory=dict)
+    valuation: ValuationObservation | None = None
 
     async def fetch_positions(self) -> list[Mapping[str, Any]]:
-        return self.positions
+        return self.responses["positions"]
 
     async def fetch_account_summary(self) -> Mapping[str, Any]:
-        if isinstance(self.account_summary, httpx.HTTPStatusError):
-            # Preserve the service's verified-currency/no-invented-cash fallback.
-            raise self.account_summary
-        return self.account_summary
+        account = self.responses["account_summary"]
+        if isinstance(account, httpx.HTTPStatusError):
+            raise account  # Preserve the direct route's denied-summary diagnostic.
+        return account
 
     async def fetch_historical_orders(self) -> list[Mapping[str, Any]]:
-        return self.historical_orders
+        return self.responses["orders"]
 
     async def fetch_transactions(self) -> list[Mapping[str, Any]]:
-        return self.transactions
+        return self.responses["transactions"]
 
 
 def require_local_origin(request: Request) -> None:
@@ -203,102 +205,320 @@ async def sync_trading212_all(
         raise _provider_error(exc) from exc
 
 
+def _annotate(exc: BaseException, endpoint: str, phase: str) -> None:
+    if isinstance(exc, Exception):
+        # Never let diagnostic enrichment replace the error. Bypass arbitrary setters.
+        with suppress(Exception):
+            vars(exc).update(t212_endpoint=endpoint, t212_phase=phase)
+
+
+@dataclass(frozen=True)
+class Trading212Incomplete:
+    """Worker-only evidence. Map errors at the diagnostic sink; never serialize them."""
+
+    sections: dict[str, dict[str, Any]]
+    errors: list[Exception] = field(repr=False)
+
+
+async def _stage_snapshot(
+    session: AsyncSession,
+    fetched: _FetchedTrading212Data,
+    *,
+    force: bool,
+) -> tuple[str, int | None, dt.date | None]:
+    try:
+        batch, summary = await sync_portfolio_snapshot(
+            session,
+            fetched,
+            account_name=settings.trading212_account_name,
+            force=force,
+            commit=False,
+            observation_date=fetched.valuation.account_summary_received_at.date()
+            if fetched.valuation
+            else None,
+        )
+        if fetched.valuation is not None:
+            # Only a new batch gets evidence. Never restamp a retained duplicate.
+            batch.diff_summary = {**summary, ValuationObservation.key: fetched.valuation.metadata()}
+        rows = summary.get("row_count") if isinstance(summary, dict) else None
+        return "imported", rows, batch.as_of_date
+    except DuplicateImportError as exc:
+        from app.models import ImportBatch
+
+        retained = await session.get(ImportBatch, exc.batch_id)
+        return "unchanged", None, retained.as_of_date if retained else None
+
+
+async def _stage_orders(
+    session: AsyncSession,
+    fetched: _FetchedTrading212Data,
+    *,
+    force: bool,
+    require_retained: bool,
+    manual_matching_only: bool,
+) -> tuple[str, int | None]:
+    try:
+        batch, _ = await sync_order_history(
+            session,
+            fetched,
+            account_name=settings.trading212_account_name,
+            force=force,
+            commit=False,
+            require_retained=require_retained,
+            manual_matching_only=manual_matching_only,
+        )
+        return "imported", batch.row_count
+    except DuplicateOrderImportError:
+        return "unchanged", None
+
+
 async def run_trading212_sync(
     session: AsyncSession, client: Trading212Client, *, force: bool = False
 ) -> Trading212SyncResult:
-    """All-or-nothing snapshot + orders + cash sync, shared by the API and sync-all.
+    """Direct API: require one atomic account refresh; never accept partial history."""
+    result = await _run_sync(session, client, force=force, allow_history_only=False)
+    assert isinstance(result, Trading212SyncResult)
+    return result
 
-    Raises the underlying provider/data error; callers map it to HTTP or a report.
-    """
-    endpoint, phase = "sync", "setup"
-    try:
-        # Complete all broker I/O before opening a transaction or taking a writer lock.
-        endpoint, phase = "positions", "fetch"
-        positions = await client.fetch_positions()
-        account_summary: Mapping[str, Any] | httpx.HTTPStatusError
-        endpoint = "account_summary"
-        try:
-            account_summary = await client.fetch_account_summary()
-        except httpx.HTTPStatusError as exc:
-            if exc.response.status_code != 403:
-                raise
-            account_summary = exc
-        endpoint = "orders"
-        historical_orders = await client.fetch_historical_orders()
-        endpoint = "transactions"
-        transactions = await client.fetch_transactions()
-        fetched = _FetchedTrading212Data(
-            positions=positions,
-            account_summary=account_summary,
-            historical_orders=historical_orders,
-            transactions=transactions,
-        )
-        # Legacy matching helpers commit internally. Join the caller's transaction
-        # without allowing those commits to reach the database connection.
-        endpoint, phase = "sync", "setup"
-        async with AsyncSession(
-            bind=await session.connection(),
-            join_transaction_mode="rollback_only",
-            expire_on_commit=False,
-        ) as import_session:
-            endpoint, phase = "positions", "import"
-            try:
-                _batch, summary = await sync_portfolio_snapshot(
-                    import_session,
-                    fetched,
-                    account_name=settings.trading212_account_name,
-                    force=force,
-                    commit=False,
-                )
-                valuation_at: dt.date | None = _batch.as_of_date
-                snapshot = "imported"
-                snapshot_rows = summary.get("row_count") if isinstance(summary, dict) else None
-            except DuplicateImportError as exc:
-                from app.models import ImportBatch
 
-                retained = await import_session.get(ImportBatch, exc.batch_id)
-                valuation_at = retained.as_of_date if retained else None
-                snapshot, snapshot_rows = "unchanged", None
-            endpoint = "orders"
-            try:
-                order_batch, _inserted = await sync_order_history(
-                    import_session,
-                    fetched,
-                    account_name=settings.trading212_account_name,
-                    force=force,
-                    commit=False,
-                )
-                orders, order_rows = "imported", order_batch.row_count
-            except DuplicateOrderImportError:
-                orders, order_rows = "unchanged", None
-            endpoint = "transactions"
-            cash = await sync_cash_history(
-                import_session, fetched, account_name=settings.trading212_account_name, commit=False
+async def run_trading212_worker_sync(
+    session: AsyncSession, client: Trading212Client
+) -> Trading212SyncResult | Trading212Incomplete:
+    """Retain the last complete valuation if a required section fails validation."""
+    return await _run_sync(session, client, force=False, allow_history_only=True)
+
+
+# Only classified source rejections may discard a section and replay its peers.
+# DB errors, unclassified failures and anything at setup/flush/commit are fatal.
+_SECTION_REJECTIONS = {
+    "positions": {
+        "invalid_position_identity",
+        "invalid_position_numbers",
+        "invalid_cash_values",
+        "non_gbp_currency",
+        "account_summary_forbidden",
+    },
+    "orders": {
+        "invalid_order_fill_date",
+        "invalid_order_fill_type",
+        "invalid_order_fill_name",
+        "invalid_order_fill_side",
+        "invalid_order_fill_quantity",
+        "invalid_order_fill_value",
+        "invalid_order_fill_id",
+        "invalid_order_fill_identity",
+        "order_fill_identity_conflict",
+        "order_history_conflict",
+        "non_gbp_currency",
+    },
+    "transactions": {
+        "future_cash_transaction",
+        "cash_history_conflict",
+        "cash_history_source_conflict",
+        "invalid_cash_transaction",
+        "unsupported_cash_transaction_type",
+        "invalid_cash_transaction_date",
+        "invalid_cash_transaction_reference",
+        "invalid_cash_transfer_amount",
+        "invalid_cash_transaction_amount",
+        "invalid_cash_transaction_currency",
+        "cash_reference_conflict",
+    },
+}
+
+
+def _incomplete(
+    errors: dict[str, Exception],
+    statuses: dict[str, str],
+    observed_at: dict[str, dt.datetime],
+) -> Trading212Incomplete:
+    from app.services.sync_freshness import REQUIRED_SECTIONS, verified_sections
+
+    sections = {}
+    for section in REQUIRED_SECTIONS["Trading 212"]:
+        sections.update(
+            verified_sections(
+                {section: statuses.get(section, "needs_attention")},
+                observed_at[section].isoformat() if section in statuses else "",
+                None,
+                coverage={section: "complete"},
             )
-            endpoint, phase = "sync", "commit"
-            await import_session.flush()
-        await session.commit()
-    except BaseException as exc:
-        # Joined-session close is not an owner rollback, including cancellation.
-        # Diagnostic enrichment must never prevent rollback or replace the error.
-        await session.rollback()
-        if isinstance(exc, Exception):
-            with suppress(Exception):
-                # Bypass arbitrary exception setters. Source-owned context only;
-                # never derive diagnostics from request URLs or provider bodies.
-                vars(exc).update(t212_endpoint=endpoint, t212_phase=phase)
-        raise
-    return Trading212SyncResult(
-        account_name=settings.trading212_account_name,
-        snapshot=snapshot,
-        snapshot_rows=snapshot_rows,
-        orders=orders,
-        order_rows=order_rows,
-        cash_flows_imported=cash["imported_count"],
-        cash_flows_total=cash["total_count"],
-        valuation_at=valuation_at,
-        fetched_at=cash["fetched_at"],
+        )
+    return Trading212Incomplete(sections=sections, errors=list(errors.values()))
+
+
+_FETCH_REJECTIONS = {
+    "invalid_json_response",
+    "request_failed",
+    "invalid_positions_response",
+    "invalid_account_summary",
+    "invalid_order_history_response",
+    "invalid_order_pagination",
+    "order_pagination_limit",
+    "invalid_cash_history_response",
+    "invalid_cash_pagination",
+    "cash_pagination_limit",
+    "cash_pagination_repeated",
+}
+
+
+def _section_fetch_failure(exc: Exception) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        # Scoped denial or endpoint failure after the client's bounded attempts.
+        # Authentication and rate-limit/budget policy are not section failures.
+        return exc.response.status_code in {403, 404, 408, 500, 502, 503, 504}
+    if isinstance(exc, httpx.RequestError):
+        return True
+    return (
+        isinstance(exc, Trading212DataError)
+        and type(exc.code) is str
+        and exc.code in _FETCH_REJECTIONS
     )
+
+
+async def _fetch_once(
+    session: AsyncSession,
+    client: Trading212Client,
+    *,
+    allow_history_only: bool,
+) -> tuple[_FetchedTrading212Data, dict[str, Exception]]:
+    errors: dict[str, Exception] = {}
+    fetched = _FetchedTrading212Data()
+    # Complete broker I/O once, outside every write transaction. Capture the
+    # phase here, not from an exception-supplied URL or untrusted metadata.
+    endpoint = "sync"
+    try:
+        for endpoint, fetch in (
+            ("positions", client.fetch_positions),
+            ("account_summary", client.fetch_account_summary),
+            ("orders", client.fetch_historical_orders),
+            ("transactions", client.fetch_transactions),
+        ):
+            try:
+                fetched.observed_at[endpoint] = dt.datetime.now(dt.UTC)
+                fetched.responses[endpoint] = await fetch()
+                if allow_history_only and endpoint == "account_summary":
+                    fetched.valuation = ValuationObservation(
+                        fetched.observed_at["positions"],
+                        dt.datetime.now(dt.UTC),
+                        ledger_scope(settings.trading212_account_name),
+                    )
+            except Exception as exc:
+                denied_summary = (
+                    endpoint == "account_summary"
+                    and isinstance(exc, httpx.HTTPStatusError)
+                    and exc.response.status_code == 403
+                )
+                if not allow_history_only and denied_summary:
+                    fetched.responses[endpoint] = exc
+                    continue
+                if not allow_history_only or not _section_fetch_failure(exc):
+                    raise
+                failure = (
+                    Trading212DataError(
+                        "Required cash is unavailable.", code="account_summary_forbidden"
+                    )
+                    if denied_summary
+                    else exc
+                )
+                _annotate(failure, endpoint, "fetch")
+                errors[endpoint] = failure
+    except BaseException as exc:
+        await session.rollback()
+        _annotate(exc, endpoint, "fetch")
+        raise
+
+    return fetched, errors
+
+
+async def _run_sync(
+    session: AsyncSession,
+    client: Trading212Client,
+    *,
+    force: bool,
+    allow_history_only: bool,
+) -> Trading212SyncResult | Trading212Incomplete:
+    fetched, errors = await _fetch_once(session, client, allow_history_only=allow_history_only)
+    # Each rejection removes its entire section (and the valuation). A fresh
+    # joined transaction revalidates eligible history against retained DB state;
+    # never release a SQLite savepoint or commit one section ahead of another.
+    while not {"orders", "transactions"}.issubset(errors):
+        endpoint, phase = "sync", "setup"
+        snapshot = orders = cash = None
+        try:
+            connection = await session.connection()
+            if allow_history_only and connection.dialect.name == "sqlite":
+                # SQLite legacy SELECTs alone do not reserve the writer. Pin
+                # retained evidence through commit, including duplicate checks.
+                await connection.exec_driver_sql("UPDATE import_batches SET id = id WHERE 0")
+            async with AsyncSession(
+                bind=connection,
+                join_transaction_mode="rollback_only",
+                expire_on_commit=False,
+            ) as joined:
+                if not errors:
+                    endpoint, phase = "positions", "import"
+                    snapshot = await _stage_snapshot(joined, fetched, force=force)
+                if "orders" not in errors:
+                    endpoint, phase = "orders", "import"
+                    orders = await _stage_orders(
+                        joined, fetched, force=force, require_retained=allow_history_only,
+                        manual_matching_only=snapshot is None,
+                    )
+                if "transactions" not in errors:
+                    endpoint, phase = "transactions", "import"
+                    cash = await sync_cash_history(
+                        joined,
+                        fetched,
+                        account_name=settings.trading212_account_name,
+                        commit=False,
+                        observed_at=fetched.observed_at["transactions"]
+                        if allow_history_only
+                        else None,
+                    )
+                endpoint, phase = "sync", "commit"
+                if errors:
+                    statuses: dict[str, str] = {}
+                    if orders is not None:
+                        statuses["orders"] = orders[0]
+                    if cash is not None:
+                        statuses["transactions"] = (
+                            "imported" if cash["imported_count"] else "unchanged"
+                        )
+                    result = _incomplete(errors, statuses, fetched.observed_at)
+                else:
+                    assert snapshot is not None and orders is not None and cash is not None
+                    result = Trading212SyncResult(
+                        account_name=settings.trading212_account_name,
+                        snapshot=snapshot[0],
+                        snapshot_rows=snapshot[1],
+                        valuation_at=snapshot[2],
+                        orders=orders[0],
+                        order_rows=orders[1],
+                        cash_flows_imported=cash["imported_count"],
+                        cash_flows_total=cash["total_count"],
+                        fetched_at=cash["fetched_at"],
+                    )
+                await joined.flush()
+            if allow_history_only and isinstance(client, Trading212Client):
+                phase = "deadline"
+                client.check_budget()
+                phase = "commit"
+            await session.commit()
+            return result
+        except BaseException as exc:
+            await session.rollback()
+            _annotate(exc, endpoint, phase)
+            if not (
+                allow_history_only
+                and phase == "import"
+                and isinstance(exc, Trading212DataError)
+                and type(exc.code) is str
+                and exc.code in _SECTION_REJECTIONS[endpoint]
+            ):
+                raise
+            errors[endpoint] = exc
+    return _incomplete(errors, {}, fetched.observed_at)
 
 
 @router.get("/status", response_model=Trading212Status)
