@@ -20,7 +20,7 @@ export function performanceMetric(perf: PerformanceSummary, key: PerformanceMetr
     unit: key.endsWith("ratio") ? "ratio" : "percent",
     method: perf.flow_adjusted?.method ?? "Chain-linked interval Modified Dietz",
     start_date: perf.period_start, end_date: perf.period_end,
-    observations: perf.growth_curve.length,
+    observations: perf.flow_adjusted_curve?.length ?? perf.flow_adjusted?.flow_adjusted_curve?.length ?? 0,
     reasons: value == null ? [{ code: "legacy_unavailable", message, action_href: null }] : [],
   };
 }

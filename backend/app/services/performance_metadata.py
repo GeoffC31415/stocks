@@ -26,8 +26,8 @@ def with_performance_metadata(
 ) -> dict:
     flow = payload.get("flow_adjusted") or {}
     start, end = payload["period_start"], payload["period_end"]
-    observations = len(payload["growth_curve"])
     chain_valid = flow.get("total_return_pct") is not None and bool(payload["flow_adjusted_curve"])
+    observations = len(payload["flow_adjusted_curve"]) if chain_valid else 0
     states = {}
     for key, unit in METRIC_UNITS.items():
         value = flow.get(key) if chain_valid else None
@@ -35,12 +35,14 @@ def with_performance_metadata(
             value = None
         reasons = []
         if value is None:
-            if observations < 2:
+            if len(payload["growth_curve"]) < 2:
                 code, message = "insufficient_snapshots", "At least two distinct snapshot dates are required."
             elif not chain_valid:
                 code = "invalid_return_chain"
                 message = "An unusable snapshot interval prevents a complete flow-adjusted return."
-                if flow.get("contributions_gbp") is None:
+                if flow.get("coverage_issue"):
+                    code, message = "cash_flow_coverage", flow["coverage_issue"]
+                elif flow.get("contributions_gbp") is None:
                     code, message = "flows_unavailable", "Transaction flows could not be read for this window."
             elif key == "annualised_return_pct":
                 code = "short_annualisation_window" if (end - start).days < 365 else "total_loss"

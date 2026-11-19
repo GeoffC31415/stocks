@@ -33,7 +33,7 @@ Legacy URLs remain redirects: `/holdings` → Portfolio Holdings, `/positions` �
 ### Current state, performance and risk are different
 
 - **Current holdings:** latest snapshots for the selected accounts. Check dates, missing account coverage and cash treatment before comparing totals.
-- **Actual-portfolio performance:** a snapshot-boundary, flow-adjusted Modified Dietz estimate. Dietz is an estimated money-weighted method, not exact time-weighted return. Observe the disclosed covered dates and whether a figure is cumulative or annualised.
+- **Actual-portfolio performance:** a snapshot-boundary, flow-adjusted Modified Dietz estimate, not exact time-weighted return. When an intermediate valuation predates a recorded cash movement, the adjusted curve bridges to the first eligible valuation cutoff after the movement. The funding keeps its original date for return weighting. Raw valuations are not changed, and the chart reports how many observations the adjusted curve uses. Drawdowns within a bridged gap are not observed.
 - **Position gain/cost:** unrealised gain against recorded book cost. Lifetime position MWR includes transaction timing; neither is interchangeable with selected-period portfolio performance.
 - **Past holdings valued at today’s prices:** order-derived quantities valued at current prices. This renamed reconstruction is not historical portfolio wealth, benchmarked actual return, or a valid performance benchmark overlay.
 - **Current-composition risk:** historical modelling of today's holdings, not a record of what the investor actually held. Missing history must remain unavailable, not replaced with fabricated analytics.

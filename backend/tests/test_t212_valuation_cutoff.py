@@ -10,6 +10,7 @@ from test_trading212_worker_history import db as disposable_db
 
 from app.models import AccountAlias, CashFlowCoverage, HoldingSnapshot, ImportBatch, Instrument
 from app.routers import trading212 as router
+from app.schemas import PerformanceSummary
 from app.services.attribution_service import get_snapshot_attribution
 from app.services.performance_service import get_portfolio_performance
 from app.services.portfolio_service import get_portfolio_return_summary
@@ -71,7 +72,7 @@ def timed_broker(monkeypatch):
     return broker
 
 
-async def other_cash_snapshot(session, day):
+async def other_cash_snapshot(session, day, value: float | None = 100):
     cash = await session.scalar(select(Instrument).where(Instrument.account_name == "Other"))
     if cash is None:
         cash = Instrument(
@@ -83,7 +84,10 @@ async def other_cash_snapshot(session, day):
     await session.flush()
     session.add(
         HoldingSnapshot(
-            import_batch_id=batch.id, instrument_id=cash.id, investment_label="Cash", value_gbp=100
+            import_batch_id=batch.id,
+            instrument_id=cash.id,
+            investment_label="Cash",
+            value_gbp=value,
         )
     )
     await session.commit()
@@ -144,12 +148,10 @@ async def test_aliased_late_join_counts_first_value_once(db, timed_broker, lead,
         result = await get_portfolio_return_summary(s)
         assert (result["net_external_flow_gbp"], result["absolute_gain_after_flows_gbp"]) == (17, 0)
         curve = (await get_portfolio_performance(s))["flow_adjusted"]
-        if second_deposit.date() == START.date():
-            # After the joining observation: known funding for the endpoints,
-            # but the day-based curve would charge it to the join point.
-            assert curve["total_return_pct"] is None
-        else:
-            assert (curve["net_external_flow_gbp"], curve["total_return_pct"]) == (17, 0)
+        assert (curve["net_external_flow_gbp"], curve["total_return_pct"]) == (17, 0)
+        assert (START.date() in {p["date"] for p in curve["flow_adjusted_curve"]}) == (
+            second_deposit.date() != START.date()
+        )
 
 
 async def test_late_join_does_not_hide_cash_during_valuation(db, timed_broker):
@@ -186,11 +188,14 @@ async def test_aggregate_funding_across_carried_point(
         performance = await get_portfolio_performance(s)
         assert [p["value_gbp"] for p in performance["growth_curve"]] == [200, 200, 250]
         block = performance["flow_adjusted"]
+        assert (block["net_external_flow_gbp"], block["total_return_pct"]) == (50, 0)
+        assert block["max_drawdown_pct"] == 0
+        dates = [START.date(), (START + end_day * day).date()]
+        if funding_day > mid_day:
+            dates.insert(1, mid.date())
+        assert [p["date"] for p in block["flow_adjusted_curve"]] == dates
         if funding_day <= mid_day:
-            assert block["total_return_pct"] is None
-            assert block["flow_adjusted_curve"] == [] and block["max_drawdown_pct"] is None
-        else:
-            assert (block["net_external_flow_gbp"], block["total_return_pct"]) == (50, 0)
+            assert any("not yet reflected" in note for note in block["notes"])
 
         # This window *opens* on the other account's date, with the prior
         # Trading 212 valuation carried in. It is not a new scope baseline.
@@ -203,6 +208,102 @@ async def test_aggregate_funding_across_carried_point(
                 50,
                 0,
             )
+
+
+@pytest.mark.parametrize("aggregate", [False, True], ids=["account", "all-accounts"])
+@pytest.mark.parametrize("legacy", [False, True], ids=["worker-cutoff", "legacy-cutoff"])
+async def test_curve_bridges_intraday_cash_and_keeps_actual_funding_date(
+    db, timed_broker, aggregate, legacy
+):
+    sessions, _ = db
+    b = timed_broker
+    middle = START + dt.timedelta(days=1)
+    end = START + dt.timedelta(days=2)
+    other_value = 100 if aggregate else 0
+    async with sessions() as s:
+        if aggregate:
+            await other_cash_snapshot(s, START.date())
+        await cash_valuation(s, b, START, 100)
+        # A changed balance makes the middle valuation observable even without
+        # another account. Its small increase is from performance, not funding.
+        await cash_valuation(s, b, middle, 105)
+        mid_batch = await s.scalar(select(ImportBatch).order_by(ImportBatch.id.desc()).limit(1))
+        if legacy:
+            # Reproduce a retained pre-worker snapshot: legacy API timing is
+            # the same-date creation cutoff, not worker request metadata.
+            middle_summary = dict(mid_batch.diff_summary)
+            middle_summary.pop(KEY)
+            mid_batch.diff_summary = middle_summary
+            mid_batch.created_at = middle + 2 * MINUTE
+            await s.commit()
+        deposit(b, middle + 3 * MINUTE, 50)
+        await cash_valuation(s, b, end, 170)
+        account = None if aggregate else router.settings.trading212_account_name
+        result = await get_portfolio_performance(s, account_name=account)
+        opening = await get_portfolio_return_summary(
+            s, account_name=account, from_date=middle.date()
+        )
+        closing = await get_portfolio_return_summary(s, account_name=account, to_date=middle.date())
+        assert opening["modified_dietz_return_pct"] is None
+        assert opening["net_external_flow_gbp"] is None
+        assert (closing["absolute_gain_after_flows_gbp"], closing["net_external_flow_gbp"]) == (
+            5,
+            0,
+        )
+        if not aggregate:
+            closing_change = await get_snapshot_attribution(
+                s, account_name=account, to_batch_id=mid_batch.id
+            )
+            opening_change = await get_snapshot_attribution(
+                s, account_name=account, from_batch_id=mid_batch.id
+            )
+            assert opening_change["residual_market_movement_gbp"] is None
+            assert (
+                closing_change["residual_market_movement_gbp"],
+                closing_change["net_external_flow_gbp"],
+            ) == (5, 0)
+
+    assert [p["value_gbp"] for p in result["growth_curve"]] == [
+        100 + other_value,
+        105 + other_value,
+        170 + other_value,
+    ]
+    block = result["flow_adjusted"]
+    assert block["net_external_flow_gbp"] == 50
+    # The deposit remains halfway through the bridged two-day interval, not
+    # shifted to the end where it would get no time weight.
+    expected = 100 * 20 / (100 + other_value + 25)
+    assert block["total_return_pct"] == pytest.approx(expected)
+    assert [p["date"] for p in result["flow_adjusted_curve"]] == [START.date(), end.date()]
+    assert result["flow_adjusted_curve"][-1]["index"] == pytest.approx(100 + expected)
+    assert result["metrics"]["total_return_pct"]["observations"] == 2
+    wire = PerformanceSummary.model_validate(result).model_dump(mode="json")
+    assert len(wire["growth_curve"]) == 3
+    assert [p["date"] for p in wire["flow_adjusted_curve"]] == [
+        START.date().isoformat(),
+        end.date().isoformat(),
+    ]
+    assert wire["metrics"]["total_return_pct"]["observations"] == 2
+
+
+async def test_cash_alignment_does_not_hide_missing_join_valuation(db, timed_broker):
+    sessions, _ = db
+    middle = START + dt.timedelta(days=1)
+    end = START + dt.timedelta(days=2)
+    async with sessions() as s:
+        await cash_valuation(s, timed_broker, START, 100)
+        await cash_valuation(s, timed_broker, middle, 105)
+        await other_cash_snapshot(s, middle.date(), value=None)
+        deposit(timed_broker, middle + 3 * MINUTE, 50)
+        await cash_valuation(s, timed_broker, end, 170)
+        await other_cash_snapshot(s, end.date())
+        result = await get_portfolio_performance(s)
+
+    assert [p["value_gbp"] for p in result["growth_curve"]] == [100, None, 270]
+    assert result["flow_adjusted_curve"] == []
+    assert result["metrics"]["total_return_pct"]["status"] == "unavailable"
+    assert result["metrics"]["total_return_pct"]["observations"] == 0
+    assert result["metrics"]["total_return_pct"]["reasons"][0]["code"] == "invalid_return_chain"
 
 
 async def worker_pair(session, broker, *, transfer_at=None):
@@ -287,7 +388,15 @@ async def test_overlap_stays_ambiguous_when_worker_valuation_is_used_as_open_or_
         )
         assert segment["absolute_gain_after_flows_gbp"] is None
         curve = await get_portfolio_performance(check, account_name=account)
-        assert curve["flow_adjusted"]["total_return_pct"] is None
+        if minutes == 1:
+            assert curve["flow_adjusted"]["total_return_pct"] is None
+            metric = curve["metrics"]["total_return_pct"]
+            assert metric["observations"] == 0
+            assert metric["reasons"][0]["code"] == "cash_flow_coverage"
+            assert "during separate" in metric["reasons"][0]["message"]
+        else:
+            assert curve["flow_adjusted"]["net_external_flow_gbp"] == 10
+            assert START.date() not in {p["date"] for p in curve["flow_adjusted_curve"]}
         attr = await get_snapshot_attribution(check, account_name=account)
         assert attr["residual_market_movement_gbp"] is None
         # The earliest and latest endpoints themselves are unambiguous.

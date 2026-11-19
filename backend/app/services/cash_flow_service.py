@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 from bisect import bisect_left
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from sqlalchemy import and_, func, or_, select
@@ -44,6 +44,9 @@ class ExternalFlows:
     signed_flows: list[tuple[dt.date, float]]
     ledger_accounts: set[str]
     notes: list[str]
+    # Ranges of valuation dates [cash event, first observation reflecting it)
+    # that an adjusted curve must bridge. Never shift the date of a cash flow.
+    unaligned_spans: set[tuple[dt.date, dt.date]] = field(default_factory=set)
 
 
 async def _boundary_batches(
@@ -120,7 +123,7 @@ async def external_flows_for_period(
     )
     opening_cutoffs: dict[str, dt.datetime] = {}
     closing_cutoffs: dict[str, dt.datetime] = {}
-    daily_cutoffs: dict[str, dict[dt.date, dt.datetime]] = {}
+    daily_cutoffs: dict[str, list[dt.datetime]] = {}
     worker_windows: dict[tuple[str, dt.date], ValuationObservation] = {}
     accounts: set[str] = set()
     for canonical in {account_name} if account_name is not None else holding_accounts:
@@ -179,8 +182,8 @@ async def external_flows_for_period(
         opening_cutoffs[row.account_name] = cutoffs[batches[0].as_of_date]
         cutoff = cutoffs[batches[-1].as_of_date]
         closing_cutoffs[row.account_name] = cutoff
-        if daily and account_name is None:
-            daily_cutoffs[row.account_name] = cutoffs
+        if daily:
+            daily_cutoffs[row.account_name] = sorted(cutoffs.values())
         if utc(row.fetched_at) < cutoff:
             raise CashFlowCoverageError(
                 "Cash history does not cover the closing snapshot time; sync cash flows again."
@@ -240,24 +243,7 @@ async def external_flows_for_period(
         ),
         ExternalCashFlow.occurred_at <= dt.datetime.combine(end, dt.time.max),
     )
-    point_days: Sequence[dt.date] = []
-    if daily_cutoffs and len(holding_accounts) > 1:
-        # Portfolio points can come from another account, including a closure
-        # without new holdings. Empty, unchanged imports are not curve points.
-        point_days = (
-            await session.scalars(
-                select(ImportBatch.as_of_date)
-                .distinct()
-                .where(
-                    ImportBatch.as_of_date.between(start, end),
-                    or_(
-                        ImportBatch.id.in_(select(HoldingSnapshot.import_batch_id)),
-                        func.json_array_length(ImportBatch.diff_summary, "$.closed") > 0,
-                    ),
-                )
-                .order_by(ImportBatch.as_of_date)
-            )
-        ).all()
+    unaligned_spans: set[tuple[dt.date, dt.date]] = set()
     for cash_event in (await session.scalars(cash_query)).all():
         occurred = utc(cash_event.occurred_at)
         window = worker_windows.get((cash_event.account_name, occurred.date()))
@@ -277,29 +263,24 @@ async def external_flows_for_period(
             continue
         if opening.date() < start and opening < occurred <= opening_eod:
             raise CashFlowCoverageError("Cash moved after the valuation carried into the opening.")
-        if (
-            window
-            and window.account_summary_received_at < occurred
-            and (daily or occurred.date() <= start)
-        ):
-            # The day-based calculation would put this movement on the wrong
-            # side of an intraday opening or daily point. For endpoint returns
-            # a post-join movement is still dated correctly inside the period.
+        if opening < occurred <= opening_eod:
+            # Date-only weighting cannot put a cash movement after the opening
+            # valuation on its own start date. Preserve the requested boundary.
             raise CashFlowCoverageError(
                 "A same-day cash movement follows an intraday Trading 212 valuation."
             )
         if occurred <= opening_eod:
             continue
-        if point_days:
-            # The dated flow is charged to the first portfolio point on or
-            # after its date. Its own account must reflect the movement there.
-            day = point_days[bisect_left(point_days, occurred.date())]
-            observed = daily_cutoffs[cash_event.account_name].get(day)
-            if observed is None or observed < occurred:
-                raise CashFlowCoverageError(
-                    "Cash is not covered by the account valuation at a daily portfolio point."
-                )
-        signed_flows.append((cash_event.occurred_at.date(), cash_event.amount_gbp))
+        event_day = occurred.date()
+        if daily:
+            cutoffs_for_account = daily_cutoffs[cash_event.account_name]
+            # The closing cutoff above already passed. A same-day snapshot
+            # can precede the event, and other accounts can produce points
+            # while this account's old balance is carried forward.
+            reflected_day = cutoffs_for_account[bisect_left(cutoffs_for_account, occurred)].date()
+            if event_day < reflected_day:
+                unaligned_spans.add((event_day, reflected_day))
+        signed_flows.append((event_day, cash_event.amount_gbp))
         if cash_event.amount_gbp > 0:
             contributions += cash_event.amount_gbp
         else:
@@ -313,4 +294,6 @@ async def external_flows_for_period(
         notes.append(
             "Worker valuation timing bounds the separate positions and account-summary requests; it is not a broker as-of time."
         )
-    return ExternalFlows(contributions, withdrawals, sorted(signed_flows), accounts, notes)
+    return ExternalFlows(
+        contributions, withdrawals, sorted(signed_flows), accounts, notes, unaligned_spans
+    )

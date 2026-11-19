@@ -529,12 +529,14 @@ async def _flow_adjusted_block(
         "drawdown_curve": [],
         "max_drawdown_pct": None,
     }
-    try:
-        from app.services.cash_flow_service import external_flows_for_period
+    from app.services.cash_flow_service import CashFlowCoverageError, external_flows_for_period
 
+    try:
         flows = await external_flows_for_period(session, start=window_start, end=window_end,
                                                account_name=account_name, daily=True)
         contributions, withdrawals, signed_flows = flows.contributions, flows.withdrawals, flows.signed_flows
+    except CashFlowCoverageError as exc:
+        return {**unavailable, "coverage_issue": str(exc)}
     except Exception:  # noqa: BLE001 - a flow query failure should not kill the panel
         return unavailable
 
@@ -543,8 +545,22 @@ async def _flow_adjusted_block(
                                 if window_start < date <= window_end)
     contributions += baseline_contribution
 
+    # Omit only intermediate points whose account values do not yet include
+    # an already recorded movement. Both interval math and the plotted index
+    # use the same remaining observations and the unchanged cash-flow dates.
+    # An incomplete or unusable valuation must still invalidate the return:
+    # omitting it could conceal a missing account entry baseline or a loss.
+    aligned_points = [
+        (date, value)
+        for date, value in points
+        if (
+            not math.isfinite(value)
+            or value <= 0
+            or not any(start <= date < end for start, end in flows.unaligned_spans)
+        )
+    ]
     block = compute_flow_adjusted_metrics(
-        points,
+        aligned_points,
         signed_flows,
         contributions=contributions,
         withdrawals=withdrawals,
@@ -552,12 +568,19 @@ async def _flow_adjusted_block(
     )
 
     block["notes"] = flows.notes + block["notes"]
+    omitted = len(points) - len(aligned_points)
+    if omitted and block["total_return_pct"] is not None:
+        block["notes"].append(
+            f"Snapshots skipped for adjusted returns: {omitted}. Cash movements were not yet reflected "
+            "at those valuation cutoffs. Estimated returns bridge those gaps using the original "
+            "cash-flow dates; any drawdown within a gap is unobserved."
+        )
     if baseline_contribution:
         block["notes"].insert(0, "New accounts enter the all-account series at their first observed value as a scope baseline, not investment gain.")
 
     # Chain-linked flow-adjusted wealth index + its drawdown, so the KPI max
     # drawdown and the main curve agree on the same interval series.
-    flow_curve = (build_flow_adjusted_curve(points, signed_flows)
+    flow_curve = (build_flow_adjusted_curve(aligned_points, signed_flows)
                   if block["total_return_pct"] is not None else [])
     block["flow_adjusted_curve"] = flow_curve
     block["drawdown_curve"] = build_drawdown_curve(flow_curve)

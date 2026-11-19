@@ -273,7 +273,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         <p className="text-xs text-slate-400">Covered valuation dates: {windowLabel} · {perf.growth_curve.length} sparse snapshot observations, not daily measurements.</p>
         <p className="text-xs text-amber-200">Carried-forward account valuations may mask changes between snapshots. Trade-derived proxy flows are assumptions, not confirmed deposits or withdrawals; synced external flows are used where available.</p>
         {compact && Array.from(new Map((["total_return_pct","annualised_return_pct","annualised_volatility_pct","sharpe_ratio","sortino_ratio","max_drawdown_pct"] as PerformanceMetricKey[]).flatMap(key=>metric(key).reasons).map(reason=>[reason.code+reason.message,reason])).values()).map(reason=><p className="text-xs text-amber-200" key={reason.code+reason.message}>{reason.message}</p>)}
-        <p className="text-xs text-slate-400">{flow?.method ?? "Chain-linked interval Modified Dietz"} · {perf.growth_curve.length} snapshot observations · {windowLabel}. Risk-free assumption: {perf.risk_free_annual_pct}%.</p>
+        <p className="text-xs text-slate-400">{flow?.method ?? "Chain-linked interval Modified Dietz"}{chainAvailable && <> · {chainMetric.observations} adjusted snapshot observations</>} · {windowLabel}. Risk-free assumption: {perf.risk_free_annual_pct}%.</p>
       </div>
       {!compact && <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <MetricTile

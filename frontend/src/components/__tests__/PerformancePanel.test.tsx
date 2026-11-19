@@ -149,6 +149,23 @@ describe("PerformancePanel", () => {
     expect(screen.queryByText(/Typical:/)).not.toBeInTheDocument();
   });
 
+  it("distinguishes the raw snapshots from those used for adjusted returns", async () => {
+    const skippedNote = "One snapshot was skipped because the cash movement was not yet reflected.";
+    renderPanel(<PerformancePanel compact />, {
+      ...basePerf,
+      growth_curve: [
+        basePerf.growth_curve[0],
+        { as_of_date: "2026-01-20", value_gbp: 100, normalized_value: 100 },
+        basePerf.growth_curve[1],
+      ],
+      flow_adjusted: { ...basePerf.flow_adjusted!, notes: [skippedNote] },
+    });
+    expect(await screen.findByText(skippedNote)).toBeVisible();
+    expect(screen.getByText(/Covered valuation dates/)).toHaveTextContent("3 sparse snapshot observations");
+    expect(screen.getByText(/Risk-free assumption: 0%/)).toHaveTextContent("2 adjusted snapshot observations");
+    expect(screen.getByRole("region", { name: "Snapshot performance chart" })).toBeInTheDocument();
+  });
+
   it("never substitutes raw metrics when flow-adjusted metrics are unavailable", async () => {
     renderPanel(<PerformancePanel />, { ...basePerf, annualised_return_pct: 123, annualised_volatility_pct: 45, sharpe_ratio: 6, sortino_ratio: 7, flow_adjusted_curve: [], drawdown_curve: [], flow_adjusted: { ...basePerf.flow_adjusted!, total_return_pct: null, annualised_return_pct: null, annualised_volatility_pct: null, sharpe_ratio: null, sortino_ratio: null, flow_adjusted_curve: [], drawdown_curve: [] } });
     await screen.findByText("Performance");
