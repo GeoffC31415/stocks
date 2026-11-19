@@ -16,10 +16,10 @@ export function ActivityWorkspace() {
   const tab = (params.get("tab") === "source" || TABS.some(t => t.key === params.get("tab"))) ? params.get("tab")! : "orders";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <WorkspaceTabs label="Activity views" tabs={TABS} validHiddenTabs={["source"]} />
-      <div role={tab === "source" ? "region" : "tabpanel"} id="workspace-panel" aria-label={tab === "source" ? "Source record" : undefined} aria-labelledby={tab === "source" ? undefined : `workspace-tab-${tab}`} tabIndex={0} className="space-y-5">
-      <p className="text-xs text-slate-400">{tab === "source" ? "Read-only source record for the current account scope." : tab === "changes"
+      <div role={tab === "source" ? "region" : "tabpanel"} id="workspace-panel" aria-label={tab === "source" ? "Source record" : undefined} aria-labelledby={tab === "source" ? undefined : `workspace-tab-${tab}`} tabIndex={0} className="space-y-4">
+      <p className="border-l border-white/[0.14] pl-2.5 text-[11px] text-slate-400">{tab === "source" ? "Read-only source record for the current account scope." : tab === "changes"
         ? "Latest snapshot comparison unless explicitly selected below; independent of the performance period."
         : tab === "imports" ? "Import history shows all recorded imports, independent of account and performance period."
         : "Transactions use their own date filters below, independent of the performance period."}</p>

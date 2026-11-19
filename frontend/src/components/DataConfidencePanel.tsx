@@ -12,69 +12,136 @@ import { AnalysisStatus } from "./AnalysisStatus";
 const TOLERANCES = [7, 14, 30, 60, 90, 365];
 const STORAGE = "portfolio.snapshotFreshnessDays.v1";
 function storedTolerance() {
-  try { const value = Number(localStorage.getItem(STORAGE)); return TOLERANCES.includes(value) ? value : 14; }
-  catch { return 14; }
+  try {
+    const value = Number(localStorage.getItem(STORAGE));
+    return TOLERANCES.includes(value) ? value : 14;
+  } catch {
+    return 14;
+  }
 }
-const dateLabel = (date: string | null) => date ? formatOrderDate(date) : "Not recorded";
+const dateLabel = (date: string | null) => (date ? formatOrderDate(date) : "Not recorded");
 
 export function DataConfidencePanel({ compact = false }: { compact?: boolean }) {
   const { accountFilter } = usePreferences();
-  const syncQ = useQuery({queryKey:["syncStatus"],queryFn:api.getSyncStatus,retry:false});
+  const syncQ = useQuery({ queryKey: ["syncStatus"], queryFn: api.getSyncStatus, retry: false });
   const { period } = useAnalysisScope();
   const [staleDays, setStaleDays] = useState(storedTolerance);
   const account = accountFilter === "all" ? undefined : accountFilter;
-  const query = useQuery({ queryKey: ["data-confidence", account, period, staleDays],
-    queryFn: () => dataQualityApi.getConfidence(account, period, staleDays) });
+  const query = useQuery({
+    queryKey: ["data-confidence", account, period, staleDays],
+    queryFn: () => dataQualityApi.getConfidence(account, period, staleDays),
+  });
   const data = query.data;
   const critical = data?.attention.filter((item) => item.severity === "critical") ?? [];
   const reminders = data?.attention.filter((item) => item.severity !== "critical") ?? [];
-  return <section className="surface-card min-w-0 space-y-3 p-4 [overflow-wrap:anywhere] sm:p-5" aria-label="Data confidence">
-    <h2 className="text-base font-semibold">Data confidence</h2>
-    {syncQ.data || syncQ.isError ? <SyncEvidence report={syncQ.data?.last_run ?? syncQ.data} compact={compact} unavailable={syncQ.isError} onRetry={() => void syncQ.refetch()} /> : <p className="text-xs text-slate-400">Refresh evidence loading; valuation and coverage checks remain separate.</p>}
-    {query.isLoading ? <p role="status" className="text-sm text-slate-400">Checking recorded data…</p>
-      : query.isError ? <AnalysisStatus kind="error" title="Unable to check data confidence." onRetry={() => void query.refetch()} />
-      : data && <>
-        {critical.length > 0 && <AttentionList items={critical} />}
-        <details open={!compact}>
-          <summary className="cursor-pointer text-sm text-slate-300">{data.attention.length === 0
-            ? "Core data checks healthy — view coverage and limitations"
-            : `${data.attention.length} data check${data.attention.length === 1 ? "" : "s"} need attention — view evidence`}</summary>
-          <div className="mt-4 space-y-4">
-            <AttentionList items={reminders} />
-            <label className="flex flex-wrap items-center gap-2 text-sm text-slate-300">Snapshot freshness tolerance
-              <select aria-label="Snapshot freshness tolerance" className="min-h-9 rounded bg-aurora-base px-2" value={staleDays}
-                onChange={(event) => { const value = Number(event.target.value); setStaleDays(value);
-                  try { localStorage.setItem(STORAGE, String(value)); } catch { /* Optional preference. */ } }}>
-                {TOLERANCES.map((days) => <option key={days} value={days}>{days} days</option>)}
-              </select>
-            </label>
-            <div className="space-y-1 text-xs text-slate-400">
-              <h3 className="font-semibold text-slate-300">Snapshot freshness</h3>
-              {data.snapshots.map((row) => <p key={row.account_name}>{row.account_name}: {dateLabel(row.date)} · {row.age_days} days old</p>)}
-              <p>Evaluated {dateLabel(data.evaluated_on)}. Performance still ends at covered valuation dates.</p>
+
+  const maxAge = data?.snapshots.length ? Math.max(...data.snapshots.map((s) => s.age_days)) : null;
+  const firstClass = data ? Object.values(data.classification)[0] : undefined;
+
+  return (
+    <section
+      className="border-t border-white/[0.09] pt-3 [overflow-wrap:anywhere]"
+      aria-label="Data confidence"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h2 className="tufte-label">Data telemetry</h2>
+          {data && (
+            <div className="num flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
+              <span>{data.snapshots.length} accts · max age {maxAge ?? "—"}d</span>
+              <span>·</span>
+              <span>{data.transactions.count} txns</span>
+              {firstClass && firstClass.holding_count > 0 && (
+                <>
+                  <span>·</span>
+                  <span>{firstClass.classified_value_pct.toFixed(0)}% classified</span>
+                </>
+              )}
+              <span>·</span>
+              <span className={data.attention.length === 0 ? "text-emerald-400" : "text-amber-300"}>
+                {data.attention.length} {data.attention.length === 1 ? "alert" : "alerts"}
+              </span>
             </div>
-            <div className="space-y-1 text-xs text-slate-400">
-              <h3 className="font-semibold text-slate-300">Recorded transaction coverage</h3>
-              <p>{data.transactions.count} transactions · {dateLabel(data.transactions.first_date)} – {dateLabel(data.transactions.last_date)}</p>
-              <p>All recorded transactions for this account scope, independent of performance period. Completeness is unknown; unrecorded dividends and flows cannot be inferred as zero.</p>
-            </div>
-            <div className="space-y-1 text-xs text-slate-400">
-              <h3 className="font-semibold text-slate-300">Classification coverage</h3>
-              {Object.entries(data.classification).map(([dimension, coverage]) => <p key={dimension}>{dimension.replace("_", " ")}: {coverage.holding_count
-                ? `${coverage.classified_count}/${coverage.holding_count} holdings · ${coverage.classified_value_pct.toFixed(1)}% by positive non-cash value`
-                : "No eligible non-cash holdings"}</p>)}
-              <p>Product classification is not fund look-through.</p>
-            </div>
-            {data.metric_reasons.length > 0 && <div className="space-y-1 text-xs text-slate-400"><h3 className="font-semibold text-slate-300">Metric availability</h3>
-              {data.metric_reasons.map((reason) => <p key={reason.code}>{reason.message}</p>)}
-            </div>}
-            <div className="space-y-1 text-xs text-slate-400">
-              <h3 className="font-semibold text-slate-300">Advanced market-history prerequisites</h3>
-              <p>{data.market_history.cache_gate_met ? "Cached thresholds met; validation still pending." : "Not ready for advanced proxy analytics."} This does not block snapshot or holdings analysis.</p>
-              {data.market_history.reasons.map((reason) => <p key={reason}>{reason}</p>)}
-            </div>
-          </div>
-        </details>
-      </>}
-  </section>;
+          )}
+        </div>
+        {!compact && (syncQ.data || syncQ.isError) && (
+          <SyncEvidence
+            report={syncQ.data?.last_run ?? syncQ.data}
+            compact={compact}
+            unavailable={syncQ.isError}
+            onRetry={() => void syncQ.refetch()}
+          />
+        )}
+      </div>
+
+      {query.isLoading ? (
+        <p role="status" className="mt-1.5 text-xs text-slate-500">Checking recorded data…</p>
+      ) : query.isError ? (
+        <AnalysisStatus kind="error" title="Unable to check data confidence." onRetry={() => void query.refetch()} />
+      ) : (
+        data && (
+          <>
+            {critical.length > 0 && <div className="mt-2"><AttentionList items={critical} /></div>}
+            <details open={!compact} className="mt-1.5">
+              <summary className="cursor-pointer text-[11px] text-slate-400 hover:text-slate-200">
+                {data.attention.length === 0
+                  ? "Core data checks healthy — view coverage and limitations"
+                  : `${data.attention.length} data check${data.attention.length === 1 ? "" : "s"} need attention — view evidence`}
+              </summary>
+              <div className="mt-3 grid gap-4 border-t border-white/[0.06] pt-3 sm:grid-cols-2 lg:grid-cols-4">
+                {reminders.length > 0 && (
+                  <div className="sm:col-span-2 lg:col-span-4">
+                    <AttentionList items={reminders} />
+                  </div>
+                )}
+                <div className="space-y-1 text-xs text-slate-400">
+                  <h3 className="tufte-label">Snapshot freshness</h3>
+                  {data.snapshots.map((row) => (
+                    <p key={row.account_name} className="num">
+                      {row.account_name}: {dateLabel(row.date)} ({row.age_days}d)
+                    </p>
+                  ))}
+                  <label className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
+                    Tolerance
+                    <select
+                      aria-label="Snapshot freshness tolerance"
+                      className="num rounded-sm border border-white/[0.1] bg-[#0e1117] px-1.5 py-0.5 text-[11px] text-slate-200"
+                      value={staleDays}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        setStaleDays(value);
+                        try { localStorage.setItem(STORAGE, String(value)); } catch { /* Optional */ }
+                      }}
+                    >
+                      {TOLERANCES.map((days) => <option key={days} value={days}>{days}d</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div className="space-y-1 text-xs text-slate-400">
+                  <h3 className="tufte-label">Transactions</h3>
+                  <p className="num">{data.transactions.count} rows · {dateLabel(data.transactions.first_date)} – {dateLabel(data.transactions.last_date)}</p>
+                  <p className="text-[11px] text-slate-500">Completeness is unknown; unrecorded flows cannot be inferred as zero.</p>
+                </div>
+                <div className="space-y-1 text-xs text-slate-400">
+                  <h3 className="tufte-label">Classification</h3>
+                  {Object.entries(data.classification).map(([dimension, coverage]) => (
+                    <p key={dimension} className="num">
+                      {dimension.replace("_", " ")}: {coverage.holding_count
+                        ? `${coverage.classified_count}/${coverage.holding_count} (${coverage.classified_value_pct.toFixed(1)}%)`
+                        : "None"}
+                    </p>
+                  ))}
+                </div>
+                <div className="space-y-1 text-xs text-slate-400">
+                  <h3 className="tufte-label">Market history</h3>
+                  <p>{data.market_history.cache_gate_met ? "Cache gate met (validation pending)." : "Not ready for proxy analytics (does not block snapshot or holdings analysis)."}</p>
+                  {data.metric_reasons.map((reason) => <p key={reason.code} className="text-amber-300">{reason.message}</p>)}
+                </div>
+              </div>
+            </details>
+          </>
+        )
+      )}
+    </section>
+  );
 }

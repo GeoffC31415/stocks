@@ -49,30 +49,30 @@ export function AllocationAnalysisPanel() {
     DIMENSIONS.find((item) => item.key === dimension)!.label.toLowerCase();
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <Layers3 size={18} className="text-aurora-cyan" />
-            <h1 className="text-2xl font-semibold text-white">Allocation & concentration</h1>
+            <Layers3 size={15} className="text-sky-400" />
+            <h1 className="text-sm font-semibold tracking-tight text-white">Allocation & concentration</h1>
           </div>
-          <p className="mt-1 text-sm text-slate-400">
+          <p className="mt-0.5 text-xs text-slate-400">
             Security or account-position concentration in the selected scope.
           </p>
         </div>
-        <div role="group" aria-label="Allocation dimension" className="flex flex-wrap gap-1 rounded-lg border border-white/10 p-1">
+        <div role="group" aria-label="Allocation dimension" className="inline-flex flex-wrap border border-white/[0.09] bg-white/[0.02] p-0.5">
           {DIMENSIONS.map((item) => <button key={item.key} type="button" aria-pressed={dimension === item.key}
             onClick={() => setDimension(item.key)}
-            className={`min-h-11 rounded-md px-3 text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300 ${dimension === item.key ? "bg-violet-600 text-white" : "text-slate-300 hover:bg-white/10"}`}>
+            className={`min-h-7 px-2.5 text-[11px] font-medium transition-colors focus-visible:outline ${dimension === item.key ? "bg-white/[0.12] text-white" : "text-slate-400 hover:text-slate-200"}`}>
             {item.label}
           </button>)}
         </div>
       </div>
 
-      <div role="group" aria-label="Exposure grouping" className="flex flex-wrap gap-2">
+      <div role="group" aria-label="Exposure grouping" className="inline-flex border border-white/[0.09] bg-white/[0.02] p-0.5">
         {(["security", "position"] as const).map((mode) => <button type="button" key={mode}
           aria-pressed={groupBy === mode} onClick={() => setGroupBy(mode)}
-          className="min-h-11 rounded-lg border border-white/20 px-3 text-sm focus-visible:outline">
+          className={`min-h-7 px-2.5 text-[11px] font-medium transition-colors focus-visible:outline ${groupBy === mode ? "bg-white/[0.12] text-white" : "text-slate-400 hover:text-slate-200"}`}>
           {mode === "security" ? "Security exposure" : "Account positions"}
         </button>)}
       </div>

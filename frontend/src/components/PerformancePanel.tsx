@@ -63,18 +63,17 @@ function MetricTile({
   context: string;
 }) {
   return (
-    <div className="group relative rounded-xl bg-white/[0.02] p-3">
-      <div className="flex items-center gap-1">
-        <p className="text-sm font-medium text-slate-300">
+    <div className="group relative border border-white/[0.08] bg-[#0a0c10]/60 px-3 py-2.5">
+      <div className="flex items-start justify-between gap-1">
+        <p className="tufte-label">
           {label}
         </p>
-
+        <MetricInfo iconOnly label={label} topic={infoKey} context={context} />
       </div>
-      <p className={`mt-1 tabular text-lg font-semibold ${TONE_TEXT[tone]}`}>{value}</p>
-      {sub ? <p className="mt-0.5 text-xs text-slate-400">{sub}</p> : null}
+      <p className={`num tabular mt-1 text-lg font-semibold ${TONE_TEXT[tone]}`}>{value}</p>
+      {sub ? <p className="num mt-0.5 text-[11px] text-slate-400">{sub}</p> : null}
 
-      {reasons.map((reason) => <p key={reason.code} className="mt-2 text-xs text-amber-200">{reason.message}</p>)}
-      <MetricInfo label={label} topic={infoKey} context={context} />
+      {reasons.map((reason) => <p key={reason.code} className="mt-1.5 text-xs text-amber-200">{reason.message}</p>)}
     </div>
   );
 }
@@ -226,7 +225,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
       : "";
 
   return (
-    <div className="glass rounded-2xl p-5">
+    <div className={compact ? "min-w-0" : "surface-card p-4"}>
       <SectionHeader title="Performance"
         description={compact ? undefined : <>Growth and risk for {windowLabel || "the selected period"}. Returns and risk ratios are flow-adjusted, using observed snapshots and order-derived flow assumptions.</>}
         actions={<SegmentedControl layoutId="perf-period-pill" size="sm" value={period}
@@ -354,23 +353,23 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
           ]} />}
       </div>}
 
-      {chainAvailable && <div id="performance-chart" role="region" aria-label="Snapshot performance chart" className="mt-2 h-64">
+      {chainAvailable && <div id="performance-chart" role="region" aria-label="Snapshot performance chart" className="mt-2 h-56 overflow-hidden">
         <ResponsiveContainer width="100%" height="100%" onResize={(width) => setChartWidth(width)}>
-          <AreaChart data={displayRows} margin={{ top: onEventDateSelect && markers.length ? 56 : 5, right: 5, bottom: 5, left: 5 }}>
+          <AreaChart data={displayRows} margin={{ top: onEventDateSelect && markers.length ? 56 : 8, right: 36, bottom: 2, left: 4 }}>
             <defs>
               <linearGradient id="perfVal" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#22d3ee" stopOpacity={0.45} />
-                <stop offset="100%" stopColor="#22d3ee" stopOpacity={0} />
+                <stop offset="0%" stopColor="#38bdf8" stopOpacity={0.11} />
+                <stop offset="100%" stopColor="#38bdf8" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+            <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.06)" vertical={false} />
             <XAxis
               dataKey="chartTime"
               type="number"
               scale="time"
               domain={["dataMin", "dataMax"]}
               stroke="#64748b"
-              tick={{ fontSize: 12, fill: chartTheme.axis }}
+              tick={{ fontSize: 11, fill: chartTheme.axis }}
               tickFormatter={formatChartDayTick}
               ticks={ticks}
               interval={0}
@@ -379,27 +378,28 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
             />
             <YAxis
               stroke="#64748b"
-              tick={{ fontSize: 12, fill: chartTheme.axis }}
+              tick={{ fontSize: 11, fill: chartTheme.axis }}
               tickFormatter={(v) => (scale === "index" ? indexFmt.format(Number(v)) : compactGbp(v))}
               domain={yDomain}
               ticks={yTicks}
               tickLine={false}
               axisLine={false}
-              width={scale === "index" ? 48 : 64}
+              width={scale === "index" ? 42 : 58}
             />
             <Tooltip
               content={<ChartTooltip formatLabel={(label) => typeof label === "number" ? formatChartTooltipDay(label) : String(label ?? "")}
                 formatValue={(value) => value != null ? (scale === "index" ? indexFmt.format(value) : toGbp(value)) : "—"} />}
-              cursor={{ stroke: "rgba(255,255,255,0.18)", strokeDasharray: 3 }}
+              cursor={{ stroke: "rgba(255,255,255,0.2)", strokeDasharray: 2 }}
             />
-            <ReferenceLine y={referenceY} stroke="#94a3b8" strokeDasharray="3 3" />
+            <ReferenceLine y={referenceY} stroke="rgba(148,163,184,0.35)" strokeDasharray="2 3" />
             {chainAvailable && <Area
               type="linear"
-              dot={{ r: 3 }}
+              dot={false}
+              activeDot={{ r: 3, fill: "#38bdf8", stroke: "#0a0c10", strokeWidth: 1.5 }}
               isAnimationActive={false}
               dataKey="flowAdjusted"
-              stroke="#22d3ee"
-              strokeWidth={2.5}
+              stroke="#38bdf8"
+              strokeWidth={1.75}
               fill="url(#perfVal)"
               name={scale === "index" ? "Flow-adjusted (index, 100 = start)" : "Flow-adjusted (£, flows excluded)"}
               connectNulls
@@ -443,18 +443,19 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
           <span>{chainMetric.observations} of {perf.growth_curve.length} snapshots used</span>
           <MetricInfo label="Snapshots used" topic="adjustedObservations" iconOnly brief />
         </div>}
-      {!compact && drawdownData.length > 0 ? (
-        <div className="mt-3">
-          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Flow-adjusted drawdown
-          </p>
-          <div role="region" aria-label="Snapshot drawdown chart" className="h-28">
+      {drawdownData.length > 0 ? (
+        <div className="mt-2 border-t border-white/[0.06] pt-2">
+          <div className="mb-0.5 flex items-baseline justify-between">
+            <p className="tufte-label">Underwater drawdown</p>
+            <span className="num text-[10px] text-slate-500">peak = 0.0%</span>
+          </div>
+          <div role="region" aria-label="Snapshot drawdown chart" className={compact ? "h-20 overflow-hidden" : "h-28 overflow-hidden"}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={drawdownData}>
+              <AreaChart data={drawdownData} margin={{ top: 6, right: 36, bottom: 6, left: 4 }}>
                 <defs>
                   <linearGradient id="drawdownVal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f87171" stopOpacity={0.4} />
-                    <stop offset="100%" stopColor="#f87171" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#fb7185" stopOpacity={0.22} />
+                    <stop offset="100%" stopColor="#fb7185" stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
                 <XAxis
@@ -462,8 +463,9 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
                   type="number"
                   scale="time"
                   domain={["dataMin", "dataMax"]}
+                  hide={compact}
                   stroke="#64748b"
-                  tick={{ fontSize: 12, fill: chartTheme.axis }}
+                  tick={{ fontSize: 11, fill: chartTheme.axis }}
                   tickFormatter={formatChartDayTick}
                   ticks={drawdownTicks}
                   interval={0}
@@ -472,26 +474,29 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
                 />
                 <YAxis
                   stroke="#64748b"
-                  tick={{ fontSize: 12, fill: chartTheme.axis }}
+                  tick={{ fontSize: 10, fill: chartTheme.axis }}
                   tickFormatter={(v) => `${Number(v).toFixed(1)}%`}
                   tickLine={false}
                   axisLine={false}
-                  width={44}
-                  domain={[Math.min(-1, ...drawdownData.map((row) => row.drawdown ?? 0)), 0]}
+                  interval={0}
+                  width={42}
+                  ticks={[Math.floor(Math.min(-1, ...drawdownData.map((row) => row.drawdown ?? 0)) * 10) / 10, 0]}
+                  domain={[Math.floor(Math.min(-1, ...drawdownData.map((row) => row.drawdown ?? 0)) * 10) / 10, 0]}
                 />
                 <Tooltip content={<ChartTooltip
                   formatLabel={(label) => typeof label === "number" && Number.isFinite(label)
                     ? new Date(label).toISOString().slice(0, 10) : String(label ?? "")}
                   formatValue={(value) => value != null && Number.isFinite(value) ? `${String(value)}%` : "Unavailable"}
                 />} />
-                <ReferenceLine y={0} stroke="rgba(148,163,184,0.4)" strokeDasharray="3 3" />
+                <ReferenceLine y={0} stroke="rgba(148,163,184,0.3)" strokeDasharray="2 3" />
                 <Area
                   type="linear"
                   dataKey="drawdown"
-                  dot={{ r: 2 }}
+                  dot={false}
+                  activeDot={{ r: 2.5, fill: "#fb7185" }}
                   isAnimationActive={false}
-                  stroke="#f87171"
-                  strokeWidth={1.5}
+                  stroke="#fb7185"
+                  strokeWidth={1.25}
                   fill="url(#drawdownVal)"
                   name="Drawdown"
                   connectNulls

@@ -66,22 +66,22 @@ export function Diff() {
   if (invalid) return <AnalysisStatus kind="error" title="Invalid comparison or instrument identifier. Use positive integer source IDs." />;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-white" style={{ letterSpacing: "-0.02em" }}>
+          <h1 className="text-sm font-semibold tracking-tight text-white">
             Snapshot diff
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-0.5 text-xs text-slate-400">
             Compare {accountName ?? "whole-portfolio"} quantities, values, prices and weights after two imports.
           </p>
         </div>
-        <Link to={scopedNavigationUrl("/activity?tab=imports", params.toString())} className="chip chip-muted">
+        <Link to={scopedNavigationUrl("/activity?tab=imports", params.toString())} className="action-link">
           Import history
         </Link>
       </div>
 
-      <div className="glass flex flex-wrap items-center gap-3 rounded-2xl p-4">
+      <div className="surface-card flex flex-wrap items-center gap-2.5 px-3 py-2.5">
         <select
           aria-label="Opening snapshot"
           value={fromBatchId || ""}

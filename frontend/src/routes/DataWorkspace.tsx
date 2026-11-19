@@ -19,10 +19,10 @@ export function DataWorkspace() {
   const tab = TABS.some(t => t.key === params.get("tab")) ? params.get("tab")! : "import";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <WorkspaceTabs label="Data views" tabs={TABS} />
-      <div role="tabpanel" id="workspace-panel" aria-labelledby={`workspace-tab-${tab}`} tabIndex={0} className="space-y-5">
-      {(tab === "matching" || tab === "classifications") && <p className="text-xs text-slate-400">This repair queue includes all accounts. Check the source account before changing a record.</p>}
+      <div role="tabpanel" id="workspace-panel" aria-labelledby={`workspace-tab-${tab}`} tabIndex={0} className="space-y-4">
+      {(tab === "matching" || tab === "classifications") && <p className="border-l border-white/[0.14] pl-2.5 text-[11px] text-slate-400">This repair queue includes all accounts. Check the source account before changing a record.</p>}
       {tab === "confidence" ? <DataConfidencePanel /> : tab === "settings" ? <AnalysisSettings /> : tab === "matching" ? (
         <MatchingWorkspace />
       ) : tab === "classifications" ? (

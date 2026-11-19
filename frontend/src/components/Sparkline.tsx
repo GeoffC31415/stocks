@@ -4,9 +4,9 @@ import { Area, AreaChart, ResponsiveContainer, YAxis } from "recharts";
 type Tone = "accent" | "pos" | "neg" | "amber";
 
 const TONE: Record<Tone, { stroke: string; fill: string }> = {
-  accent: { stroke: "#22d3ee", fill: "#22d3ee" },
+  accent: { stroke: "#38bdf8", fill: "#38bdf8" },
   pos: { stroke: "#34d399", fill: "#34d399" },
-  neg: { stroke: "#f87171", fill: "#f87171" },
+  neg: { stroke: "#fb7185", fill: "#fb7185" },
   amber: { stroke: "#fbbf24", fill: "#fbbf24" },
 };
 
@@ -14,7 +14,7 @@ export function Sparkline({
   data,
   dataKey = "value",
   tone = "accent",
-  height = 48,
+  height = 44,
 }: {
   data: Array<Record<string, number | string | null>>;
   dataKey?: string;
@@ -37,16 +37,16 @@ export function Sparkline({
         >
           <defs>
             <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={colors.fill} stopOpacity={0.45} />
+              <stop offset="0%" stopColor={colors.fill} stopOpacity={0.14} />
               <stop offset="100%" stopColor={colors.fill} stopOpacity={0} />
             </linearGradient>
           </defs>
           <YAxis hide domain={["dataMin", "dataMax"]} />
           <Area
-            type="monotone"
+            type="linear"
             dataKey={dataKey}
             stroke={colors.stroke}
-            strokeWidth={1.75}
+            strokeWidth={1.35}
             fill={`url(#${gradId})`}
             isAnimationActive={false}
             dot={false}

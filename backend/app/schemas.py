@@ -179,6 +179,7 @@ class InstrumentOut(BaseModel):
     drawdown_from_peak_pct: float | None = None
     quantity_unchanged_snapshot_count: int | None = None
     group_ids: list[int] = Field(default_factory=list)
+    sparkline_values: list[float] = Field(default_factory=list)
 
 
 class InstrumentHistoryPoint(BaseModel):

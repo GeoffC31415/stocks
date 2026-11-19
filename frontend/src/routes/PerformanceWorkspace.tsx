@@ -26,17 +26,19 @@ export function PerformanceWorkspace() {
   const chain = perfQ.data ? performanceMetric(perfQ.data, "total_return_pct") : null;
   const returnsQ = useQuery({ queryKey: ["portfolio-returns", accountFilter, period],
     queryFn: () => api.getPortfolioReturns(account, undefined, undefined, period) });
-  return <div className="space-y-5">
-    <h1 className="text-2xl font-semibold">Performance workspace</h1>
-    {params.has("episode") && <div className="text-sm text-slate-300">
+  return <div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h1 className="text-sm font-semibold tracking-tight text-white">Performance workspace</h1>
+      <label className="flex min-h-7 cursor-pointer items-center gap-2 text-xs text-slate-400 hover:text-slate-200"><input type="checkbox" className="h-3.5 w-3.5 accent-sky-400" checked={showEvents}
+        onChange={(event) => { const next = new URLSearchParams(params);
+          if (event.target.checked) next.set("events", "on"); else { next.delete("events"); next.delete("eventDate"); }
+          setParams(next);
+        }} />Show timeline events</label>
+    </div>
+    {params.has("episode") && <div className="text-xs text-slate-300">
       {episode ? "Showing the selected episode's chart window." : "This episode is not available in the selected scope."}
-      <button type="button" className="ml-3 min-h-9 text-cyan-200 underline" onClick={() => { const next = new URLSearchParams(params); next.delete("episode"); setParams(next); }}>Show full chart window</button>
+      <button type="button" className="action-link ml-3" onClick={() => { const next = new URLSearchParams(params); next.delete("episode"); setParams(next); }}>Show full chart window</button>
     </div>}
-    <label className="flex min-h-9 items-center gap-2 text-sm text-slate-300"><input type="checkbox" checked={showEvents}
-      onChange={(event) => { const next = new URLSearchParams(params);
-        if (event.target.checked) next.set("events", "on"); else { next.delete("events"); next.delete("eventDate"); }
-        setParams(next);
-      }} />Show timeline events</label>
     <PerformancePanel accountName={account} focusWindow={episode ? { start: episode.peak_date, end: episode.end_date } : undefined}
       timelineEvents={showEvents && !timelineQ.isError ? timelineQ.data?.events.filter((event) => eventKinds.includes(event.kind)) : undefined}
       onEventDateSelect={(date) => { const next = new URLSearchParams(params); next.set("eventDate", date); setParams(next); }} />

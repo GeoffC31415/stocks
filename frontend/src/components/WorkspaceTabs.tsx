@@ -37,7 +37,7 @@ export function WorkspaceTabs({
     <div
       role="tablist"
       aria-label={label}
-      className="inline-flex max-w-full flex-wrap gap-1 rounded-xl border border-white/[0.06] bg-white/[0.025] p-1"
+      className="flex max-w-full flex-wrap gap-1 border-b border-white/[0.08]"
     >
       {tabs.map((tab) => {
         const active = tab.key === selected;
@@ -62,15 +62,23 @@ export function WorkspaceTabs({
               select(tabs[next].key);
               event.currentTarget.parentElement?.querySelectorAll("button")[next]?.focus();
             }}
-            className={`min-h-9 min-w-0 max-w-full rounded-lg [overflow-wrap:anywhere] px-3 text-xs font-medium transition-colors ${
+            className={`relative min-h-10 min-w-0 max-w-full [overflow-wrap:anywhere] px-3.5 text-xs font-medium transition-colors ${
               active
-                ? "bg-white/[0.09] text-white shadow-sm"
-                : "text-slate-500 hover:bg-white/[0.04] hover:text-slate-200"
+                ? "text-white"
+                : "text-slate-400 hover:text-slate-200"
             }`}
           >
             {tab.label}
             {tab.count != null ? (
-              <span className="ml-1.5 tabular text-[10px] text-slate-500">{tab.count}</span>
+              <span className="ml-1.5 rounded-full bg-white/[0.06] px-1.5 py-0.5 tabular text-[10px] text-slate-400">
+                {tab.count}
+              </span>
+            ) : null}
+            {active ? (
+              <span
+                aria-hidden="true"
+                className="absolute inset-x-1 -bottom-px h-0.5 rounded-full bg-sky-400"
+              />
             ) : null}
           </button>
         );

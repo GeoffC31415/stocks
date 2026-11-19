@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import datetime as dt  # noqa: TC003
+import math
 from collections import defaultdict
 from collections.abc import Sequence
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -108,11 +110,28 @@ def _quantity_unchanged_snapshot_count(snapshots: Sequence[HoldingSnapshot]) -> 
     return count
 
 
+def _sparkline_series(snapshots: Sequence[HoldingSnapshot], limit: int = 24) -> list[float]:
+    """Ordered finite price series (preferred to avoid trade-size jumps) or value fallback."""
+    prices = [
+        float(s.last_price)
+        for s in snapshots
+        if s.last_price is not None and math.isfinite(s.last_price) and s.last_price > 0
+    ]
+    if len(prices) >= 2:
+        return prices[-limit:]
+    values = [
+        float(s.value_gbp)
+        for s in snapshots
+        if s.value_gbp is not None and math.isfinite(s.value_gbp)
+    ]
+    return values[-limit:] if len(values) >= 2 else []
+
+
 def snapshot_metrics(
     snapshots_by_instrument: dict[int, Sequence[HoldingSnapshot]],
-) -> dict[int, dict[str, float | int | None]]:
-    """Peak and quantity-stability metrics derived from an instrument's snapshot history."""
-    metrics: dict[int, dict[str, float | int | None]] = {}
+) -> dict[int, dict[str, Any]]:
+    """Peak, sparkline, and quantity-stability metrics derived from an instrument's snapshot history."""
+    metrics: dict[int, dict[str, Any]] = {}
     for instrument_id, snapshots in snapshots_by_instrument.items():
         peak_value = max(
             (snapshot.value_gbp for snapshot in snapshots if snapshot.value_gbp is not None),
@@ -134,6 +153,7 @@ def snapshot_metrics(
             "peak_last_price": peak_price,
             "drawdown_from_peak_pct": drawdown,
             "quantity_unchanged_snapshot_count": _quantity_unchanged_snapshot_count(snapshots),
+            "sparkline_values": _sparkline_series(snapshots),
         }
     return metrics
 
@@ -146,7 +166,7 @@ def build_instrument_out(
     group_ids: Sequence[int] | None = None,
     trailing_drip_yield_pct: float | None = None,
     previous_snapshot: HoldingSnapshot | None = None,
-    metrics: dict[str, float | int | None] | None = None,
+    metrics: dict[str, Any] | None = None,
     snapshot_as_of_date: dt.date | None = None,
 ) -> InstrumentOut:
     """Build a single InstrumentOut from its model parts.
@@ -192,6 +212,7 @@ def build_instrument_out(
             else None
         ),
         group_ids=sorted(group_ids) if group_ids else [],
+        sparkline_values=list(metrics.get("sparkline_values") or []) if metrics and not instrument.is_cash else [],
     )
 
 

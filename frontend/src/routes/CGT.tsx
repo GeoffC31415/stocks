@@ -247,27 +247,27 @@ export function CGT() {
     <div className="space-y-5">
       <MatchingWarningBanner />
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-baseline sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white" style={{ letterSpacing: "-0.02em" }}>
+          <h1 className="text-sm font-semibold tracking-tight text-white">
             Capital Gains Tax
           </h1>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-0.5 text-xs text-slate-400">
             UK CGT matching: same-day rule, bed &amp; breakfasting (30-day), and Section&nbsp;104 pool.
             {totalExemptCount > 0 ? (
-              <span className="inline-flex items-center gap-1 ml-1">
-                <ShieldCheck size={14} className="text-emerald-400" />
-                <span className="text-emerald-300">{totalExemptCount} instrument{totalExemptCount !== 1 ? "s" : ""} ISA-exempt</span>
+              <span className="ml-2 inline-flex items-center gap-1 text-emerald-300">
+                <ShieldCheck size={12} className="text-emerald-400" />
+                <span>{totalExemptCount} instrument{totalExemptCount !== 1 ? "s" : ""} ISA-exempt</span>
               </span>
             ) : null}
           </p>
         </div>
         {selectedYear ? (
-          <label className="text-xs text-slate-500">
+          <label className="flex items-center gap-2 text-[11px] uppercase tracking-[0.06em] text-slate-400">
             Tax year
             <select
               aria-label="Tax year"
-              className="ml-2 rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm text-white"
+              className="num rounded-sm border border-white/[0.1] bg-[#0e1117] px-2.5 py-1 text-xs text-white"
               value={selectedYear.tax_year}
               onChange={(event) => setSelectedTaxYear(event.target.value)}
             >
@@ -282,7 +282,7 @@ export function CGT() {
       </div>
 
       {/* Summary cards - taxable only */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Taxable gains"
           value={toGbp(taxableGain)}
@@ -319,12 +319,12 @@ export function CGT() {
 
       {/* Exempt summary */}
       {exemptGain > 0 || exemptLoss > 0 ? (
-        <div className="rounded-xl bg-emerald-500/5 border border-emerald-500/20 p-4">
-          <div className="flex items-center gap-2">
-            <ShieldCheck size={16} className="text-emerald-400" />
-            <span className="text-sm font-medium text-emerald-200">ISA-exempt gains &amp; losses</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-l-2 border-emerald-400/70 bg-emerald-500/[0.05] px-3 py-2 text-xs">
+          <div className="flex items-center gap-1.5 font-medium text-emerald-300">
+            <ShieldCheck size={14} className="text-emerald-400" />
+            <span>ISA-exempt gains &amp; losses</span>
           </div>
-          <p className="mt-2 text-sm text-slate-400">
+          <p className="num text-slate-300">
             {toGbp(exemptGain)} gains · {toGbp(exemptLoss)} losses — not subject to CGT
           </p>
         </div>
@@ -333,9 +333,9 @@ export function CGT() {
       {/* Tax year summaries */}
       {cgtQ.data?.tax_year_totals.length ? (
         <>
-          <div>
-            <h2 className="text-base font-semibold text-white">Tax year summary</h2>
-            <p className="text-xs text-slate-500">Taxable gains/losses by tax year. ISA gains shown separately.</p>
+          <div className="border-t border-white/[0.08] pt-3">
+            <h2 className="tufte-label text-slate-200">Tax year summary</h2>
+            <p className="mt-0.5 text-[11px] text-slate-500">Taxable gains/losses by tax year. ISA gains shown separately.</p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {cgtQ.data.tax_year_totals.map((ty) => (
@@ -348,9 +348,9 @@ export function CGT() {
       {/* Per-instrument detail */}
       {cgtQ.data?.instruments.length ? (
         <>
-          <div>
-            <h2 className="text-base font-semibold text-white">Instruments</h2>
-            <p className="text-xs text-slate-500">Click to expand sale details.</p>
+          <div className="border-t border-white/[0.08] pt-3">
+            <h2 className="tufte-label text-slate-200">Instruments</h2>
+            <p className="mt-0.5 text-[11px] text-slate-500">Click to expand sale details.</p>
           </div>
           <div className="space-y-2">
             {cgtQ.data.instruments.map((inst) => (

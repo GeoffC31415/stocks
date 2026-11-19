@@ -10,10 +10,10 @@ export type Segment<K extends string> = {
 type Tone = "accent" | "amber" | "violet" | "neg";
 
 const TONE_BG: Record<Tone, string> = {
-  accent: "bg-aurora-accent shadow-glow-accent",
-  amber: "bg-gradient-to-r from-amber-500 to-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.35)]",
-  violet: "bg-gradient-to-r from-violet-500 to-violet-400 shadow-[0_0_24px_rgba(167,139,250,0.35)]",
-  neg: "bg-gradient-to-r from-rose-500 to-rose-400 shadow-[0_0_24px_rgba(248,113,113,0.35)]",
+  accent: "bg-white/[0.12]",
+  amber: "bg-amber-500/20",
+  violet: "bg-sky-500/20",
+  neg: "bg-rose-500/20",
 };
 
 export function SegmentedControl<K extends string>({
@@ -31,13 +31,12 @@ export function SegmentedControl<K extends string>({
   layoutId: string;
   size?: "sm" | "md";
 }) {
-  const padding = size === "sm" ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs";
-  const radius = size === "sm" ? "rounded-md" : "rounded-full";
-  const containerRadius = size === "sm" ? "rounded-lg" : "rounded-full";
+  const padding = size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs";
+  const minH = size === "sm" ? "min-h-6" : "min-h-7";
 
   return (
     <div
-      className={`relative inline-flex max-w-full flex-wrap gap-1 border border-white/[0.06] bg-aurora-base/60 p-1 ${containerRadius}`}
+      className="relative inline-flex max-w-full flex-wrap border border-white/[0.09] bg-white/[0.02] p-0.5"
     >
       {segments.map((s) => {
         const isActive = s.key === value;
@@ -47,7 +46,7 @@ export function SegmentedControl<K extends string>({
             type="button"
             onClick={() => onChange(s.key)}
             aria-pressed={isActive}
-            className={`relative min-h-9 min-w-0 max-w-full [overflow-wrap:anywhere] ${radius} ${padding} font-medium transition-colors ${
+            className={`num relative ${minH} min-w-0 max-w-full [overflow-wrap:anywhere] ${padding} font-medium transition-colors ${
               isActive
                 ? "text-white"
                 : "text-slate-400 hover:text-slate-200"
@@ -56,16 +55,16 @@ export function SegmentedControl<K extends string>({
             {isActive && (
               <motion.span
                 layoutId={layoutId}
-                className={`absolute inset-0 -z-10 ${radius} ${TONE_BG[tone]}`}
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                className={`absolute inset-0 -z-10 ${TONE_BG[tone]}`}
+                transition={{ type: "spring", stiffness: 460, damping: 36 }}
               />
             )}
             <span className="relative flex min-w-0 items-center gap-1.5">
               {s.label}
               {s.count != null && (
                 <span
-                  className={`tabular text-[10px] ${
-                    isActive ? "text-white/80" : "text-slate-500"
+                  className={`num text-[10px] ${
+                    isActive ? "text-slate-200" : "text-slate-500"
                   }`}
                 >
                   {s.count}

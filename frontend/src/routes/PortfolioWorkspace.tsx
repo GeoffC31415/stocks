@@ -18,27 +18,40 @@ const TABS = [
 
 export function PortfolioWorkspace() {
   const [params] = useSearchParams();
-  const tab = TABS.some(t => t.key === params.get("tab")) ? params.get("tab")! : "holdings";
+  const tab = TABS.some((t) => t.key === params.get("tab")) ? params.get("tab")! : "holdings";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <WorkspaceTabs label="Portfolio views" tabs={TABS} />
-      <div role="tabpanel" id="workspace-panel" aria-labelledby={`workspace-tab-${tab}`} tabIndex={0} className="space-y-5">
-      <p className="text-xs text-slate-400">{tab === "performance" ? "Performance uses the shared period and disclosed covered valuation dates." : tab === "income"
-        ? "Income compares calendar year to date with the same calendar period last year, not the performance period. Recorded purchases do not prove complete dividend coverage."
-        : tab === "returns" ? "Holding returns use recorded lifetime transactions and current values, not the performance period."
-        : "Current holdings, allocation and groups use latest account snapshots, not the performance period."}</p>
-      {tab === "performance" ? <PerformanceWorkspace /> : tab === "returns" ? (
-        <Positions />
-      ) : tab === "allocation" ? (
-        <AllocationAnalysisPanel />
-      ) : tab === "income" ? (
-        <IncomeAnalysisPanel />
-      ) : tab === "groups" ? (
-        <Groups />
-      ) : (
-        <Holdings />
-      )}
+      <div
+        role="tabpanel"
+        id="workspace-panel"
+        aria-labelledby={`workspace-tab-${tab}`}
+        tabIndex={0}
+        className="space-y-4"
+      >
+        <p className="border-l border-white/[0.14] pl-2.5 text-[11px] text-slate-400">
+          {tab === "performance"
+            ? "Performance uses the shared period and disclosed covered valuation dates."
+            : tab === "income"
+              ? "Income compares calendar year to date with the same calendar period last year, not the performance period. Recorded purchases do not prove complete dividend coverage."
+              : tab === "returns"
+                ? "Holding returns use recorded lifetime transactions and current values, not the performance period."
+                : "Current holdings, allocation and groups use latest account snapshots, not the performance period."}
+        </p>
+        {tab === "performance" ? (
+          <PerformanceWorkspace />
+        ) : tab === "returns" ? (
+          <Positions />
+        ) : tab === "allocation" ? (
+          <AllocationAnalysisPanel />
+        ) : tab === "income" ? (
+          <IncomeAnalysisPanel />
+        ) : tab === "groups" ? (
+          <Groups />
+        ) : (
+          <Holdings />
+        )}
       </div>
     </div>
   );

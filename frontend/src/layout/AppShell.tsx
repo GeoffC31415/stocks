@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { MotionConfig, motion, useReducedMotion } from "framer-motion";
 import { AuroraBackground } from "../components/AuroraBackground";
-import { Sidebar } from "./Sidebar";
 import { MobileNav } from "./MobileNav";
 import { Topbar } from "./Topbar";
 import { PreferencesContext } from "../state/usePreferences";
@@ -45,37 +44,61 @@ export function AppShell() {
       value={{ dripThreshold, setDripThreshold, accountFilter, setAccountFilter }}
     >
       <AnalysisScopeContext.Provider value={scope}>
-      <MotionConfig reducedMotion="user">
-      <a href="#main-content" onClick={() => main.current?.focus()} className="skip-link">Skip to main content</a>
-      <AuroraBackground />
-      <div className="flex min-h-screen">
-        <Sidebar />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <Topbar />
-          <main id="main-content" ref={main} tabIndex={-1} className="flex-1 px-4 pb-24 pt-6 sm:px-6 lg:px-10 lg:py-8">
-            <div className="mx-auto max-w-[1400px]">
-              <motion.div data-testid="route-content" key={routeKey} initial={reducedMotion ? false : { opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }} transition={{ duration: reducedMotion ? 0 : 0.22 }}>
-                {scope.errors.length > 0 ? (
-                  <section role="alert" className="surface-card space-y-3 p-5">
-                    <h1 className="text-lg font-semibold">Invalid analysis scope</h1>
-                    {scope.errors.map((error) => <p key={error}>{error}</p>)}
-                    <button type="button" className="btn-primary" onClick={scope.reset}>Reset account and period</button>
-                  </section>
-                ) : accountFilter !== "all" && !accountsQ.data ? (
-                  <section role="status">
-                    {accountsQ.isError ? <><p>Unable to validate the selected account. No analysis is shown.</p>
-                      <button type="button" onClick={() => void accountsQ.refetch()}>Retry</button></>
-                      : <p>Checking selected account…</p>}
-                  </section>
-                ) : <WorkspaceErrorBoundary><Outlet /></WorkspaceErrorBoundary>}
-              </motion.div>
-            </div>
-          </main>
-        </div>
-        <MobileNav />
-      </div>
-      </MotionConfig>
+        <MotionConfig reducedMotion="user">
+          <a href="#main-content" onClick={() => main.current?.focus()} className="skip-link">
+            Skip to main content
+          </a>
+          <AuroraBackground />
+          <div className="flex min-h-screen flex-col">
+            <Topbar />
+            <main
+              id="main-content"
+              ref={main}
+              tabIndex={-1}
+              className="flex-1 px-3 pb-20 pt-4 sm:px-5 lg:px-6 lg:pb-8 lg:pt-4"
+            >
+              <div className="mx-auto max-w-[1560px]">
+                <motion.div
+                  data-testid="route-content"
+                  key={routeKey}
+                  initial={reducedMotion ? false : { opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: reducedMotion ? 0 : 0.14 }}
+                >
+                  {scope.errors.length > 0 ? (
+                    <section role="alert" className="surface-card space-y-3 p-4">
+                      <h1 className="text-base font-semibold">Invalid analysis scope</h1>
+                      {scope.errors.map((error) => (
+                        <p key={error}>{error}</p>
+                      ))}
+                      <button type="button" className="btn-primary" onClick={scope.reset}>
+                        Reset account and period
+                      </button>
+                    </section>
+                  ) : accountFilter !== "all" && !accountsQ.data ? (
+                    <section role="status">
+                      {accountsQ.isError ? (
+                        <>
+                          <p>Unable to validate the selected account. No analysis is shown.</p>
+                          <button type="button" onClick={() => void accountsQ.refetch()}>
+                            Retry
+                          </button>
+                        </>
+                      ) : (
+                        <p>Checking selected account…</p>
+                      )}
+                    </section>
+                  ) : (
+                    <WorkspaceErrorBoundary>
+                      <Outlet />
+                    </WorkspaceErrorBoundary>
+                  )}
+                </motion.div>
+              </div>
+            </main>
+            <MobileNav />
+          </div>
+        </MotionConfig>
       </AnalysisScopeContext.Provider>
     </PreferencesContext.Provider>
   );

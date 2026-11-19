@@ -29,29 +29,29 @@ export const PRIMARY_NAV: NavItem[] = [
 export function Sidebar() {
   const location = useLocation();
   return (
-    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-white/[0.06] bg-aurora-base/60 backdrop-blur-xl lg:flex">
-      <div className="flex items-center gap-3 px-5 py-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-aurora-accent shadow-glow-accent">
-          <BarChart3 size={18} className="text-white" />
+    <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-white/[0.06] bg-[#0b0e14]/95 backdrop-blur-xl lg:flex">
+      <div className="flex items-center gap-3 px-4 py-5">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-sky-400/25 bg-sky-500/15">
+          <BarChart3 size={16} className="text-sky-300" />
         </div>
         <div>
-          <p className="text-sm font-semibold text-white">Portfolio</p>
+          <p className="text-sm font-semibold tracking-tight text-white">Portfolio</p>
           <p className="text-[11px] text-slate-500">Personal analytics</p>
         </div>
       </div>
 
-      <nav aria-label="Primary" className="flex-1 px-3 py-3">
-        <ul className="space-y-1">
+      <nav aria-label="Primary" className="flex-1 px-2.5 py-2">
+        <ul className="space-y-0.5">
           {PRIMARY_NAV.map((item) => (
             <li key={item.to}>
               <NavLink
                 to={scopedNavigationUrl(item.to, location.search)}
                 end={item.to === "/"}
                 className={({ isActive }) =>
-                  `group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  `group relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors ${
                     isActive
                       ? "text-white"
-                      : "text-slate-400 hover:bg-white/[0.04] hover:text-slate-100"
+                      : "text-slate-400 hover:bg-white/[0.035] hover:text-slate-100"
                   }`
                 }
               >
@@ -60,15 +60,21 @@ export function Sidebar() {
                     {isActive ? (
                       <motion.span
                         layoutId="sidebar-active"
-                        className="absolute inset-0 -z-10 rounded-lg bg-gradient-to-r from-violet-500/20 to-cyan-500/20 ring-1 ring-white/10"
-                        transition={{ type: "spring", stiffness: 350, damping: 32 }}
+                        className="absolute inset-0 -z-10 rounded-lg bg-white/[0.07] ring-1 ring-white/[0.08]"
+                        transition={{ type: "spring", stiffness: 400, damping: 34 }}
+                      />
+                    ) : null}
+                    {isActive ? (
+                      <span
+                        aria-hidden="true"
+                        className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-sky-400"
                       />
                     ) : null}
                     <item.icon
-                      size={17}
+                      size={16}
                       className={
                         isActive
-                          ? "text-aurora-cyan"
+                          ? "text-sky-400"
                           : "text-slate-500 group-hover:text-slate-300"
                       }
                     />
@@ -81,8 +87,8 @@ export function Sidebar() {
         </ul>
       </nav>
 
-      <div className="px-5 py-4 text-[10px] text-slate-600">
-        Private · local portfolio data
+      <div className="border-t border-white/[0.05] px-4 py-3.5 text-[11px] text-slate-600">
+        Private · Local data
       </div>
     </aside>
   );

@@ -108,6 +108,7 @@ export type Instrument = {
   drawdown_from_peak_pct: number | null;
   quantity_unchanged_snapshot_count: number | null;
   group_ids: number[];
+  sparkline_values?: number[];
 };
 
 export type ImportChangedEntry = {

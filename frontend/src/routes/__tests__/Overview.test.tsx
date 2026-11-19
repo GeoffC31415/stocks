@@ -41,16 +41,16 @@ describe("Overview states", () => {
   it("keeps primary value and secondary metrics before performance in DOM and responsive order", async () => {
     vi.spyOn(api, "getSummary").mockResolvedValue(zero);
     show();
-    const balance = await screen.findByText("Portfolio balance: 0");
+    const balance = await screen.findByText("Portfolio value");
     const performance = screen.getByText("Performance workspace");
     const metrics = balance.closest('[data-testid="overview-metrics"]')!;
     expect(screen.queryByText(/What changed below compares/)).not.toBeInTheDocument();
-    expect(screen.getByTestId("portfolio-briefing")).toHaveClass("space-y-5");
-    expect(metrics).toHaveClass("grid", "gap-3", "md:grid-cols-3");
+    expect(screen.getByTestId("portfolio-briefing")).toHaveClass("space-y-4");
+    expect(metrics).toHaveClass("grid", "grid-cols-2", "xl:grid-cols-6");
     const precedes = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(precedes(balance, screen.getByText("Snapshot investment return"))).toBe(true);
-    expect(precedes(screen.getByText("Net external flows"), performance)).toBe(true);
-    expect(precedes(performance, screen.getByText("Allocation summary"))).toBe(true);
+    expect(precedes(balance, screen.getByText("Flow-adj return"))).toBe(true);
+    expect(precedes(screen.getByText("Net flows"), performance)).toBe(true);
+    expect(precedes(performance, screen.getByText("Allocation (ex-cash)"))).toBe(true);
     // jsdom cannot evaluate Tailwind media queries: forbid responsive CSS reordering
     // here, and exercise the same semantic regions in the Chrome layout test.
     for (const element of [metrics, performance]) {
@@ -62,7 +62,7 @@ describe("Overview states", () => {
   it("keeps the dashboard compact and links to the relocated full analysis", async () => {
     vi.spyOn(api, "getSummary").mockResolvedValue(zero);
     show();
-    await screen.findByText("Portfolio balance: 0");
+    await screen.findByText("Portfolio value");
     expect(screen.queryByText(/API deposits less withdrawals/)).not.toBeInTheDocument();
     const trigger = screen.getByRole("button", { name: "About Net external flows" });
     fireEvent.click(trigger);
@@ -87,16 +87,15 @@ describe("Overview states", () => {
       },
     } as Awaited<ReturnType<typeof api.getPerformance>>);
     show();
-    const card = await screen.findByRole("article", { name: "Net external flows" });
-    expect(await screen.findByText("Includes first values of new accounts")).toBeVisible();
-    expect(card).toHaveTextContent("+£200");
+    expect(await screen.findByText("Incl. new account entries")).toBeVisible();
+    expect(screen.getByText("+£200")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "About Net external flows" }));
     expect(screen.getByRole("dialog")).toHaveTextContent("plus the first recorded value of newly tracked accounts");
   });
   it("uses the selected account API totals even when instrument details are empty", async () => {
     const summary = vi.spyOn(api, "getSummary").mockResolvedValue({ ...zero, position_count: 15, total_value_gbp: 12345 });
     show("ISA");
-    expect(await screen.findByText("Portfolio balance: 12345")).toBeInTheDocument();
+    expect(await screen.findByText("£12,345")).toBeInTheDocument();
     expect(summary).toHaveBeenCalledWith("ISA");
     expect(api.getInstruments).not.toHaveBeenCalled();
   });
@@ -104,7 +103,7 @@ describe("Overview states", () => {
     vi.spyOn(api, "getSummary").mockResolvedValue({ ...zero, position_count: 0, total_value_gbp: 0 });
     show("Empty account");
     expect(await screen.findByText("No holdings for the selected account.")).toBeInTheDocument();
-    expect(screen.queryByText("Portfolio balance: 0")).not.toBeInTheDocument();
+    expect(screen.queryByText("Portfolio value")).not.toBeInTheDocument();
   });
 
   it("keeps loading distinct from empty and error", () => {
@@ -122,7 +121,7 @@ describe("Overview states", () => {
     expect(screen.queryByText("Welcome to your portfolio")).not.toBeInTheDocument();
     vi.mocked(api.getSummary).mockResolvedValue(zero);
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByText("Portfolio balance: 0")).toBeInTheDocument();
+    expect(await screen.findByText("Portfolio value")).toBeInTheDocument();
   });
   it("offers import only for a successful empty summary", async () => {
     vi.spyOn(api, "getSummary").mockResolvedValue({ ...zero, as_of_date: null, import_batch_id: null });

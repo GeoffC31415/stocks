@@ -6,8 +6,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { AppShell } from '../AppShell';
 
 vi.mock('../../lib/api', () => ({ api: { getSummary: vi.fn().mockResolvedValue({ by_account: { ISA: {} } }) } }));
-vi.mock('../Topbar', () => ({ Topbar: () => <header>Persistent header</header> }));
-vi.mock('../Sidebar', () => ({ Sidebar: () => <nav><Link to="/activity?account=ISA&period=1Y&tab=changes&from=2&to=5#source">Activity</Link><Link to="/help?account=ISA&period=1Y">Help</Link></nav> }));
+vi.mock('../Topbar', () => ({ Topbar: () => <header>Persistent header<nav><Link to="/activity?account=ISA&period=1Y&tab=changes&from=2&to=5#source">Activity</Link><Link to="/help?account=ISA&period=1Y">Help</Link></nav></header> }));
+vi.mock('../Sidebar', () => ({ Sidebar: () => null }));
 vi.mock('../MobileNav', () => ({ MobileNav: () => null }));
 vi.mock('../../components/AuroraBackground', () => ({ AuroraBackground: () => null }));
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });

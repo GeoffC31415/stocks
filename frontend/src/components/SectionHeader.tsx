@@ -1,13 +1,25 @@
 import type { ReactNode } from "react";
 
-export function SectionHeader({ title, description, actions }: {
-  title: string; description?: ReactNode; actions?: ReactNode;
+export function SectionHeader({
+  title,
+  description,
+  actions,
+}: {
+  title: string;
+  description?: ReactNode;
+  actions?: ReactNode;
 }) {
-  return <div className="flex flex-wrap items-start justify-between gap-3">
-    <div className="min-w-0">
-      <h2 className="text-lg font-semibold text-slate-100">{title}</h2>
-      {description && <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-400">{description}</p>}
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div className="min-w-0">
+        <h2 className="tufte-label text-slate-200">{title}</h2>
+        {description && (
+          <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-slate-400">
+            {description}
+          </p>
+        )}
+      </div>
+      {actions && <div className="max-w-full">{actions}</div>}
     </div>
-    {actions && <div className="max-w-full">{actions}</div>}
-  </div>;
+  );
 }

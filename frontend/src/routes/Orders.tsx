@@ -38,9 +38,9 @@ export function Orders() {
     next.set("account", account);
     setParams(next);
   };
-  return <div className="space-y-6">
+  return <div className="space-y-4">
     <MatchingWarningBanner />
-    <h1 className="text-2xl font-semibold text-white">Order history</h1>
+    <h1 className="text-sm font-semibold tracking-tight text-white">Order history</h1>
     <OrderHistorySection page={query.data} pending={query.isFetching} error={query.isError}
       params={params} onChange={change} onRetry={() => { void query.refetch(); }} />
   </div>;
