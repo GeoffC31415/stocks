@@ -3,6 +3,7 @@ import datetime as dt
 
 import pytest
 from sqlalchemy import func, select
+from sqlite_schema import create_file_schema
 
 from app.models import HoldingSnapshot, Order
 from app.services.sync_runner import run_sync_all
@@ -27,11 +28,9 @@ ACTIVITY = (
 async def db_session():
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    from app.models import Base
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine)() as session:
             from test_gate_a_hl_pair import enroll_synthetic_hl_owner
 

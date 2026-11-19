@@ -2,9 +2,9 @@ import datetime as dt
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
 from app.models import (
-    Base,
     HoldingSnapshot,
     ImportBatch,
     Instrument,
@@ -74,8 +74,7 @@ def test_snapshot_metrics_counts_consecutive_unchanged_latest_quantity() -> None
 @pytest.fixture
 async def valuation_db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
         session.add_all([
             Instrument(id=1, account_name="ISA", identifier="A", security_name="Asset A"),

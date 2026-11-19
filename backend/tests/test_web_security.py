@@ -45,6 +45,76 @@ def public_config(tmp_path, public_password_hash):
     )
 
 
+@pytest.fixture(scope="module")
+def shared_public_app(tmp_path_factory, public_password_hash):
+    """Module-scoped read-only app so non-throttling boundary tests reuse the real success cache."""
+    from fastapi import Request
+
+    from app.database import get_session
+    from app.main import create_app
+
+    cfg = Settings(
+        _env_file=None,
+        deployment_mode="public",
+        public_origin="https://example.test",
+        auth_username="owner",
+        auth_password_hash=public_password_hash,
+        frontend_dist=tmp_path_factory.mktemp("shared-public") / "not-built",
+    )
+    application = create_app(cfg)
+    application.state.writes = []
+
+    async def no_database():
+        raise AssertionError("Database access is forbidden in web boundary tests")
+        yield
+
+    application.dependency_overrides[get_session] = no_database
+
+    @application.post("/api/test-write")
+    async def write(request: Request):
+        application.state.writes.append(await request.body())
+        return {"saved": True}
+
+    @application.get("/api/explode")
+    async def explode():
+        raise RuntimeError("synthetic-private-database-and-token-detail")
+
+    return application
+
+
+@pytest.fixture(scope="module")
+def spa_app(tmp_path_factory, public_password_hash):
+    from app.database import get_session
+    from app.main import create_app
+
+    base = tmp_path_factory.mktemp("shared-spa")
+    dist = base / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text('<html><div id="root">synthetic SPA</div></html>')
+    (dist / "assets").mkdir()
+    (dist / "assets" / "app.js").write_text('console.log("synthetic")')
+    (dist / ".secret").write_text("synthetic-private-content")
+    outside = base / "outside.txt"
+    outside.write_text("synthetic-private-content")
+    (dist / "leaked.txt").symlink_to(outside)
+    cfg = Settings(
+        _env_file=None,
+        deployment_mode="public",
+        public_origin="https://example.test",
+        auth_username="owner",
+        auth_password_hash=public_password_hash,
+        frontend_dist=dist,
+    )
+    application = create_app(cfg)
+
+    async def no_database():
+        raise AssertionError("Database access is forbidden in SPA tests")
+        yield
+
+    application.dependency_overrides[get_session] = no_database
+    return application
+
+
 @pytest.fixture
 def public_app(public_config):
     from fastapi import Request
@@ -69,41 +139,35 @@ def public_app(public_config):
     return application
 
 
-@pytest.mark.parametrize(
-    "path,auth,expected",
-    [
+@pytest.mark.asyncio
+async def test_public_security_headers_cover_errors_and_success(shared_public_app):
+    cases = [
         ("/api/health", None, 401),
         ("/api/health", ("owner", "test-password"), 200),
         ("/api/missing", ("owner", "test-password"), 404),
         ("/api/explode", ("owner", "test-password"), 500),
-    ],
-)
-@pytest.mark.asyncio
-async def test_public_security_headers_cover_errors_and_success(public_app, path, auth, expected):
-    @public_app.get("/api/explode")
-    async def explode():
-        raise RuntimeError("synthetic-private-database-and-token-detail")
-
+    ]
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=public_app), base_url="https://example.test"
+        transport=httpx.ASGITransport(app=shared_public_app), base_url="https://example.test"
     ) as client:
-        response = await client.get(path, auth=auth)
-    assert response.status_code == expected
-    assert response.headers["cache-control"] == "no-store"
-    assert response.headers["x-content-type-options"] == "nosniff"
-    assert response.headers["x-frame-options"] == "DENY"
-    assert response.headers["referrer-policy"] == "no-referrer"
-    assert "strict-transport-security" not in response.headers
-    csp = response.headers["content-security-policy"]
-    assert "script-src 'self';" in csp
-    assert "style-src 'self' 'unsafe-inline';" in csp
-    assert "connect-src 'self';" in csp
-    assert "frame-ancestors 'none';" in csp
-    assert "object-src 'none';" in csp
-    assert "base-uri 'none';" in csp
-    assert "synthetic-private" not in response.text
-    if expected == 500:
-        assert response.json() == {"detail": "Internal server error"}
+        for path, auth, expected in cases:
+            response = await client.get(path, auth=auth)
+            assert response.status_code == expected, path
+            assert response.headers["cache-control"] == "no-store"
+            assert response.headers["x-content-type-options"] == "nosniff"
+            assert response.headers["x-frame-options"] == "DENY"
+            assert response.headers["referrer-policy"] == "no-referrer"
+            assert "strict-transport-security" not in response.headers
+            csp = response.headers["content-security-policy"]
+            assert "script-src 'self';" in csp
+            assert "style-src 'self' 'unsafe-inline';" in csp
+            assert "connect-src 'self';" in csp
+            assert "frame-ancestors 'none';" in csp
+            assert "object-src 'none';" in csp
+            assert "base-uri 'none';" in csp
+            assert "synthetic-private" not in response.text
+            if expected == 500:
+                assert response.json() == {"detail": "Internal server error"}
 
 
 @pytest.mark.asyncio
@@ -125,42 +189,41 @@ async def test_authenticator_errors_are_sanitized_by_outer_boundary(public_app, 
     assert response.headers["cache-control"] == "no-store"
 
 
-@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
 @pytest.mark.asyncio
-async def test_public_documentation_disabled(public_app, path):
+async def test_public_documentation_disabled(shared_public_app):
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=public_app),
+        transport=httpx.ASGITransport(app=shared_public_app),
         base_url="https://example.test",
         auth=("owner", "test-password"),
     ) as client:
-        response = await client.get(path)
-    assert response.status_code == 404
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            response = await client.get(path)
+            assert response.status_code == 404, path
 
 
-@pytest.mark.parametrize(
-    "method,path",
-    [
+@pytest.mark.asyncio
+async def test_public_all_routes_require_basic_auth(public_app):
+    cases = [
         ("GET", "/api/health"),
         ("POST", "/api/test-write"),
         ("GET", "/docs"),
         ("GET", "/"),
         ("GET", "/assets/app.js"),
         ("GET", "/api/unknown"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_public_all_routes_require_basic_auth(public_app, method, path):
+    ]
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=public_app), base_url="https://example.test"
     ) as client:
-        for headers in ({}, {"Authorization": "Basic not-base64"}):
-            response = await client.request(
-                method, path, headers={"Origin": "https://example.test", **headers}
-            )
-            assert response.status_code == 401
-            assert response.headers["www-authenticate"].startswith("Basic ")
+        for method, path in cases:
+            for headers in ({}, {"Authorization": "Basic not-base64"}):
+                response = await client.request(
+                    method, path, headers={"Origin": "https://example.test", **headers}
+                )
+                assert response.status_code == 401, (method, path)
+                assert response.headers["www-authenticate"].startswith("Basic ")
+        # Verify a wrong password also returns 401 without triggering a write.
         response = await client.request(
-            method, path, auth=("owner", "wrong"), headers={"Origin": "https://example.test"}
+            "POST", "/api/test-write", auth=("owner", "wrong"), headers={"Origin": "https://example.test"}
         )
         assert response.status_code == 401
         assert not public_app.state.writes
@@ -194,47 +257,48 @@ async def test_valid_basic_auth_reads_writes_and_hashing_is_off_event_loop(publi
     assert threads and all(thread != threading.get_ident() for thread in threads)
 
 
-@pytest.mark.parametrize(
-    "base_url,headers",
-    [
+@pytest.mark.asyncio
+async def test_public_rejects_wrong_authority_before_auth(public_app):
+    cases = [
         ("http://example.test", {}),
         ("http://example.test", {"X-Forwarded-Proto": "https", "X-Forwarded-For": "127.0.0.1"}),
         ("https://evil.test", {}),
         ("https://evil.test", {"X-Forwarded-Host": "example.test"}),
         ("https://example.test", [("Host", "example.test"), ("Host", "evil.test")]),
-    ],
-)
-@pytest.mark.asyncio
-async def test_public_rejects_wrong_authority_before_auth(public_app, base_url, headers):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=public_app), base_url=base_url
-    ) as client:
-        response = await client.get("/api/health", headers=headers)
-    assert response.status_code == 400
-    assert "www-authenticate" not in response.headers
+    ]
+    for base_url, headers in cases:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=public_app), base_url=base_url
+        ) as client:
+            response = await client.get("/api/health", headers=headers)
+        assert response.status_code == 400, (base_url, headers)
+        assert "www-authenticate" not in response.headers
 
 
-@pytest.mark.parametrize("peer,expected", [("127.0.0.1", 200), ("198.51.100.9", 400)])
 @pytest.mark.asyncio
-async def test_forwarded_scheme_only_trusted_by_uvicorn_loopback(public_app, peer, expected):
+async def test_forwarded_scheme_only_trusted_by_uvicorn_loopback(shared_public_app):
     from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
-    proxied = ProxyHeadersMiddleware(public_app, trusted_hosts=["127.0.0.1"])
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=proxied, client=(peer, 1234)),
-        base_url="http://example.test",
-        auth=("owner", "test-password"),
-    ) as client:
-        response = await client.get(
-            "/api/health",
-            headers={"X-Forwarded-Proto": "https", "X-Forwarded-For": "198.51.100.42"},
-        )
-    assert response.status_code == expected
+    proxied = ProxyHeadersMiddleware(shared_public_app, trusted_hosts=["127.0.0.1"])
+    for peer, expected in (("127.0.0.1", 200), ("198.51.100.9", 400)):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=proxied, client=(peer, 1234)),
+            base_url="http://example.test",
+            auth=("owner", "test-password"),
+        ) as client:
+            response = await client.get(
+                "/api/health",
+                headers={"X-Forwarded-Proto": "https", "X-Forwarded-For": "198.51.100.42"},
+            )
+        assert response.status_code == expected, peer
 
 
-@pytest.mark.parametrize(
-    "peer,expected",
-    [
+@pytest.mark.asyncio
+async def test_local_mode_uses_peer_address_not_request_hostname(tmp_path):
+    from app.main import create_app
+
+    application = create_app(Settings(_env_file=None, frontend_dist=tmp_path / "absent"))
+    cases = [
         ("127.0.0.1", 200),
         ("::1", 200),
         (None, 403),
@@ -242,19 +306,14 @@ async def test_forwarded_scheme_only_trusted_by_uvicorn_loopback(public_app, pee
         ("192.168.1.20", 403),
         ("localhost", 403),
         ("127.0.0.1.evil.test", 403),
-    ],
-)
-@pytest.mark.asyncio
-async def test_local_mode_uses_peer_address_not_request_hostname(tmp_path, peer, expected):
-    from app.main import create_app
-
-    application = create_app(Settings(_env_file=None, frontend_dist=tmp_path / "absent"))
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=application, client=(peer, 1234)),
-        base_url="http://localhost",
-    ) as client:
-        response = await client.get("/api/health", headers={"X-Forwarded-For": "127.0.0.1"})
-    assert response.status_code == expected
+    ]
+    for peer, expected in cases:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=application, client=(peer, 1234)),
+            base_url="http://localhost",
+        ) as client:
+            response = await client.get("/api/health", headers={"X-Forwarded-For": "127.0.0.1"})
+        assert response.status_code == expected, peer
 
 
 def test_scrypt_hash_is_salted_and_verifies_only_correct_password():
@@ -275,9 +334,10 @@ def test_scrypt_hash_is_salted_and_verifies_only_correct_password():
 
 # Each unsafe method crosses the same middleware guard. Exercise every method
 # once and each distinct origin boundary with POST, rather than their product.
-@pytest.mark.parametrize(
-    "method,origin",
-    [
+@pytest.mark.asyncio
+async def test_unsafe_methods_need_exact_origin(shared_public_app):
+    shared_public_app.state.writes.clear()
+    cases = [
         ("POST", None),
         ("PUT", None),
         ("PATCH", None),
@@ -290,62 +350,60 @@ def test_scrypt_hash_is_salted_and_verifies_only_correct_password():
         ("POST", "http://example.test"),
         ("POST", "https://example.test/"),
         ("POST", "https://example.test:443"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_unsafe_methods_need_exact_origin(public_app, method, origin):
-    headers = {"Origin": origin} if origin is not None else {}
+    ]
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=public_app),
+        transport=httpx.ASGITransport(app=shared_public_app),
         base_url="https://example.test",
         auth=("owner", "test-password"),
     ) as client:
-        response = await client.request(method, "/api/test-write", headers=headers)
-    assert response.status_code == 403
-    assert not public_app.state.writes
+        for method, origin in cases:
+            headers = {"Origin": origin} if origin is not None else {}
+            response = await client.request(method, "/api/test-write", headers=headers)
+            assert response.status_code == 403, (method, origin)
+    assert not shared_public_app.state.writes
 
 
-@pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS", "POST"])
 @pytest.mark.asyncio
-async def test_fetch_metadata_rejects_cross_site_even_with_credentials(public_app, method):
+async def test_fetch_metadata_rejects_cross_site_even_with_credentials(shared_public_app):
+    shared_public_app.state.writes.clear()
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=public_app),
+        transport=httpx.ASGITransport(app=shared_public_app),
         base_url="https://example.test",
         auth=("owner", "test-password"),
     ) as client:
-        response = await client.request(
-            method,
-            "/api/test-write",
-            headers={
-                "Origin": "https://example.test",
-                "Sec-Fetch-Site": "cross-site",
-            },
-        )
-    assert response.status_code == 403
-    assert not public_app.state.writes
+        for method in ("GET", "HEAD", "OPTIONS", "POST"):
+            response = await client.request(
+                method,
+                "/api/test-write",
+                headers={
+                    "Origin": "https://example.test",
+                    "Sec-Fetch-Site": "cross-site",
+                },
+            )
+            assert response.status_code == 403, method
+    assert not shared_public_app.state.writes
 
 
-@pytest.mark.parametrize(
-    "headers",
-    [
+@pytest.mark.asyncio
+async def test_duplicate_browser_security_headers_fail_closed(shared_public_app):
+    shared_public_app.state.writes.clear()
+    header_sets = [
         [("Origin", "https://example.test"), ("Origin", "https://example.test")],
         [
             ("Origin", "https://example.test"),
             ("Sec-Fetch-Site", "same-origin"),
             ("Sec-Fetch-Site", "cross-site"),
         ],
-    ],
-)
-@pytest.mark.asyncio
-async def test_duplicate_browser_security_headers_fail_closed(public_app, headers):
+    ]
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=public_app),
+        transport=httpx.ASGITransport(app=shared_public_app),
         base_url="https://example.test",
         auth=("owner", "test-password"),
     ) as client:
-        response = await client.post("/api/test-write", headers=headers)
-    assert response.status_code == 403
-    assert not public_app.state.writes
+        for headers in header_sets:
+            response = await client.post("/api/test-write", headers=headers)
+            assert response.status_code == 403, headers
+    assert not shared_public_app.state.writes
 
 
 @pytest.mark.asyncio
@@ -527,65 +585,42 @@ async def test_body_at_exact_limit_is_replayed_without_loss(public_app, streamed
     assert public_app.state.writes == [body]
 
 
-@pytest.mark.parametrize("lengths", [["-1"], ["not-a-number"], ["1", "1"], ["0"]])
 @pytest.mark.asyncio
-async def test_invalid_or_mismatched_content_length_is_rejected(public_app, lengths):
-    headers = [("Origin", "https://example.test")] + [
-        ("Content-Length", value) for value in lengths
-    ]
+async def test_invalid_or_mismatched_content_length_is_rejected(shared_public_app):
+    shared_public_app.state.writes.clear()
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=public_app),
+        transport=httpx.ASGITransport(app=shared_public_app),
         base_url="https://example.test",
         auth=("owner", "test-password"),
     ) as client:
-        response = await client.post("/api/test-write", content=b"xx", headers=headers)
-    assert response.status_code == 400
-    assert not public_app.state.writes
+        for lengths in (["-1"], ["not-a-number"], ["1", "1"], ["0"]):
+            headers = [("Origin", "https://example.test")] + [
+                ("Content-Length", value) for value in lengths
+            ]
+            response = await client.post("/api/test-write", content=b"xx", headers=headers)
+            assert response.status_code == 400, lengths
+    assert not shared_public_app.state.writes
 
 
-@pytest.fixture
-def spa_app(public_config):
-    from app.database import get_session
-    from app.main import create_app
-
-    dist = public_config.frontend_dist
-    dist.mkdir()
-    (dist / "index.html").write_text('<html><div id="root">synthetic SPA</div></html>')
-    (dist / "assets").mkdir()
-    (dist / "assets" / "app.js").write_text('console.log("synthetic")')
-    (dist / ".secret").write_text("synthetic-private-content")
-    outside = dist.parent / "outside.txt"
-    outside.write_text("synthetic-private-content")
-    (dist / "leaked.txt").symlink_to(outside)
-    application = create_app(public_config)
-
-    async def no_database():
-        raise AssertionError("Database access is forbidden in SPA tests")
-        yield
-
-    application.dependency_overrides[get_session] = no_database
-    return application
-
-
-@pytest.mark.parametrize("path", ["/", "/instruments/42"])
 @pytest.mark.asyncio
-async def test_spa_serves_deep_links_from_configured_directory(spa_app, path):
+async def test_spa_serves_deep_links_from_configured_directory(spa_app):
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=spa_app),
         base_url="https://example.test",
         auth=("owner", "test-password"),
     ) as client:
-        response = await client.get(path, headers={"Accept": "text/html"})
-        head = await client.head(path, headers={"Accept": "text/html"})
-    assert response.status_code == head.status_code == 200
-    assert "synthetic SPA" in response.text
-    assert head.content == b""
-    assert response.headers["cache-control"] == "no-store"
+        for path in ("/", "/instruments/42"):
+            response = await client.get(path, headers={"Accept": "text/html"})
+            head = await client.head(path, headers={"Accept": "text/html"})
+            assert response.status_code == head.status_code == 200, path
+            assert "synthetic SPA" in response.text
+            assert head.content == b""
+            assert response.headers["cache-control"] == "no-store"
 
 
-@pytest.mark.parametrize(
-    "path",
-    [
+@pytest.mark.asyncio
+async def test_spa_never_masks_api_assets_or_unsafe_paths(spa_app):
+    paths = [
         "/api",
         "/api/unknown",
         "/assets",
@@ -603,19 +638,17 @@ async def test_spa_serves_deep_links_from_configured_directory(spa_app, path):
         "/%252e%252e/outside.txt",
         "/%00",
         "/missing.js/nested",
-    ],
-)
-@pytest.mark.asyncio
-async def test_spa_never_masks_api_assets_or_unsafe_paths(spa_app, path):
+    ]
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=spa_app),
         base_url="https://example.test",
         auth=("owner", "test-password"),
     ) as client:
-        response = await client.get(path, headers={"Accept": "text/html"})
-    assert response.status_code == 404
-    assert "synthetic SPA" not in response.text
-    assert "synthetic-private" not in response.text
+        for path in paths:
+            response = await client.get(path, headers={"Accept": "text/html"})
+            assert response.status_code == 404, path
+            assert "synthetic SPA" not in response.text, path
+            assert "synthetic-private" not in response.text, path
 
 
 @pytest.mark.asyncio

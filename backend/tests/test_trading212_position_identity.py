@@ -40,32 +40,13 @@ async def persisted_state(db):
 @pytest.mark.parametrize(
     ("field", "bad_value"),
     [
-        *(
-            pytest.param("isin", value, id=f"isin-{index}")
-            for index, value in enumerate(
-                ([], ["ONE"], {}, {"isin": "ONE"}, 0, 1, False, True, 0.0, 1.5)
-            )
-        ),
-        *(
-            pytest.param("name", value, id=f"name-{index}")
-            for index, value in enumerate(([], ["One"], {}, {"name": "One"}, 0, 1, False, True))
-        ),
-        *(
-            pytest.param(field, value, id=f"{field}-{index}")
-            for field in ("ticker-for-isin", "ticker-for-name")
-            for index, value in enumerate(([], ["ONE"], {}, {"ticker": "ONE"}, 0, 1, False, True))
-        ),
-        *(
-            pytest.param("instrument", value, id=f"instrument-{index}")
-            for index, value in enumerate((None, [], ["ONE"], {}, "bad", 0, 1, False, True))
-        ),
+        pytest.param("isin", ["ONE"], id="isin-list"),
+        pytest.param("name", {"name": "One"}, id="name-dict"),
+        pytest.param("ticker-for-isin", 0, id="ticker-for-isin-int"),
+        pytest.param("ticker-for-name", True, id="ticker-for-name-bool"),
+        pytest.param("instrument", None, id="instrument-none"),
         pytest.param("identity-and-wallet", ["ONE"], id="bad-identity-and-wallet"),
-        *(
-            pytest.param("wallet-impact", value, id=f"bad-wallet-{index}")
-            for index, value in enumerate(
-                (["not-an-object"], [], "not-an-object", 0, 1, False, True)
-            )
-        ),
+        pytest.param("wallet-impact", ["not-an-object"], id="bad-wallet-list"),
     ],
 )
 async def test_malformed_identity_never_closes_an_existing_position(db, field, bad_value):

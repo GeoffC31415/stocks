@@ -12,11 +12,11 @@ import datetime as dt
 import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
 from app.database import get_session
 from app.main import app
 from app.models import (
-    Base,
     HoldingSnapshot,
     ImportBatch,
     Instrument,
@@ -41,8 +41,7 @@ def _series(start: float, daily_return: float, points: int = 25) -> list[tuple[d
 @pytest.fixture
 async def db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     session = async_sessionmaker(engine, expire_on_commit=False)
     async with session() as session:
         yield session

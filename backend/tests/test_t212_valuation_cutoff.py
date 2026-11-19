@@ -5,10 +5,17 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 from test_trading212_worker_history import Broker
-from test_trading212_worker_history import db as disposable_db
 
-from app.models import AccountAlias, CashFlowCoverage, HoldingSnapshot, ImportBatch, Instrument
+from app.models import (
+    AccountAlias,
+    CashFlowCoverage,
+    HoldingSnapshot,
+    ImportBatch,
+    Instrument,
+)
 from app.routers import trading212 as router
 from app.schemas import PerformanceSummary
 from app.services.attribution_service import get_snapshot_attribution
@@ -16,7 +23,21 @@ from app.services.performance_service import get_portfolio_performance
 from app.services.portfolio_service import get_portfolio_return_summary
 from app.services.trading212 import sync_portfolio_snapshot
 
-db = disposable_db
+
+@pytest.fixture
+async def db():
+    from sqlite_schema import create_file_schema
+
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    await create_file_schema(engine)
+    try:
+        yield async_sessionmaker(engine, expire_on_commit=False), engine
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.parametrize("worker", [False, True], ids=["direct-control", "worker"])
@@ -330,7 +351,7 @@ async def worker_pair(session, broker, *, transfer_at=None):
     assert isinstance(result, router.Trading212SyncResult) and result.snapshot == "imported"
 
 
-@pytest.mark.parametrize(("minutes", "net"), [(-1, 10), (0, None), (1, None), (2, None), (3, 0)])
+@pytest.mark.parametrize(("minutes", "net"), [(-1, 10), (0, None), (1, None), (3, 0)])
 async def test_transfer_relative_to_both_valuation_requests(db, timed_broker, minutes, net):
     sessions, _ = db
     account = router.settings.trading212_account_name

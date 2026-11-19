@@ -6,10 +6,10 @@ import httpx
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
 from app.models import (
     AccountAlias,
-    Base,
     CashFlowCoverage,
     ExternalCashFlow,
     HoldingSnapshot,
@@ -78,8 +78,7 @@ class Reader:
 @pytest.fixture
 async def db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
         yield session
     await engine.dispose()

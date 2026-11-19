@@ -8,8 +8,9 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
+from sqlite_schema import create_file_schema
 
-from app.models import AccountAlias, Base, Instrument, InstrumentAlias, Order, OrderMatchAudit
+from app.models import AccountAlias, Instrument, InstrumentAlias, Order, OrderMatchAudit
 from app.services.matching.normalisation import (
     instrument_type_compatibility,
     meaningful_tokens,
@@ -129,8 +130,7 @@ class TestScoring:
 async def async_db():
     """In-memory SQLite database for testing."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with async_session() as session:
         yield session

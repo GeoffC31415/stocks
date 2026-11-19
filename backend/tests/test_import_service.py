@@ -3,8 +3,9 @@ import datetime as dt
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
-from app.models import Base, Instrument
+from app.models import Instrument
 from app.services.barclays_parser import ParsedHoldingRow
 from app.services.hl_parser import HL_ACCOUNT_NAME
 from app.services.import_service import compare_import_batches, import_holding_snapshot
@@ -42,8 +43,7 @@ def _holding(
 
 async def _import_hl_after_barclays() -> tuple[Instrument, dict, list[dict]]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
 
     Session = async_sessionmaker(engine, expire_on_commit=False)
     async with Session() as session:
@@ -104,8 +104,7 @@ def test_portfolio_timeseries_carries_forward_other_account_snapshots() -> None:
 
 async def _compare_multi_account_snapshots() -> dict:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
 
     Session = async_sessionmaker(engine, expire_on_commit=False)
     async with Session() as session:

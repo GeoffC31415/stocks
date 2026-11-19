@@ -7,8 +7,9 @@ import openpyxl
 import pytest
 from sqlalchemy import event, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
-from app.models import AccountAlias, Base, HoldingSnapshot, ImportBatch, Order, OrderImportBatch
+from app.models import AccountAlias, HoldingSnapshot, ImportBatch, Order, OrderImportBatch
 from app.services import barclays_sync_service as service
 
 ACCOUNT = "ID0000000-001 (Investment ISA)"
@@ -157,8 +158,7 @@ def test_missing_cash_rejects_incomplete_snapshot():
 @pytest.fixture
 async def db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
         session.add(
             AccountAlias(

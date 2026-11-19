@@ -10,8 +10,9 @@ from pathlib import Path  # noqa: TC003 - pytest tmp_path annotations
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
-from app.models import Base, ImportBatch, Order, OrderImportBatch
+from app.models import ImportBatch, Order, OrderImportBatch
 from app.services.sync_all_service import sync_inbox
 
 
@@ -77,8 +78,7 @@ def _write(inbox: Path, name: str, data: bytes, when: dt.datetime) -> Path:
 @pytest.fixture
 async def session():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as db:
         yield db
     await engine.dispose()

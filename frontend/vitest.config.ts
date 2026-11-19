@@ -5,13 +5,12 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: "jsdom",
-    // Keep process isolation: Vitest 4.1.11 batches files into one VM context
-    // when vmThreads is focused to one worker, even with isolate: true.
-    pool: "forks",
+    // Keep isolated worker threads: verified against src/test/isolation with maxWorkers=1.
+    pool: "threads",
     isolate: true,
-    maxWorkers: 2,
+    maxWorkers: 4,
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
-    css: true,
+    css: false,
   },
 });

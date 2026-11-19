@@ -3,9 +3,10 @@ import datetime as dt
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
 from app.main import app
-from app.models import Base, HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
+from app.models import HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
 from app.services.portfolio_service import get_portfolio_return_summary
 
 
@@ -18,8 +19,7 @@ async def _calculate(
     to_date: dt.date | None = None,
 ) -> dict:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
 
     Session = async_sessionmaker(engine, expire_on_commit=False)
     async with Session() as session:
@@ -88,10 +88,17 @@ def calculate(*args, **kwargs) -> dict:
 
 
 def test_portfolio_return_endpoint_is_registered_with_response_schema() -> None:
-    operations = app.openapi()["paths"]["/api/portfolio/returns"]
-    assert set(operations) == {"get"}
-    schema = operations["get"]["responses"]["200"]["content"]["application/json"]["schema"]
-    assert schema["$ref"].endswith("/PortfolioReturnSummary")
+    from fastapi.routing import APIRoute
+
+    routes = [
+        sub
+        for item in app.routes
+        for sub in (getattr(getattr(item, "original_router", None), "routes", None) or [item])
+        if isinstance(sub, APIRoute) and sub.path == "/api/portfolio/returns"
+    ]
+    assert len(routes) == 1
+    assert routes[0].methods == {"GET"}
+    assert routes[0].response_model.__name__ == "PortfolioReturnSummary"
 
 
 def test_portfolio_return_is_unavailable_without_snapshots() -> None:

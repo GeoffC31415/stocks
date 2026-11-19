@@ -10,10 +10,11 @@ import httpx
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
 from app.database import get_session
 from app.main import app
-from app.models import Base, HoldingSnapshot, ImportBatch, Instrument
+from app.models import HoldingSnapshot, ImportBatch, Instrument
 
 GOLDEN = json.loads((Path(__file__).parent / "fixtures/allocation_golden.json").read_text())
 
@@ -21,8 +22,7 @@ GOLDEN = json.loads((Path(__file__).parent / "fixtures/allocation_golden.json").
 @pytest.fixture
 async def db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
         yield session
     await engine.dispose()

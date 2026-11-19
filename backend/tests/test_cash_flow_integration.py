@@ -4,8 +4,9 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
-from app.models import Base, HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
+from app.models import HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
 from app.services import trading212
 from app.services.attribution_service import get_snapshot_attribution
 from app.services.performance_service import get_portfolio_performance
@@ -44,8 +45,7 @@ def event(reference, kind, amount, day):
 @pytest_asyncio.fixture
 async def session():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
         yield session
     await engine.dispose()

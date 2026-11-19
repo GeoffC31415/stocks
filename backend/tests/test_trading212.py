@@ -5,12 +5,13 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 from starlette.requests import Request as ASGIRequest
 
 from app.config import Settings
 from app.database import get_session
 from app.main import app
-from app.models import Base, HoldingSnapshot, Instrument, Order
+from app.models import HoldingSnapshot, Instrument, Order
 from app.routers.trading212 import get_trading212_client, require_local_origin
 from app.services.trading212 import (
     Trading212Client,
@@ -528,8 +529,7 @@ async def test_account_summary_403_rejects_prior_cash_valuation() -> None:
     from app.services.trading212 import Trading212DataError
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
@@ -569,8 +569,7 @@ def test_positions_reject_boolean_cash_values(bad_value: bool) -> None:
 @pytest.mark.asyncio
 async def test_sync_portfolio_rejects_first_observation_when_cash_scope_is_forbidden() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
@@ -590,8 +589,7 @@ async def test_sync_portfolio_rejects_first_observation_when_cash_scope_is_forbi
 @pytest.mark.asyncio
 async def test_sync_imports_snapshot_and_links_order_to_instrument() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
@@ -631,8 +629,7 @@ async def test_trading212_sync_endpoints_use_configured_reader(monkeypatch) -> N
     monkeypatch.setattr(trading212_router.settings, "trading212_api_key", None)
     monkeypatch.setattr(trading212_router.settings, "trading212_api_secret", None)
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 
     async with session_factory() as session:
@@ -684,8 +681,7 @@ async def test_combined_sync_rolls_back_snapshot_and_orders_when_cash_fails() ->
             raise Trading212DataError("cash history failed")
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
 
         async def override_session():

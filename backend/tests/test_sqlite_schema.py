@@ -18,13 +18,14 @@ async def test_file_schema_has_one_physical_transaction(tmp_path):
     try:
         await create_file_schema(engine)
         # SQLAlchemy's logical begin alone does not start SQLite's DDL transaction.
-        assert [sql for sql in statements if sql.upper().startswith("BEGIN")] == ["BEGIN"]
-        assert statements.count("COMMIT") == 1
-        assert "ROLLBACK" not in statements
-        assert any("CREATE TABLE" in sql for sql in statements)
-        assert statements.index("BEGIN") < next(
-            i for i, sql in enumerate(statements) if "CREATE TABLE" in sql
-        ) < statements.index("COMMIT")
+        normalized = [sql.strip().rstrip(";") for sql in statements]
+        assert [sql for sql in normalized if sql.upper().startswith("BEGIN")] == ["BEGIN"]
+        assert normalized.count("COMMIT") == 1
+        assert "ROLLBACK" not in normalized
+        assert any("CREATE TABLE" in sql for sql in normalized)
+        assert normalized.index("BEGIN") < next(
+            i for i, sql in enumerate(normalized) if "CREATE TABLE" in sql
+        ) < normalized.index("COMMIT")
     finally:
         await engine.dispose()
 

@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.database import get_session
 from app.main import app
 from app.models import (
-    Base,
     Instrument,
     InstrumentGroup,
     InstrumentGroupMember,
@@ -18,26 +17,32 @@ from app.models import (
 
 @pytest.fixture
 async def client():
+    from sqlalchemy import insert
+    from sqlite_schema import create_file_schema
+
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
         batch = OrderImportBatch(file_sha256="page", row_count=205)
         session.add(batch)
         await session.flush()
-        for i in range(205):
-            session.add(
-                Order(
-                    order_import_batch_id=batch.id,
-                    security_name="Target" if i < 105 else "Other",
-                    order_date=dt.datetime(2026, 1, 1, 23, 59),
-                    order_status="Completed",
-                    account_name="ISA",
-                    side="Buy" if i < 105 else "Sell",
-                    cost_proceeds_gbp=2000,
-                    order_fingerprint=f"p{i}",
-                )
-            )
+        order_date = dt.datetime(2026, 1, 1, 23, 59)
+        await session.execute(
+            insert(Order),
+            [
+                {
+                    "order_import_batch_id": batch.id,
+                    "security_name": "Target" if i < 105 else "Other",
+                    "order_date": order_date,
+                    "order_status": "Completed",
+                    "account_name": "ISA",
+                    "side": "Buy" if i < 105 else "Sell",
+                    "cost_proceeds_gbp": 2000,
+                    "order_fingerprint": f"p{i}",
+                }
+                for i in range(205)
+            ],
+        )
         await session.commit()
 
         async def override():

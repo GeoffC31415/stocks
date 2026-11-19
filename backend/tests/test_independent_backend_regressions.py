@@ -115,8 +115,7 @@ async def test_hl_ninety_day_window_is_bounded_not_universal(tmp_path, bounded):
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
 
         async def fetch(inbox):
             options = (
@@ -156,8 +155,7 @@ async def test_t212_retained_valuation_date_does_not_advance_with_check(tmp_path
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             batch, _ = await sync_portfolio_snapshot(session, Reader(), account_name="Trading 212")
             batch.as_of_date = dt.date(2026, 1, 1)
@@ -183,8 +181,7 @@ async def test_hl_valuation_metadata_is_not_spreadsheet_check_date(tmp_path):
     assert valued == dt.date(2026, 9, 28)
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine)() as session:
             from test_gate_a_hl_pair import enroll_synthetic_hl_owner
 
@@ -200,8 +197,7 @@ async def test_first_t212_observation_denied_cash_rejects_all_writes(tmp_path):
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             client = Reader()
             client.denied = True
@@ -243,8 +239,7 @@ async def test_hl_pair_requires_actual_identity_on_both_halves(tmp_path, identit
     # Equal legacy account labels cannot attest actual ownership.
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine)() as session:
             with pytest.raises(ValueError, match="identity"):
                 await import_pair(
@@ -279,8 +274,7 @@ async def test_operational_closure_review_is_exact_and_offline(tmp_path, case):
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             session.add(
                 AccountAlias(
@@ -390,29 +384,53 @@ async def test_closure_cli_preview_then_explicit_apply_on_disposable_database(
             }
         review = tmp_path / "synthetic-review.json"
         review.write_text(json.dumps(manifest))
-        argv = [
-            sys.executable,
-            "-m",
-            "app.closure_review_cli",
-            "--database",
-            str(database),
-            "--review",
-            str(review),
-        ]
-        for apply in (False, True):
+        if database_name == "operator?copy.db":
+            import argparse
+
+            from app.closure_review_cli import run as run_closure_cli
+
+            preview = await run_closure_cli(
+                argparse.Namespace(database=database, review=review, apply=False)
+            )
+            assert preview["applied"] is False
+            async with async_sessionmaker(engine)() as check:
+                assert await check.scalar(select(func.count()).select_from(ImportBatch)) == 1
+
+            argv = [
+                sys.executable,
+                "-m",
+                "app.closure_review_cli",
+                "--database",
+                str(database),
+                "--review",
+                str(review),
+                "--apply",
+            ]
             result = subprocess.run(
-                argv + (["--apply"] if apply else []),
+                argv,
                 capture_output=True,
                 text=True,
                 env=os.environ.copy(),
                 timeout=20,
             )
             assert result.returncode == 0, result.stderr
-            assert json.loads(result.stdout)["applied"] == apply
+            assert json.loads(result.stdout)["applied"] is True
             async with async_sessionmaker(engine)() as check:
-                assert await check.scalar(select(func.count()).select_from(ImportBatch)) == (
-                    2 if apply else 1
+                assert await check.scalar(select(func.count()).select_from(ImportBatch)) == 2
+        else:
+            import argparse
+
+            from app.closure_review_cli import run as run_closure_cli
+
+            for apply in (False, True):
+                outcome = await run_closure_cli(
+                    argparse.Namespace(database=database, review=review, apply=apply)
                 )
+                assert outcome["applied"] == apply
+                async with async_sessionmaker(engine)() as check:
+                    assert await check.scalar(select(func.count()).select_from(ImportBatch)) == (
+                        2 if apply else 1
+                    )
     finally:
         await engine.dispose()
 
@@ -451,8 +469,7 @@ async def test_hl_claimed_window_must_contain_export_activity(tmp_path, start, e
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
 
         async def fetch(inbox):
             return FetchedHLPair(
@@ -490,8 +507,7 @@ async def test_hl_pair_requires_real_valuation_date_evidence(tmp_path, dates):
         activity = ACTIVITY
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine)() as session:
             if dates == "missing":
                 with pytest.raises(ValueError, match="date"):

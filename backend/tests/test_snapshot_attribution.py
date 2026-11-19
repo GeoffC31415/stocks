@@ -3,9 +3,10 @@ import datetime as dt
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
 from app.main import app
-from app.models import Base, HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
+from app.models import HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
 from app.services.attribution_service import _select_default_from_batch, get_snapshot_attribution
 
 
@@ -18,8 +19,7 @@ async def _calculate(
     to_batch_id: int | None = None,
 ) -> dict:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
 
     Session = async_sessionmaker(engine, expire_on_commit=False)
     async with Session() as session:
@@ -181,10 +181,17 @@ def test_new_closed_holdings_and_unlinked_flows_reconcile_without_percentage_gue
 
 
 def test_snapshot_attribution_endpoint_is_registered_with_response_schema() -> None:
-    operations = app.openapi()["paths"]["/api/portfolio/attribution"]
-    assert set(operations) == {"get"}
-    schema = operations["get"]["responses"]["200"]["content"]["application/json"]["schema"]
-    assert schema["$ref"].endswith("/SnapshotAttributionResponse")
+    from fastapi.routing import APIRoute
+
+    routes = [
+        sub
+        for item in app.routes
+        for sub in (getattr(getattr(item, "original_router", None), "routes", None) or [item])
+        if isinstance(sub, APIRoute) and sub.path == "/api/portfolio/attribution"
+    ]
+    assert len(routes) == 1
+    assert routes[0].methods == {"GET"}
+    assert routes[0].response_model.__name__ == "SnapshotAttributionResponse"
 
 
 def test_default_attribution_uses_previous_distinct_snapshot_date() -> None:

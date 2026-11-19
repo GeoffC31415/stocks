@@ -3,10 +3,10 @@ import datetime as dt
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
 from app.data_quality_schemas import DataConfidence
 from app.models import (
-    Base,
     HoldingSnapshot,
     ImportBatch,
     Instrument,
@@ -21,8 +21,7 @@ from app.services.market_data_service import SOURCE
 @pytest.fixture
 async def quality_db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
         session.add_all([Instrument(id=1, account_name="ISA", identifier="A", security_name="Asset", asset_class="Equity"),
                          Instrument(id=2, account_name="Other", identifier="B", security_name="Other")])

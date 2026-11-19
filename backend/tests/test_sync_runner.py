@@ -7,17 +7,16 @@ import asyncio
 import pytest
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
 import app.services.sync_runner as runner
-from app.models import Base
 from app.services.sync_runner import StepResult, run_sync_all
 
 
 @pytest.fixture
 async def session():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as s:
         yield s
     await engine.dispose()

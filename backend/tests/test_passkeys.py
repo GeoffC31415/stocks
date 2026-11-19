@@ -353,45 +353,37 @@ def test_credentials_sessions_are_bounded(store):
         assert db.execute("SELECT count(*) FROM sessions").fetchone()[0] == 32
 
 
-def test_cli_explicit_database_no_configuration_and_no_token_output(store, tmp_path):
+def test_cli_explicit_database_no_configuration_and_no_token_output(store, tmp_path, capsys):
     import os
     import subprocess
     import sys
     from pathlib import Path
 
+    from app import auth_cli
+
     _, token, _ = enroll(store)
+    with pytest.raises(SystemExit) as missing:
+        auth_cli.main(["revoke-all"])
+    assert missing.value.code != 0
+    capsys.readouterr()
+
+    assert auth_cli.main(["--database", str(store.path), "revoke-all"]) == 0
+    capsys.readouterr()
+    assert store.session(token) is None
+
+    output = tmp_path / "token.txt"
+    assert auth_cli.main(["--database", str(store.path), "recover", "--output", str(output)]) == 0
+    captured = capsys.readouterr()
+    assert output.read_text().strip() not in captured.out + captured.err
+
+    assert auth_cli.main(["--database", str(store.path), "recover", "--output", str(output)]) != 0
+    capsys.readouterr()
+
     env = {
         **os.environ,
         "PYTHONPATH": str(Path(__file__).resolve().parents[1]),
         "PYTHONDONTWRITEBYTECODE": "1",
     }
-    command = [sys.executable, "-m", "app.auth_cli"]
-    missing = subprocess.run(command + ["revoke-all"], env=env, capture_output=True, text=True)
-    assert missing.returncode != 0
-    revoked = subprocess.run(
-        command + ["--database", str(store.path), "revoke-all"],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert revoked.returncode == 0, revoked.stderr
-    assert store.session(token) is None
-    output = tmp_path / "token.txt"
-    issued = subprocess.run(
-        command + ["--database", str(store.path), "recover", "--output", str(output)],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert issued.returncode == 0, issued.stderr
-    assert output.read_text().strip() not in issued.stdout + issued.stderr
-    again = subprocess.run(
-        command + ["--database", str(store.path), "recover", "--output", str(output)],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert again.returncode != 0
     code = "import app.auth_cli, sys; assert 'app.config' not in sys.modules; assert 'app.database' not in sys.modules; assert 'app.main' not in sys.modules"
     assert subprocess.run([sys.executable, "-c", code], env=env).returncode == 0
 

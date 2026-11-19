@@ -13,8 +13,9 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
-from app.models import Base, HoldingSnapshot, ImportBatch, Instrument
+from app.models import HoldingSnapshot, ImportBatch, Instrument
 from app.services.market_data_coverage import to_gbp
 from app.services.market_data_service import (
     MarketPricePointOut,
@@ -62,8 +63,7 @@ def _points_from_fixture(name: str, source: str = "fixture") -> list[MarketPrice
 @pytest.fixture()
 async def session():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     Session = async_sessionmaker(engine, expire_on_commit=False)
     async with Session() as session:
         yield session

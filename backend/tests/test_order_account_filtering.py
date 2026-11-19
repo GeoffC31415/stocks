@@ -2,16 +2,16 @@ import datetime as dt
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
-from app.models import Base, Order, OrderImportBatch
+from app.models import Order, OrderImportBatch
 from app.routers.orders import list_orders, order_positions
 
 
 @pytest.fixture
 async def async_db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
 
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with session_factory() as session:

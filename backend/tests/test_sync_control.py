@@ -10,14 +10,19 @@ from app.main import create_app
 from app.security import hash_password
 
 
+@pytest.fixture(scope="module")
+def public_password_hash():
+    return hash_password("test-password")
+
+
 @pytest.fixture
-def public_config(tmp_path):
+def public_config(tmp_path, public_password_hash):
     return Settings(
         _env_file=None,
         deployment_mode="public",
         public_origin="https://example.test",
         auth_username="owner",
-        auth_password_hash=hash_password("test-password"),
+        auth_password_hash=public_password_hash,
         sync_inbox=tmp_path,
         sync_service_trigger_enabled=True,
     )
@@ -107,39 +112,44 @@ def test_service_state_and_persistent_cooldown(tmp_path, monkeypatch, active, jo
         assert first["request_id"] == second["request_id"]
 
 
-@pytest.mark.parametrize(
-    "auth,origin,path,body,enabled,code",
-    [
-        (None, "https://example.test", "/request", b"", True, 401),
-        (("owner", "test-password"), None, "/request", b"", True, 403),
-        (("owner", "test-password"), "https://evil.test", "/request", b"", True, 403),
-        (("owner", "test-password"), "https://example.test:444", "/request", b"", True, 403),
-        (("owner", "test-password"), "https://example.test", "/request", b"", False, 403),
-        (("owner", "test-password"), "https://example.test", "/all", b"", True, 403),
-        (("owner", "test-password"), "https://example.test", "/request?unit=evil", b"", True, 400),
-        (("owner", "test-password"), "https://example.test", "/request", b"{}", True, 400),
-    ],
-)
 @pytest.mark.asyncio
-async def test_denied_requests_never_call_controller(
-    public_config, monkeypatch, auth, origin, path, body, enabled, code
-):
+async def test_denied_requests_never_call_controller(public_config, monkeypatch):
     import app.routers.sync as routes
 
-    public_config.sync_service_trigger_enabled = enabled
     controller = Mock(side_effect=AssertionError("must not call controller"))
     monkeypatch.setattr(routes, "request_service_sync", controller)
+    enabled_cases = [
+        (None, "https://example.test", "/request", b"", 401),
+        (("owner", "test-password"), None, "/request", b"", 403),
+        (("owner", "test-password"), "https://evil.test", "/request", b"", 403),
+        (("owner", "test-password"), "https://example.test:444", "/request", b"", 403),
+        (("owner", "test-password"), "https://example.test", "/all", b"", 403),
+        (("owner", "test-password"), "https://example.test", "/request?unit=evil", b"", 400),
+        (("owner", "test-password"), "https://example.test", "/request", b"{}", 400),
+    ]
     app = create_app(public_config)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="https://example.test"
     ) as client:
+        for auth, origin, path, body, code in enabled_cases:
+            response = await client.post(
+                "/api/sync" + path,
+                auth=auth,
+                headers={"Origin": origin} if origin else {},
+                content=body,
+            )
+            assert response.status_code == code, (path, origin, code)
+    public_config.sync_service_trigger_enabled = False
+    disabled_app = create_app(public_config)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=disabled_app), base_url="https://example.test"
+    ) as client:
         response = await client.post(
-            "/api/sync" + path,
-            auth=auth,
-            headers={"Origin": origin} if origin else {},
-            content=body,
+            "/api/sync/request",
+            auth=("owner", "test-password"),
+            headers={"Origin": "https://example.test"},
         )
-    assert response.status_code == code
+        assert response.status_code == 403
     controller.assert_not_called()
 
 

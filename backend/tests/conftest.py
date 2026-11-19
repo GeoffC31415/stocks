@@ -11,11 +11,11 @@ async def target_db():
     # This fixture alone needs its routers, database dependency and seed models.
     import httpx
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlite_schema import create_file_schema
 
     from app.database import get_session
     from app.main import app
     from app.models import (
-        Base,
         HoldingSnapshot,
         ImportBatch,
         Instrument,
@@ -24,8 +24,7 @@ async def target_db():
     )
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as db:
         db.add(ImportBatch(id=1, as_of_date=dt.date(2026, 1, 1), file_sha256="t" * 64))
         for ident, account, value, cash in [

@@ -21,7 +21,7 @@ sync-dry:
 
 # Default development feedback is deliberately a subset, not release acceptance.
 PYTHON ?= .venv/bin/python
-TEST_JOBS ?= 2
+TEST_JOBS ?= 4
 TEST_TIMINGS ?=
 FAST_BACKEND_TESTS = \
 	backend/tests/test_trading212.py \

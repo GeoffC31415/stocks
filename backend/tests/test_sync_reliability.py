@@ -1,5 +1,6 @@
 """Synthetic reliability/provenance contracts; never connects to brokers."""
 import pytest
+from sqlite_schema import create_file_schema
 
 from app.services.sync_runner import RunReport, StepResult
 
@@ -271,7 +272,7 @@ async def test_pair_acknowledgment_failure_is_committed_with_attention(tmp_path)
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from test_barclays_sync_service import ACCOUNT, DAY, pair
 
-    from app.models import AccountAlias, Base, ImportBatch
+    from app.models import AccountAlias, ImportBatch
     from app.services.barclays_sync_service import FetchedPair
     from app.services.sync_runner import run_sync_all
     h, o = pair()
@@ -281,8 +282,7 @@ async def test_pair_acknowledgment_failure_is_committed_with_attention(tmp_path)
         return FetchedPair(h, o, dt.datetime.combine(DAY, dt.time(18), dt.UTC), denied)
     engine = create_async_engine('sqlite+aiosqlite:///:memory:')
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        await create_file_schema(engine)
         async with async_sessionmaker(engine, expire_on_commit=False)() as session:
             session.add(AccountAlias(source='barclays_orders', source_account_name='Investment ISA', canonical_account_name=ACCOUNT))
             await session.commit()

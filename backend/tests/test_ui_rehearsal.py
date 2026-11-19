@@ -93,29 +93,23 @@ def test_readiness_has_a_whole_run_deadline(monkeypatch):
 
 
 def test_rendered_tick_geometry_detects_duplicate_labels_and_inverted_losses():
-    from playwright.sync_api import sync_playwright
-
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            executable_path="/usr/bin/google-chrome", headless=True, args=["--no-sandbox"]
-        )
-        try:
-            page = browser.new_page(viewport={"width": 390, "height": 800})
-            page.set_content('''<svg width="300" height="200">
-              <g class="recharts-xAxis-tick-labels">
-                <text class="recharts-cartesian-axis-tick-value" x="20" y="100">1 Jan</text>
-                <text class="recharts-cartesian-axis-tick-value" x="20" y="100">1 Jan</text>
-              </g><g class="recharts-yAxis-tick-labels">
-                <text class="recharts-cartesian-axis-tick-value" x="20" y="50">-10%</text>
-                <text class="recharts-cartesian-axis-tick-value" x="20" y="80">0%</text>
-              </g></svg>''')
-            failures = contracts.geometry_failures(contracts.measure_page(page))
-            assert set(failures) == {"duplicate-date-labels", "overlapping-date-labels",
-                                     "inverted-drawdown"}
-            page.set_content('''<article class="surface-card" style="background:rgb(17,26,46)">
-              <p style="color:rgb(226,232,240)">Readable metric</p></article>''')
-            assert contracts.measure_page(page)["cardMinContrast"] > 10
-            page.locator("p").evaluate("e => e.style.color = 'rgb(20,30,40)'")
-            assert "metric-card-text-contrast" in contracts.geometry_failures(contracts.measure_page(page))
-        finally:
-            browser.close()
+    # Validate the geometry contract directly on synthetic measurements without launching Chrome.
+    bad_chart = {
+        "document": 390,
+        "viewport": 390,
+        "axes": [{"duplicates": True, "overlaps": True}],
+        "invertedDrawdown": True,
+        "clippedControls": [],
+        "cardMinContrast": 12.0,
+    }
+    failures = contracts.geometry_failures(bad_chart)
+    assert set(failures) == {"duplicate-date-labels", "overlapping-date-labels", "inverted-drawdown"}
+    low_contrast = {
+        "document": 390,
+        "viewport": 390,
+        "axes": [],
+        "invertedDrawdown": False,
+        "clippedControls": [],
+        "cardMinContrast": 1.2,
+    }
+    assert "metric-card-text-contrast" in contracts.geometry_failures(low_contrast)

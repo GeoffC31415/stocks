@@ -12,7 +12,7 @@ from pydantic import SecretStr
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models import Base, CashFlowCoverage, ExternalCashFlow, ImportBatch, OrderImportBatch
+from app.models import CashFlowCoverage, ExternalCashFlow, ImportBatch, OrderImportBatch
 from app.routers import trading212 as router
 from app.services import sync_runner as runner
 from app.services import trading212 as service
@@ -51,9 +51,10 @@ def journal_capture(monkeypatch, caplog):
 
 @pytest.fixture
 async def db():
+    from sqlite_schema import create_file_schema
+
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
         yield session
     await engine.dispose()

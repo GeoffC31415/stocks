@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -80,7 +81,8 @@ def node_identity(node: str) -> tuple[str, str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--jobs", type=int, choices=(1, 2), default=2)
+    default_jobs = 4 if (os.cpu_count() or 2) >= 4 else 2
+    parser.add_argument("--jobs", type=int, choices=(1, 2, 3, 4), default=default_jobs)
     parser.add_argument("--output", type=Path, help="New absolute directory for logs and XML (must not exist)")
     parser.add_argument("--timings", type=Path, help="Optional previous run's timings.json; scheduling only")
     args = parser.parse_args()
@@ -179,10 +181,12 @@ def run(args, parser, start_process, wait_process, streams) -> int:
     nodes = collection_nodes(stdout)
     files = collected_files(stdout)
     hints = {}
-    if args.timings:
+    default_timings = Path.home() / ".cache/stocks-tests/last-timings.json"
+    timings_path = args.timings if args.timings is not None else default_timings
+    if timings_path:
         try:
-            if args.timings.stat().st_size <= 1048576:
-                value = json.loads(args.timings.read_text())
+            if timings_path.stat().st_size <= 1048576:
+                value = json.loads(timings_path.read_text())
                 if isinstance(value, dict):
                     hints = value
         except (OSError, ValueError):
@@ -193,20 +197,30 @@ def run(args, parser, start_process, wait_process, streams) -> int:
     print(f"Evidence: {output}", flush=True)
     processes = []
     codes = []
-    for index, group in enumerate(groups):
-        stream = (output / f"shard-{index}.log").open("w")
-        streams.append(stream)
-        processes.append(start_process(
-            [*command, *group, "-q", f"--junitxml={output / f'shard-{index}.xml'}"],
-            cwd=ROOT, env=environment, stdout=stream, stderr=subprocess.STDOUT,
-        ))
-    for index, process in enumerate(processes):
-        code = wait_process(process, 600)
-        codes.append(code)
-        print(f"Shard {index + 1}: exit {code}", flush=True)
-        if code:
-            streams[index].flush()
-            print((output / f"shard-{index}.log").read_text())
+    shm_root: Path | None = None
+    if os.path.isdir("/dev/shm") and os.access("/dev/shm", os.W_OK):
+        shm_root = Path(tempfile.mkdtemp(prefix="stocks-pytest-", dir="/dev/shm"))
+    try:
+        for index, group in enumerate(groups):
+            stream = (output / f"shard-{index}.log").open("w")
+            streams.append(stream)
+            shard_cmd = [*command, *group, "-q", f"--junitxml={output / f'shard-{index}.xml'}"]
+            if shm_root is not None:
+                shard_cmd.append(f"--basetemp={shm_root / f'shard-{index}'}")
+            processes.append(start_process(
+                shard_cmd,
+                cwd=ROOT, env=environment, stdout=stream, stderr=subprocess.STDOUT,
+            ))
+        for index, process in enumerate(processes):
+            code = wait_process(process, 600)
+            codes.append(code)
+            print(f"Shard {index + 1}: exit {code}", flush=True)
+            if code:
+                streams[index].flush()
+                print((output / f"shard-{index}.log").read_text())
+    finally:
+        if shm_root is not None:
+            shutil.rmtree(shm_root, ignore_errors=True)
     actual = Counter()
     timings = defaultdict(float)
     known_modules = {file[:-3].replace("/", "."): file for file in files}
@@ -227,7 +241,13 @@ def run(args, parser, start_process, wait_process, streams) -> int:
         "wall_seconds": round(time.monotonic() - started, 3),
     }
     (output / "summary.json").write_text(json.dumps(summary, indent=2))
-    (output / "timings.json").write_text(json.dumps(timings, indent=2, sort_keys=True))
+    timings_json = json.dumps(timings, indent=2, sort_keys=True)
+    (output / "timings.json").write_text(timings_json)
+    try:
+        default_timings.parent.mkdir(parents=True, exist_ok=True)
+        default_timings.write_text(timings_json)
+    except OSError:
+        pass
     print(json.dumps(summary, sort_keys=True), flush=True)
     return 0 if complete and not any(codes) else 1
 

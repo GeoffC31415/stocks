@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 from test_gate_a_hl_parser import ACTIVITY, ACTIVITY_HEADER, HOLDINGS
 
 from app.fetchers import hl
 from app.models import (
     AccountAlias,
-    Base,
     HoldingSnapshot,
     ImportBatch,
     Instrument,
@@ -46,8 +46,7 @@ async def enroll_synthetic_hl_owner(session, canonical="HL Fund & Share Account"
 @pytest.fixture
 async def db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
         await enroll_synthetic_hl_owner(session)
         yield session

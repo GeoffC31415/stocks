@@ -3,8 +3,9 @@ import datetime as dt
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlite_schema import create_file_schema
 
-from app.models import Base, HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
+from app.models import HoldingSnapshot, ImportBatch, Instrument, Order, OrderImportBatch
 from app.services.timeline_service import get_timeline, get_timeline_source
 from app.timeline_schemas import TimelineEvent, TimelineResponse
 
@@ -12,8 +13,7 @@ from app.timeline_schemas import TimelineEvent, TimelineResponse
 @pytest.fixture
 async def timeline_db():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    async with engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
+    await create_file_schema(engine)
     async with async_sessionmaker(engine, expire_on_commit=False)() as session:
         session.add_all([Instrument(id=1, account_name="ISA", identifier="A", security_name="Asset"),
                          Instrument(id=2, account_name="Other", identifier="B", security_name="Other")])
