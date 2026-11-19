@@ -97,9 +97,26 @@ describe("AttributionSummaryCard", () => {
     expect(screen.getByText(/Unreconciled difference £5/)).toBeInTheDocument();
   });
 
-  it("shows an explicit unavailable state instead of zeroes", () => {
+  it("keeps the dashboard breakdown, movers and material warnings without routine prose", () => {
+    render(<AttributionSummaryCard compact attribution={{ ...attribution, unallocated_residual_gbp: 15, notes: [
+      ...attribution.notes,
+      "2 flow order(s) were not linked to an instrument; per-instrument estimates do not allocate those flows.",
+      "Some account valuations are carried forward at these boundaries; market movement is not synchronously observed.",
+    ] }} />);
+    expect(screen.getByRole("row", { name: "Closing value £1,300" })).toBeVisible();
+    expect(screen.getByRole("link", { name: /Alpha fund/ })).toBeVisible();
+    expect(screen.getByRole("link", { name: /full snapshot changes/i })).toBeVisible();
+    expect(screen.getByText("Unallocated residual adjustment: +£15.")).toBeVisible();
+    expect(screen.getByText("Some account values were carried forward.")).toBeVisible();
+    expect(screen.getByText("2 unlinked orders are not allocated to holdings.")).toBeVisible();
+    expect(screen.queryByText("Residual market movement is an attribution estimate.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Exact reconciliation before display rounding.")).not.toBeInTheDocument();
+  });
+
+  it.each([false, true])("shows the actual reason when attribution is unavailable (compact=%s)", (compact) => {
     render(
       <AttributionSummaryCard
+        compact={compact}
         attribution={{
           ...attribution,
           from_batch: null,
@@ -114,12 +131,13 @@ describe("AttributionSummaryCard", () => {
           reconciliation_difference_gbp: null,
           top_contributors: [],
           top_detractors: [],
-          notes: ["No previous snapshot is available for this selection."],
+          notes: [...attribution.notes, "No previous snapshot is available for this selection."],
         }}
       />,
     );
 
     expect(screen.getByText("Attribution unavailable")).toBeInTheDocument();
-    expect(screen.getByText(/No previous snapshot/)).toBeInTheDocument();
+    expect(screen.getByText(/No previous snapshot/)).toBeVisible();
+    if (compact) expect(screen.queryByText(attribution.notes[0])).not.toBeInTheDocument();
   });
 });

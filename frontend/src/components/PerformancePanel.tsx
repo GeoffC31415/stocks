@@ -228,7 +228,7 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
   return (
     <div className="glass rounded-2xl p-5">
       <SectionHeader title="Performance"
-        description={<>Growth and risk for {windowLabel || "the selected period"}. Returns and risk ratios are flow-adjusted, using observed snapshots and order-derived flow assumptions.</>}
+        description={compact ? undefined : <>Growth and risk for {windowLabel || "the selected period"}. Returns and risk ratios are flow-adjusted, using observed snapshots and order-derived flow assumptions.</>}
         actions={<SegmentedControl layoutId="perf-period-pill" size="sm" value={period}
           onChange={(p) => setPeriod(p)} segments={PERIOD_SEGMENTS} />} />
 
@@ -264,7 +264,9 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         </div>
       )}
 
-      <div className="mt-4 space-y-2">
+      {compact && !chainAvailable && <div className="mt-3"><AnalysisStatus kind="unavailable"
+        title="Investment return unavailable" reasons={chainMetric?.reasons.slice(0, 1)} /></div>}
+      {!compact && <div className="mt-4 space-y-2">
         {!chainAvailable && <AnalysisStatus kind="unavailable"
           title="Flow-adjusted performance unavailable for this window. Raw account values are not a substitute for investment returns."
           reasons={chainMetric?.reasons} />}
@@ -272,9 +274,9 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         {(flow?.notes ?? []).filter((note) => note !== "flow-adjusted").map((note) => <p key={note} className="text-xs text-slate-300">{note}</p>)}
         <p className="text-xs text-slate-400">Covered valuation dates: {windowLabel} · {perf.growth_curve.length} sparse snapshot observations, not daily measurements.</p>
         <p className="text-xs text-amber-200">Carried-forward account valuations may mask changes between snapshots. Trade-derived proxy flows are assumptions, not confirmed deposits or withdrawals; synced external flows are used where available.</p>
-        {compact && Array.from(new Map((["total_return_pct","annualised_return_pct","annualised_volatility_pct","sharpe_ratio","sortino_ratio","max_drawdown_pct"] as PerformanceMetricKey[]).flatMap(key=>metric(key).reasons).map(reason=>[reason.code+reason.message,reason])).values()).map(reason=><p className="text-xs text-amber-200" key={reason.code+reason.message}>{reason.message}</p>)}
+
         <p className="text-xs text-slate-400">{flow?.method ?? "Chain-linked interval Modified Dietz"}{chainAvailable && <> · {chainMetric.observations} adjusted snapshot observations</>} · {windowLabel}. Risk-free assumption: {perf.risk_free_annual_pct}%.</p>
-      </div>
+      </div>}
       {!compact && <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <MetricTile
           infoKey="totalReturn" context={windowLabel}
@@ -436,6 +438,11 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         </ResponsiveContainer>
       </div>}
 
+      {compact && chainAvailable && chainMetric.observations < perf.growth_curve.length &&
+        <div className="flex items-center gap-1 text-xs text-amber-200">
+          <span>{chainMetric.observations} of {perf.growth_curve.length} snapshots used</span>
+          <MetricInfo label="Snapshots used" topic="adjustedObservations" iconOnly brief />
+        </div>}
       {!compact && drawdownData.length > 0 ? (
         <div className="mt-3">
           <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -514,10 +521,9 @@ export function PerformancePanel({ accountName, compact = false, focusWindow, ti
         {scale === "absolute" && benchmarkReturns.length > 0 && (
           <span className="text-slate-600">Benchmarks are price indices, shown only in the index view.</span>
         )}
-        <span className="text-slate-600">
-          Snapshot observations, not a measured daily path. Cash added or withdrawn is netted out.
-          {!compact && " Toggle the dashed raw value to see the unadjusted account curve."}
-        </span>
+        {!compact && <span className="text-slate-600">
+          Snapshot observations, not a measured daily path. Cash added or withdrawn is netted out. Toggle the dashed raw value to see the unadjusted account curve.
+        </span>}
       </div>
     </div>
   );

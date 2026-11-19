@@ -2,6 +2,23 @@ export const metricGlossary = {
   totalReturn: {
     definition: "Chain-linked interval Modified Dietz removes estimated external flows from each snapshot interval, then compounds those returns.",
     limitations: "Snapshot observations are irregular. Non-DRIP buys and sales are treated as external flows; these order-derived assumptions can affect the estimate.",
+    brief: "Estimated investment return between snapshots after allowing for money added or withdrawn.",
+  },
+  netExternalFlows: {
+    definition: "Deposits minus withdrawals over the selected period, using trade estimates where no cash ledger is synced.",
+    limitations: "This measures changes in funding, not investment gains.",
+  },
+  netExternalFlowsWithAccountEntry: {
+    definition: "Deposits minus withdrawals (or trade estimates), plus the first recorded value of newly tracked accounts.",
+    limitations: "This measures changes in funding and account coverage, not investment gains.",
+  },
+  valuationDates: {
+    definition: "Accounts with older snapshots keep their last recorded value until they are updated.",
+    limitations: "Carried-forward values can mask changes between snapshots.",
+  },
+  adjustedObservations: {
+    definition: "The return skips valuations that don’t yet reflect a recorded cash movement.",
+    limitations: "The full analysis explains the timing and what the gaps mean for drawdown.",
   },
   moneyWeighted: {
     definition: "Boundary Modified Dietz estimates money-weighted return using opening/closing values and the time invested for each external flow.",

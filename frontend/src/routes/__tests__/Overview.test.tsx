@@ -43,18 +43,17 @@ describe("Overview states", () => {
     show();
     const balance = await screen.findByText("Portfolio balance: 0");
     const performance = screen.getByText("Performance workspace");
-    const metrics = balance.parentElement!;
-    const changes = screen.getByText(/What changed below compares/);
+    const metrics = balance.closest('[data-testid="overview-metrics"]')!;
+    expect(screen.queryByText(/What changed below compares/)).not.toBeInTheDocument();
     expect(screen.getByTestId("portfolio-briefing")).toHaveClass("space-y-5");
     expect(metrics).toHaveClass("grid", "gap-3", "md:grid-cols-3");
     const precedes = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(precedes(balance, screen.getByText("Snapshot investment return"))).toBe(true);
     expect(precedes(screen.getByText("Net external flows"), performance)).toBe(true);
-    expect(precedes(changes, performance)).toBe(true);
     expect(precedes(performance, screen.getByText("Allocation summary"))).toBe(true);
     // jsdom cannot evaluate Tailwind media queries: forbid responsive CSS reordering
     // here, and exercise the same semantic regions in the Chrome layout test.
-    for (const element of [metrics, performance, changes]) {
+    for (const element of [metrics, performance]) {
       for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
         expect(ancestor.className).not.toMatch(/(?:^|\s)(?:\S+:)?order-/);
       }
@@ -64,12 +63,35 @@ describe("Overview states", () => {
     vi.spyOn(api, "getSummary").mockResolvedValue(zero);
     show();
     await screen.findByText("Portfolio balance: 0");
-    expect(screen.getByText(/API deposits less withdrawals where synced; trade proxies for other accounts/)).toBeInTheDocument();
+    expect(screen.queryByText(/API deposits less withdrawals/)).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "About Net external flows" });
+    fireEvent.click(trigger);
+    const info = screen.getByRole("dialog", { name: "Net external flows definition" });
+    expect(info).toHaveTextContent("Deposits minus withdrawals over the selected period, using trade estimates where no cash ledger is synced.");
+    fireEvent.keyDown(info, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
     expect(api.getOrderAnalytics).not.toHaveBeenCalled();
     expect(api.getCashflowTimeseries).not.toHaveBeenCalled();
     expect(api.getPortfolioReturns).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Full performance analysis" })).toHaveAttribute("href", "/portfolio?tab=performance");
     expect(screen.queryByText("Performance leaders")).not.toBeInTheDocument();
+  });
+  it("discloses new account values when they contribute to displayed flows", async () => {
+    vi.spyOn(api, "getSummary").mockResolvedValue(zero);
+    vi.mocked(api.getPerformance).mockResolvedValue({
+      period_start: "2026-01-01", period_end: "2026-02-01",
+      flow_adjusted: {
+        total_return_pct: 0, net_external_flow_gbp: 200,
+        notes: ["New accounts enter the all-account series at their first observed value as a scope baseline, not investment gain."],
+      },
+    } as Awaited<ReturnType<typeof api.getPerformance>>);
+    show();
+    const card = await screen.findByRole("article", { name: "Net external flows" });
+    expect(await screen.findByText("Includes first values of new accounts")).toBeVisible();
+    expect(card).toHaveTextContent("+£200");
+    fireEvent.click(screen.getByRole("button", { name: "About Net external flows" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("plus the first recorded value of newly tracked accounts");
   });
   it("uses the selected account API totals even when instrument details are empty", async () => {
     const summary = vi.spyOn(api, "getSummary").mockResolvedValue({ ...zero, position_count: 15, total_value_gbp: 12345 });

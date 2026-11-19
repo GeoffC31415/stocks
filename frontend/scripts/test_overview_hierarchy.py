@@ -21,7 +21,7 @@ def verify(dist, out):
             browser = p.chromium.launch(executable_path='/usr/bin/google-chrome', headless=True, args=['--no-sandbox'])
             try:
                 for width, height in [(390, 844), (1440, 900)]:
-                    context = browser.new_context(viewport={'width': width, 'height': height}, reduced_motion='reduce')
+                    context = browser.new_context(viewport={'width': width, 'height': height}, reduced_motion='reduce', has_touch=width < 768)
                     install_observer(context)
                     errors = []
                     def guard(route):
@@ -64,10 +64,35 @@ def verify(dist, out):
                     if not boxes[4]['bottom'] <= boxes[5]['top']: failures.append('allocation-not-after-changes')
                     if not boxes[0]['font'] > max(boxes[1]['font'], boxes[2]['font']): failures.append('primary-value-not-dominant')
                     if layout['scrollWidth'] > width: failures.append('horizontal-overflow')
-                    expect(page.get_by_text('Latest account snapshots · includes cash')).to_be_visible()
-                    expect(page.get_by_text('API deposits less withdrawals where synced; trade proxies for other accounts. Performance window, not investment gain.')).to_be_visible()
-                    expect(page.get_by_text('Carried-forward account valuations may mask', exact=False)).to_be_visible()
-                    expect(page.get_by_text('Covered valuation dates:', exact=False)).to_be_visible()
+                    expect(page.get_by_text('Includes cash', exact=True)).to_be_visible()
+                    expect(page.get_by_role('table', name='Snapshot change breakdown')).to_be_visible()
+                    expect(page.get_by_role('link', name='Full performance analysis')).to_be_visible()
+                    expect(page.get_by_text('Carried-forward account valuations may mask', exact=False)).to_have_count(0)
+                    expect(page.get_by_text('Covered valuation dates:', exact=False)).to_have_count(0)
+                    trigger = page.get_by_role('button', name='About Net external flows')
+                    if width < 768:
+                        trigger.tap()
+                    else:
+                        trigger.focus()
+                        trigger.press('Enter')
+                    definition = page.get_by_role('dialog', name='Net external flows definition')
+                    expect(definition).to_contain_text('Deposits minus withdrawals over the selected period')
+                    bounds = definition.bounding_box()
+                    assert bounds and 0 <= bounds['x'] and bounds['x'] + bounds['width'] <= width
+                    if width < 768:
+                        definition.get_by_role('button', name='Close definition').tap()
+                    else:
+                        definition.press('Escape')
+                    expect(definition).to_have_count(0)
+                    expect(trigger).to_be_focused()
+                    if width < 768:
+                        chart = page.get_by_role('region', name='Snapshot performance chart')
+                        chart.evaluate("el => el.scrollIntoView({block: 'center', behavior: 'instant'})")
+                        chart_box = chart.bounding_box()
+                        nav_box = page.get_by_role('navigation', name='Mobile').bounding_box()
+                        assert chart_box and nav_box and 0 <= chart_box['y']
+                        assert chart_box['y'] + chart_box['height'] <= nav_box['y']
+                        page.screenshot(path=str(out / '390-chart.png'))
                     results.append({'width': width, 'height': height, 'layout': layout, 'metrics': metrics, 'informational_budget_failures': budget_failures(metrics), 'failures': failures + errors})
                     context.close()
             finally:

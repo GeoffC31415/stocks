@@ -81,16 +81,15 @@ describe("PerformancePanel", () => {
     renderPanel(<PerformancePanel compact />);
     await screen.findByText('Performance');
     expect(screen.getByRole('button', { name: '1M' })).toBeInTheDocument();
-    expect(screen.getByText(/Growth and risk for/)).toHaveTextContent('2026-01-01');
+    expect(screen.queryByText(/Growth and risk for/)).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Snapshot performance chart" })).toBeVisible();
   });
-  it('keeps essential caveats and unavailable reasons visible in compact mode, with production methodology placement',async()=>{
+  it('omits routine caveats and reasons for metrics not shown in compact mode',async()=>{
     renderPanel(<PerformancePanel compact />, {...basePerf, metrics:{annualised_return_pct:{status:'unavailable',value:null,unit:'percent',method:'Dietz',start_date:null,end_date:null,observations:2,reasons:[{code:'short',message:'Custom annualisation unavailable.',action_href:null}]}}});
     await screen.findByText('Performance');
-    expect(screen.getByText('Custom annualisation unavailable.')).toBeVisible();
-    expect(screen.getByText(/Carried-forward account valuations/)).toBeVisible();
-    expect(screen.getByText(/Trade-derived proxy flows/)).toBeVisible();
-    expect(screen.getByText(/Covered valuation dates/)).toHaveTextContent('2026-01-01');
-    expect(screen.getByText(/Risk-free assumption: 0%/)).toBeVisible();
+    expect(screen.queryByText('Custom annualisation unavailable.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Trade-derived proxy flows/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Risk-free assumption/)).not.toBeInTheDocument();
   });
   it('keeps production metric tiles before the chart without adding an observation ledger',async()=>{
     renderPanel(<PerformancePanel />); await screen.findByText('Performance');
@@ -160,9 +159,8 @@ describe("PerformancePanel", () => {
       ],
       flow_adjusted: { ...basePerf.flow_adjusted!, notes: [skippedNote] },
     });
-    expect(await screen.findByText(skippedNote)).toBeVisible();
-    expect(screen.getByText(/Covered valuation dates/)).toHaveTextContent("3 sparse snapshot observations");
-    expect(screen.getByText(/Risk-free assumption: 0%/)).toHaveTextContent("2 adjusted snapshot observations");
+    expect(await screen.findByText("2 of 3 snapshots used")).toBeVisible();
+    expect(screen.queryByText(skippedNote)).not.toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Snapshot performance chart" })).toBeInTheDocument();
   });
 

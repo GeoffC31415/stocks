@@ -140,12 +140,10 @@ export function Help() {
             to="/"
             linkLabel="Open Dashboard"
             items={[
-              ["Portfolio value", "The latest imported snapshot value for the selected account scope."],
-              ["What changed", "Opening to closing snapshot value, observed flows, DRIP proxy, and residual estimated market movement."],
-              ["Estimated money-weighted return", "A cumulative Modified Dietz estimate over the displayed dates; it is not annualised unless explicitly labelled."],
-              ["P&L and book cost", "Unrealised gain and recorded cost for invested holdings. Cash is excluded from the P&L card."],
-              ["Snapshot history", "Actual values from imported snapshots. The optional historical estimate is order-derived and is a different series."],
-              ["Performance leaders", "Holding returns against recorded book cost—not short-term price movers."],
+              ["Portfolio value", "The latest recorded account values, including cash. Snapshot dates can vary by account."],
+              ["Performance", "The chart and return card cover the selected period. Net external flows use deposits less withdrawals (or trade proxies) and include first recorded values when accounts join the series. Open Full performance analysis for the method, coverage and risk measures."],
+              ["What changed", "The latest snapshot comparison has its own dates. It separates cash movements, the DRIP proxy and estimated market movement; Full snapshot changes shows the reconciliation and assumptions."],
+              ["Allocation and data confidence", "Allocation weights exclude cash. Expand the data-confidence summary for recorded coverage and limitations."],
             ]}
           />
 

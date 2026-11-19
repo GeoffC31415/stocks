@@ -2,7 +2,7 @@ import type { SnapshotAttribution } from "../lib/api";
 import { signedGbp, toGbp } from "../lib/formatters";
 
 /** Legacy export name retained; this is one accessible table, never a value-walk graph. */
-export function AttributionWaterfall({ attribution: a }: { attribution: SnapshotAttribution }) {
+export function AttributionWaterfall({ attribution: a, compact = false }: { attribution: SnapshotAttribution; compact?: boolean }) {
   const rows = [
     { label: "Opening value", value: a.opening_value_gbp, anchor: true },
     { label: "Contributions", value: a.contributions_gbp },
@@ -21,8 +21,8 @@ export function AttributionWaterfall({ attribution: a }: { attribution: Snapshot
         </td>
       </tr>)}</tbody>
     </table>
-    <p className="mt-2 text-xs text-slate-400">{difference == null ? "Reconciliation unavailable."
+    {(!compact || difference == null || Math.abs(difference) >= 0.005) && <p className="mt-2 text-xs text-slate-400">{difference == null ? "Reconciliation unavailable."
       : Math.abs(difference) < 0.005 ? "Exact reconciliation before display rounding."
-      : <><span className="text-amber-200">Reconciliation difference</span>{" "}<span>Unreconciled difference {toGbp(difference)}</span></>}</p>
+      : <><span className="text-amber-200">Reconciliation difference</span>{" "}<span>Unreconciled difference {toGbp(difference)}</span></>}</p>}
   </section>;
 }

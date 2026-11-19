@@ -38,28 +38,38 @@ export function Overview() {
   const metric = perfQ.data ? performanceMetric(perfQ.data, "total_return_pct") : null;
   const returnValue = metric?.value;
   const flow = perfQ.data?.flow_adjusted?.net_external_flow_gbp;
+  const includesNewAccounts = flow != null && perfQ.data?.flow_adjusted?.notes?.some((note) =>
+    note.startsWith("New accounts enter the all-account series at their first observed value"));
   const windowLabel = perfQ.data?.period_start && perfQ.data.period_end
     ? `${formatOrderDate(perfQ.data.period_start)} – ${formatOrderDate(perfQ.data.period_end)}` : "Selected performance window";
   const unavailable = perfQ.isLoading ? "Loading…" : "Unavailable";
   const dates = summary.scope?.valuation_dates.map((row) => row.date).sort() ?? [];
-  const dateLabel = dates.length > 1 && dates[0] !== dates[dates.length - 1]
+  const datesVary = dates.length > 1 && dates[0] !== dates[dates.length - 1];
+  const dateLabel = datesVary
     ? `${formatOrderDate(dates[0])} – ${formatOrderDate(dates[dates.length - 1])}` : formatOrderDate(summary.as_of_date);
 
   return <div className="space-y-5" data-testid="portfolio-briefing">
     <header className="flex flex-wrap items-baseline justify-between gap-2">
       <h1 className="text-2xl font-semibold tracking-tight text-white">Portfolio overview</h1>
-      <p className="text-xs text-slate-400">{account ?? "All accounts"} · Snapshots {dateLabel}</p>
+      <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-400">
+        <p>{account ?? "All accounts"} · Snapshots {dateLabel}</p>
+        {datesVary && <span className="inline-flex items-center text-amber-200">
+          Dates vary <MetricInfo iconOnly brief label="Snapshot dates" topic="valuationDates" />
+        </span>}
+      </div>
     </header>
-    {summary.scope?.warnings.map((warning) => <p key={warning} className="text-sm text-amber-200">{warning}</p>)}
-    <div className="grid gap-3 md:grid-cols-3">
-      <HeroKpi label="Portfolio value" value={summary.total_value_gbp} caption="Latest account snapshots · includes cash" />
+    {summary.scope?.warnings.filter((warning) => !datesVary || !warning.startsWith("Account valuation dates differ"))
+      .map((warning) => <p key={warning} className="text-sm text-amber-200">{warning}</p>)}
+    <div data-testid="overview-metrics" className="grid gap-3 min-[380px]:grid-cols-2 md:grid-cols-3">
+      <div className="min-w-0 min-[380px]:col-span-2 md:col-span-1"><HeroKpi label="Portfolio value" value={summary.total_value_gbp} caption="Includes cash" /></div>
       <MetricCard label="Snapshot investment return" value={returnValue != null ? `${returnValue.toFixed(2)}%` : unavailable}
         tone={returnValue == null ? "neutral" : returnValue >= 0 ? "positive" : "negative"}
-        description={windowLabel} action={<MetricInfo iconOnly label="Snapshot investment return" topic="totalReturn" context={windowLabel} />} />
+        description={windowLabel} action={<MetricInfo iconOnly brief label="Snapshot investment return" topic="totalReturn" />} />
       <MetricCard label="Net external flows" value={flow != null ? signedGbp(flow) : unavailable}
-        description="API deposits less withdrawals where synced; trade proxies for other accounts. Performance window, not investment gain." />
+        description={includesNewAccounts ? "Includes first values of new accounts" : undefined}
+        action={<MetricInfo iconOnly brief label="Net external flows"
+          topic={includesNewAccounts ? "netExternalFlowsWithAccountEntry" : "netExternalFlows"} context={windowLabel} />} />
     </div>
-    <p className="text-xs text-slate-400 md:hidden">What changed below compares the latest snapshots; it has its own dates, separate from performance.</p>
     <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(0,1fr)]">
       <div className="min-w-0 space-y-3">
         <PerformancePanel accountName={account} compact />
@@ -68,7 +78,7 @@ export function Overview() {
       <div className="min-w-0">
         {attributionQ.isError ? <AnalysisStatus kind="error" title="Unable to load snapshot attribution." onRetry={() => void attributionQ.refetch()} />
           : attributionQ.isLoading ? <p role="status">Loading snapshot changes…</p>
-          : <AttributionSummaryCard attribution={attributionQ.data ?? null} search={location.search} />}
+          : <AttributionSummaryCard compact attribution={attributionQ.data ?? null} search={location.search} />}
       </div>
     </div>
     <section className="surface-card p-4 sm:p-5" aria-labelledby="allocation-brief-title">
@@ -76,7 +86,7 @@ export function Overview() {
         <h2 id="allocation-brief-title" className="text-base font-semibold">Allocation summary</h2>
         <Link className="text-sm text-cyan-200 underline" to={link("/portfolio?tab=allocation")}>Full allocation</Link>
       </div>
-      <p className="mt-1 text-xs text-slate-400">Current positions · cash-excluded weights. Cash held separately: {toGbp(summary.cash_value_gbp ?? null)}.</p>
+      <p className="mt-1 text-xs text-slate-400">Weights exclude cash · Cash: {toGbp(summary.cash_value_gbp ?? null)}</p>
       <ol className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
         {summary.allocation.slice(0, 6).map((row, index) => <li key={`${row.label}-${index}`} className="min-w-0">
           <div className="flex justify-between gap-3 text-sm"><span className="min-w-0 truncate">{row.label}</span><span className="tabular text-slate-300">{row.weight_pct.toFixed(1)}%</span></div>
